@@ -23,13 +23,15 @@ const elements = {
   searchInput: document.querySelector("#searchInput"),
   sortSelect: document.querySelector("#sortSelect"),
   sourceLink: document.querySelector("#sourceLink"),
+  themeButton: document.querySelector("#themeButton"),
   unreadCount: document.querySelector("#unreadCount"),
 };
 
 const savedPrefs = JSON.parse(localStorage.getItem("readLaterPrefs") || "{}");
-for (const key of ["category", "filter", "sort"]) {
+for (const key of ["category", "filter", "sort", "theme"]) {
   if (typeof savedPrefs[key] === "string") state[key] = savedPrefs[key];
 }
+if (!["system", "dark", "light"].includes(state.theme)) state.theme = "system";
 
 elements.sortSelect.value = state.sort;
 document.querySelectorAll(".segmentButton").forEach((button) => {
@@ -43,8 +45,33 @@ function persistPrefs() {
       category: state.category,
       filter: state.filter,
       sort: state.sort,
+      theme: state.theme,
     }),
   );
+}
+
+function systemTheme() {
+  return window.matchMedia?.("(prefers-color-scheme: dark)").matches ? "dark" : "light";
+}
+
+function activeTheme() {
+  return state.theme === "dark" || state.theme === "light" ? state.theme : systemTheme();
+}
+
+function applyTheme() {
+  const theme = activeTheme();
+  document.documentElement.dataset.theme = theme;
+  document.documentElement.dataset.themeMode = state.theme;
+  const nextMode = nextThemeMode();
+  const modeLabel = state.theme === "system" ? `System (${theme})` : state.theme;
+  elements.themeButton.setAttribute("aria-label", `Theme: ${modeLabel}. Switch to ${nextMode} mode`);
+  elements.themeButton.title = `Theme: ${modeLabel}`;
+  document.querySelector('meta[name="theme-color"]')?.setAttribute("content", theme === "dark" ? "#151817" : "#f6f4ee");
+}
+
+function nextThemeMode() {
+  const modes = ["system", "dark", "light"];
+  return modes[(modes.indexOf(state.theme) + 1) % modes.length];
 }
 
 function escapeHtml(value) {
@@ -549,10 +576,21 @@ document.querySelectorAll(".segmentButton").forEach((button) => {
   });
 });
 
+elements.themeButton.addEventListener("click", () => {
+  state.theme = nextThemeMode();
+  persistPrefs();
+  applyTheme();
+});
+
+window.matchMedia?.("(prefers-color-scheme: dark)").addEventListener("change", () => {
+  if (state.theme === "system") applyTheme();
+});
+
 elements.backButton.addEventListener("click", () => {
   document.body.classList.remove("readerOpen");
 });
 
+applyTheme();
 loadArticles().catch((error) => {
   console.error(error);
   elements.articleList.innerHTML = `<li class="emptyList">Could not load articles. ${escapeHtml(error.message)}</li>`;
