@@ -1,0 +1,8 @@
+{
+  "name": "Read Later",
+  "short_name": "Read Later",
+  "start_url": "/",
+  "display": "standalone",
+  "background_color": "#f6f4ee",
+  "theme_color": "#f6f4ee"
+}
