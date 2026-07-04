@@ -23,6 +23,7 @@ const ARTICLES_DIR = path.resolve(process.env.ARTICLES_DIR || DEFAULT_ARTICLES_D
 const PUBLIC_DIR = path.join(__dirname, "public");
 const PORT = Number(process.env.PORT || 3055);
 const HOST = process.env.HOST || "0.0.0.0";
+const IS_PRODUCTION = process.env.NODE_ENV === "production";
 const STORAGE_MODE =
   process.env.STORAGE_MODE ||
   (process.env.GITHUB_OWNER || process.env.GITHUB_REPO || process.env.GITHUB_TOKEN ? "github" : "local");
@@ -37,10 +38,13 @@ const AUTH_ALLOWED_EMAILS = parseList(process.env.AUTH_ALLOWED_EMAILS).map((emai
 const AUTH_ALLOWED_DOMAINS = parseList(process.env.AUTH_ALLOWED_DOMAINS).map((domain) =>
   domain.replace(/^@/, "").toLowerCase(),
 );
+const ALLOW_UNAUTHENTICATED_GITHUB_WRITES = booleanFromEnv(process.env.ALLOW_UNAUTHENTICATED_GITHUB_WRITES);
+const ALLOW_OPEN_PRODUCTION_AUTH = booleanFromEnv(process.env.ALLOW_OPEN_PRODUCTION_AUTH);
 const AUTH_COOKIE_NAME = process.env.AUTH_COOKIE_NAME || "read_later_session";
 const AUTH_SESSION_DAYS = positiveNumber(process.env.AUTH_SESSION_DAYS, 7);
 const AUTH_SESSION_MAX_AGE_SECONDS = Math.max(60, Math.floor(AUTH_SESSION_DAYS * 24 * 60 * 60));
 const AUTH_COOKIE_SECURE = process.env.AUTH_COOKIE_SECURE;
+const PATCH_READ_BODY_LIMIT_BYTES = positiveNumber(process.env.PATCH_READ_BODY_LIMIT_BYTES, 4096);
 const GITHUB_OAUTH_SCOPE = process.env.GITHUB_OAUTH_SCOPE || "read:user user:email";
 const GITHUB_OAUTH_AUTH_ENDPOINT = "https://github.com/login/oauth/authorize";
 const GITHUB_OAUTH_TOKEN_ENDPOINT = "https://github.com/login/oauth/access_token";
@@ -48,6 +52,24 @@ const GITHUB_OAUTH_API = "https://api.github.com";
 const OAUTH_STATE_TTL_MS = 10 * 60 * 1000;
 const sessions = new Map();
 const oauthStates = new Map();
+const CONTENT_SECURITY_POLICY = [
+  "default-src 'self'",
+  "base-uri 'self'",
+  "connect-src 'self'",
+  "form-action 'self'",
+  "frame-ancestors 'none'",
+  "img-src 'self' https: data: blob:",
+  "manifest-src 'self'",
+  "object-src 'none'",
+  "script-src 'self'",
+  "style-src 'self' 'unsafe-inline'",
+].join("; ");
+const SECURITY_HEADERS = {
+  "Content-Security-Policy": CONTENT_SECURITY_POLICY,
+  "Referrer-Policy": "no-referrer",
+  "X-Content-Type-Options": "nosniff",
+  "X-Frame-Options": "DENY",
+};
 
 function unquoteEnvValue(value) {
   const trimmed = value.trim();
@@ -98,6 +120,22 @@ if (AUTH_ENABLED && (!GITHUB_OAUTH_CLIENT_ID || !GITHUB_OAUTH_CLIENT_SECRET)) {
   throw new Error("GitHub OAuth requires both GITHUB_OAUTH_CLIENT_ID and GITHUB_OAUTH_CLIENT_SECRET");
 }
 
+function hasAuthAllowlist() {
+  return Boolean(AUTH_ALLOWED_GITHUB_USERS.length || AUTH_ALLOWED_EMAILS.length || AUTH_ALLOWED_DOMAINS.length);
+}
+
+if (IS_PRODUCTION && STORAGE_MODE === "github" && !AUTH_ENABLED && !ALLOW_UNAUTHENTICATED_GITHUB_WRITES) {
+  throw new Error(
+    "Production GitHub storage requires GitHub OAuth. Set ALLOW_UNAUTHENTICATED_GITHUB_WRITES=true to opt out.",
+  );
+}
+
+if (IS_PRODUCTION && AUTH_ENABLED && !hasAuthAllowlist() && !ALLOW_OPEN_PRODUCTION_AUTH) {
+  throw new Error(
+    "Production GitHub OAuth requires AUTH_ALLOWED_GITHUB_USERS, AUTH_ALLOWED_EMAILS, or AUTH_ALLOWED_DOMAINS. Set ALLOW_OPEN_PRODUCTION_AUTH=true to opt out.",
+  );
+}
+
 if (STORAGE_MODE === "github") {
   const missing = [
     ["GITHUB_OWNER", GITHUB_OWNER],
@@ -109,6 +147,20 @@ if (STORAGE_MODE === "github") {
 
   if (missing.length) {
     throw new Error(`GitHub storage is missing required env vars: ${missing.join(", ")}`);
+  }
+}
+
+class HttpError extends Error {
+  constructor(status, message) {
+    super(message);
+    this.name = "HttpError";
+    this.status = status;
+  }
+}
+
+function applySecurityHeaders(res) {
+  for (const [name, value] of Object.entries(SECURITY_HEADERS)) {
+    if (!res.hasHeader(name)) res.setHeader(name, value);
   }
 }
 
@@ -363,7 +415,7 @@ function canDecideAccessWithoutPrivateEmails(profile) {
 }
 
 function userIsAllowed(user) {
-  if (!AUTH_ALLOWED_GITHUB_USERS.length && !AUTH_ALLOWED_EMAILS.length && !AUTH_ALLOWED_DOMAINS.length) return true;
+  if (!hasAuthAllowlist()) return true;
   if (AUTH_ALLOWED_GITHUB_USERS.includes(user.loginLower)) return true;
   if (user.email && AUTH_ALLOWED_EMAILS.includes(user.email)) return true;
   return user.emailDomain && AUTH_ALLOWED_DOMAINS.includes(user.emailDomain);
@@ -530,6 +582,10 @@ function cleanRepoPath(value) {
 }
 
 function normalizeRelativePath(value) {
+  if (String(value || "").includes("\0")) {
+    throw new Error("Invalid article path");
+  }
+
   const normalized = path.posix.normalize(cleanRepoPath(value));
   if (!normalized || normalized === "." || path.posix.isAbsolute(normalized) || normalized.startsWith("..")) {
     throw new Error("Invalid article path");
@@ -550,11 +606,27 @@ function relativePathFromId(id) {
   return normalizeRelativePath(decoded);
 }
 
+function articleRelativePathFromId(id) {
+  try {
+    if (!/^[A-Za-z0-9_-]+$/.test(String(id || ""))) {
+      throw new Error("Article id is not base64url");
+    }
+
+    const relativePath = relativePathFromId(id);
+    if (articleId(relativePath) !== id || !isMarkdownArticlePath(relativePath)) {
+      throw new Error("Article path must be a markdown file");
+    }
+    return relativePath;
+  } catch {
+    throw new HttpError(400, "Invalid article id");
+  }
+}
+
 function articlePathFromId(id) {
-  const relativePath = relativePathFromId(id);
+  const relativePath = articleRelativePathFromId(id);
   const fullPath = path.resolve(ARTICLES_DIR, ...relativePath.split("/"));
   if (!isInside(ARTICLES_DIR, fullPath)) {
-    throw new Error("Invalid article path");
+    throw new HttpError(400, "Invalid article id");
   }
   return { fullPath, relativePath };
 }
@@ -887,7 +959,7 @@ async function listGitHubArticles() {
 }
 
 async function getGitHubArticle(id) {
-  const relativePath = relativePathFromId(id);
+  const relativePath = articleRelativePathFromId(id);
   const { raw } = await getGitHubFile(repoPathFromRelative(relativePath));
   const summary = articleSummaryFromRaw(raw, relativePath, { addedTimestamp: 0 });
   const { content } = splitFrontmatter(raw);
@@ -918,11 +990,30 @@ async function getArticle(id) {
   return { ...summary, content };
 }
 
-async function readJsonBody(req) {
+async function readJsonBody(req, maxBytes) {
+  const contentLength = Number(req.headers["content-length"]);
+  if (Number.isFinite(contentLength) && contentLength > maxBytes) {
+    throw new HttpError(413, "Request body too large");
+  }
+
   const chunks = [];
-  for await (const chunk of req) chunks.push(chunk);
+  let bytes = 0;
+
+  for await (const chunk of req) {
+    const buffer = Buffer.isBuffer(chunk) ? chunk : Buffer.from(chunk);
+    bytes += buffer.length;
+    if (bytes > maxBytes) {
+      throw new HttpError(413, "Request body too large");
+    }
+    chunks.push(buffer);
+  }
+
   const raw = Buffer.concat(chunks).toString("utf8");
-  return raw ? JSON.parse(raw) : {};
+  try {
+    return raw ? JSON.parse(raw) : {};
+  } catch {
+    throw new HttpError(400, "Invalid JSON body");
+  }
 }
 
 function contentTypeFor(filePath) {
@@ -1026,7 +1117,7 @@ async function serveArticleAsset(res, articleIdParam, assetPath) {
 }
 
 async function serveGitHubArticleAsset(res, articleIdParam, assetPath) {
-  const articleRelativePath = relativePathFromId(articleIdParam);
+  const articleRelativePath = articleRelativePathFromId(articleIdParam);
   const encodedAssetPath = assetPath.split(/[?#]/)[0];
   let cleanAssetPath = encodedAssetPath;
   try {
@@ -1128,7 +1219,7 @@ async function putGitHubFile(repoPath, content, sha, message) {
 }
 
 async function setGitHubArticleRead(id, read) {
-  const relativePath = relativePathFromId(id);
+  const relativePath = articleRelativePathFromId(id);
   const repoPath = repoPathFromRelative(relativePath);
   const message = `${read ? "Mark read" : "Mark unread"}: ${relativePath}`;
 
@@ -1156,8 +1247,15 @@ async function setArticleRead(id, read) {
 }
 
 const server = createServer(async (req, res) => {
+  applySecurityHeaders(res);
+
   try {
     const url = new URL(req.url || "/", `http://${req.headers.host || "localhost"}`);
+
+    if (req.method === "GET" && url.pathname === "/healthz") {
+      sendJson(res, 200, { ok: true });
+      return;
+    }
 
     if (req.method === "GET" && url.pathname === "/auth/github") {
       await startGitHubOAuth(req, res, url);
@@ -1225,7 +1323,7 @@ const server = createServer(async (req, res) => {
 
     const readMatch = url.pathname.match(/^\/api\/articles\/([^/]+)\/read$/);
     if (req.method === "PATCH" && readMatch) {
-      const body = await readJsonBody(req);
+      const body = await readJsonBody(req, PATCH_READ_BODY_LIMIT_BYTES);
       if (typeof body.read !== "boolean") {
         sendJson(res, 400, { error: "Expected boolean read value" });
         return;
@@ -1241,8 +1339,19 @@ const server = createServer(async (req, res) => {
 
     sendText(res, 405, "Method not allowed");
   } catch (error) {
+    if (res.headersSent) {
+      console.error(error);
+      res.destroy();
+      return;
+    }
+
+    if (error instanceof HttpError) {
+      sendJson(res, error.status, { error: error.message });
+      return;
+    }
+
     console.error(error);
-    sendJson(res, 500, { error: error.message || "Internal server error" });
+    sendJson(res, 500, { error: "Internal server error" });
   }
 });
 
@@ -1268,7 +1377,7 @@ server.listen(PORT, HOST, () => {
     const callbackOrigin = AUTH_BASE_URL || `http://localhost:${PORT}`;
     console.log(`Auth:    GitHub OAuth`);
     console.log(`OAuth:   ${callbackOrigin}/auth/github/callback`);
-    if (!AUTH_ALLOWED_GITHUB_USERS.length && !AUTH_ALLOWED_EMAILS.length && !AUTH_ALLOWED_DOMAINS.length) {
+    if (!hasAuthAllowlist()) {
       console.warn(
         "Auth:    no AUTH_ALLOWED_GITHUB_USERS, AUTH_ALLOWED_EMAILS, or AUTH_ALLOWED_DOMAINS set; any GitHub account can sign in",
       );

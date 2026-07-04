@@ -62,8 +62,21 @@ docker run --rm -p 3055:3055 \
   -e GITHUB_ARTICLES_PATH="Articles" \
   -e GITHUB_TOKEN="github_pat_..." \
   -e AUTH_BASE_URL="https://reader.example.com" \
+  -e AUTH_ALLOWED_GITHUB_USERS="your-github-login" \
+  -e GITHUB_OAUTH_CLIENT_ID="your-oauth-client-id" \
+  -e GITHUB_OAUTH_CLIENT_SECRET="your-oauth-client-secret" \
   read-it-later
 ```
+
+For production, especially when `GITHUB_TOKEN` is set, enable GitHub OAuth and at least one allowlist setting such as `AUTH_ALLOWED_GITHUB_USERS`, `AUTH_ALLOWED_EMAILS`, or `AUTH_ALLOWED_DOMAINS`. Without OAuth credentials, authentication is disabled.
+
+Deployment health checks can use:
+
+```text
+GET /healthz
+```
+
+This endpoint is intentionally unauthenticated and only returns `{"ok":true}`.
 
 For local file-backed storage, mount the article folder and point `ARTICLES_DIR` at the container path:
 
@@ -103,8 +116,11 @@ Optional auth settings:
 - `GITHUB_OAUTH_SCOPE`: OAuth scopes to request, default `read:user user:email`.
 - `AUTH_SESSION_DAYS`: session lifetime, default `7`.
 - `AUTH_COOKIE_SECURE`: set to `true` when serving behind HTTPS and `AUTH_BASE_URL` cannot be inferred.
+- `PATCH_READ_BODY_LIMIT_BYTES`: maximum JSON body size for read-state updates, default `4096`.
 
 If no allowlist is set, any GitHub account that can authorize the OAuth app can sign in.
+
+In `NODE_ENV=production`, GitHub-backed storage with `GITHUB_TOKEN` requires OAuth, and OAuth requires at least one allowlist setting. The explicit escape hatches are `ALLOW_UNAUTHENTICATED_GITHUB_WRITES=true` and `ALLOW_OPEN_PRODUCTION_AUTH=true`; they are meant for deliberate private deployments, not public exposure.
 
 ## GitHub-backed deployment
 
@@ -121,6 +137,8 @@ npm start
 ```
 
 The token must stay on the server as an environment variable. Use a fine-grained GitHub personal access token scoped to the target repository with `Contents: Read and write`.
+
+For any production deployment that uses `GITHUB_TOKEN`, set `GITHUB_OAUTH_CLIENT_ID`, `GITHUB_OAUTH_CLIENT_SECRET`, `AUTH_BASE_URL`, and at least one auth allowlist. This prevents a server with repository write access from being exposed with authentication disabled or open to any GitHub account.
 
 In GitHub mode:
 

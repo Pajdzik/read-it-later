@@ -8,11 +8,11 @@ ENV NODE_ENV=production \
 
 WORKDIR /app
 
-COPY package*.json ./
+COPY --chown=node:node package*.json ./
 RUN npm ci --omit=dev --ignore-scripts
 
-COPY server.mjs ./server.mjs
-COPY public ./public
+COPY --chown=node:node server.mjs ./server.mjs
+COPY --chown=node:node public ./public
 
 USER node
 
