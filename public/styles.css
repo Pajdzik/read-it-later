@@ -126,7 +126,34 @@ svg {
   display: flex;
   align-items: center;
   justify-content: flex-end;
+  flex-wrap: wrap;
   gap: 10px;
+}
+
+.sessionActions {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.sessionActions[hidden] {
+  display: none;
+}
+
+.userChip {
+  max-width: min(240px, 32vw);
+  min-height: 32px;
+  display: inline-flex;
+  align-items: center;
+  overflow: hidden;
+  padding: 5px 10px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: var(--panel);
+  color: var(--muted);
+  font-size: 0.9rem;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 .topStats {
@@ -632,6 +659,13 @@ select {
 
   .topCluster {
     gap: 7px;
+  }
+
+  .userChip {
+    max-width: 130px;
+    min-height: 27px;
+    padding: 3px 8px;
+    font-size: 0.78rem;
   }
 
   .workspace {

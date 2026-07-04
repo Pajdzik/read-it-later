@@ -1,4 +1,4 @@
-import { createReadStream, existsSync } from "node:fs";
+import { createReadStream, existsSync, readFileSync } from "node:fs";
 import {
   readFile,
   readdir,
@@ -6,12 +6,15 @@ import {
   stat,
   writeFile,
 } from "node:fs/promises";
+import crypto from "node:crypto";
 import { createServer } from "node:http";
 import os from "node:os";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
+
+loadDotEnv(path.join(__dirname, ".env"));
 
 const DEFAULT_ARTICLES_DIR =
   "/Users/kamil/Library/Mobile Documents/iCloud~md~obsidian/Documents/Kamilpedia/Articles";
@@ -23,6 +26,59 @@ const HOST = process.env.HOST || "0.0.0.0";
 const STORAGE_MODE =
   process.env.STORAGE_MODE ||
   (process.env.GITHUB_OWNER || process.env.GITHUB_REPO || process.env.GITHUB_TOKEN ? "github" : "local");
+const GITHUB_OAUTH_CLIENT_ID = process.env.GITHUB_OAUTH_CLIENT_ID || process.env.GITHUB_CLIENT_ID || "";
+const GITHUB_OAUTH_CLIENT_SECRET = process.env.GITHUB_OAUTH_CLIENT_SECRET || process.env.GITHUB_CLIENT_SECRET || "";
+const AUTH_ENABLED = Boolean(GITHUB_OAUTH_CLIENT_ID || GITHUB_OAUTH_CLIENT_SECRET);
+const AUTH_BASE_URL = cleanOrigin(process.env.AUTH_BASE_URL || "");
+const AUTH_ALLOWED_GITHUB_USERS = parseList(process.env.AUTH_ALLOWED_GITHUB_USERS ?? process.env.AUTH_ALLOWED_USERS).map(
+  (login) => login.replace(/^@/, "").toLowerCase(),
+);
+const AUTH_ALLOWED_EMAILS = parseList(process.env.AUTH_ALLOWED_EMAILS).map((email) => email.toLowerCase());
+const AUTH_ALLOWED_DOMAINS = parseList(process.env.AUTH_ALLOWED_DOMAINS).map((domain) =>
+  domain.replace(/^@/, "").toLowerCase(),
+);
+const AUTH_COOKIE_NAME = process.env.AUTH_COOKIE_NAME || "read_later_session";
+const AUTH_SESSION_DAYS = positiveNumber(process.env.AUTH_SESSION_DAYS, 7);
+const AUTH_SESSION_MAX_AGE_SECONDS = Math.max(60, Math.floor(AUTH_SESSION_DAYS * 24 * 60 * 60));
+const AUTH_COOKIE_SECURE = process.env.AUTH_COOKIE_SECURE;
+const GITHUB_OAUTH_SCOPE = process.env.GITHUB_OAUTH_SCOPE || "read:user user:email";
+const GITHUB_OAUTH_AUTH_ENDPOINT = "https://github.com/login/oauth/authorize";
+const GITHUB_OAUTH_TOKEN_ENDPOINT = "https://github.com/login/oauth/access_token";
+const GITHUB_OAUTH_API = "https://api.github.com";
+const OAUTH_STATE_TTL_MS = 10 * 60 * 1000;
+const sessions = new Map();
+const oauthStates = new Map();
+
+function unquoteEnvValue(value) {
+  const trimmed = value.trim();
+  if (!trimmed) return "";
+
+  const quote = trimmed[0];
+  if ((quote === '"' || quote === "'") && trimmed.endsWith(quote)) {
+    const inner = trimmed.slice(1, -1);
+    return quote === '"' ? inner.replace(/\\n/g, "\n").replace(/\\r/g, "\r").replace(/\\t/g, "\t") : inner;
+  }
+
+  return trimmed.replace(/\s+#.*$/, "").trim();
+}
+
+function loadDotEnv(filePath) {
+  if (!existsSync(filePath)) return;
+
+  const contents = readFileSync(filePath, "utf8");
+  for (const rawLine of contents.split(/\r?\n/)) {
+    const line = rawLine.trim();
+    if (!line || line.startsWith("#")) continue;
+
+    const match = line.match(/^(?:export\s+)?([A-Za-z_][A-Za-z0-9_]*)=(.*)$/);
+    if (!match) continue;
+
+    const [, key, rawValue] = match;
+    if (process.env[key] == null) {
+      process.env[key] = unquoteEnvValue(rawValue);
+    }
+  }
+}
 
 const GITHUB_OWNER = process.env.GITHUB_OWNER || "";
 const GITHUB_REPO = process.env.GITHUB_REPO || "";
@@ -36,6 +92,10 @@ const GITHUB_API_VERSION = "2022-11-28";
 
 if (!["local", "github"].includes(STORAGE_MODE)) {
   throw new Error(`Unsupported STORAGE_MODE: ${STORAGE_MODE}`);
+}
+
+if (AUTH_ENABLED && (!GITHUB_OAUTH_CLIENT_ID || !GITHUB_OAUTH_CLIENT_SECRET)) {
+  throw new Error("GitHub OAuth requires both GITHUB_OAUTH_CLIENT_ID and GITHUB_OAUTH_CLIENT_SECRET");
 }
 
 if (STORAGE_MODE === "github") {
@@ -68,6 +128,393 @@ function sendText(res, status, text) {
     "Content-Type": "text/plain; charset=utf-8",
   });
   res.end(text);
+}
+
+function sendRedirect(res, status, location) {
+  res.writeHead(status, {
+    "Cache-Control": "no-store",
+    Location: location,
+  });
+  res.end();
+}
+
+function parseList(value) {
+  return String(value || "")
+    .split(",")
+    .map((item) => item.trim())
+    .filter(Boolean);
+}
+
+function cleanOrigin(value) {
+  return String(value || "").replace(/\/+$/g, "");
+}
+
+function positiveNumber(value, fallback) {
+  const number = Number(value);
+  return Number.isFinite(number) && number > 0 ? number : fallback;
+}
+
+function booleanFromEnv(value) {
+  return ["1", "true", "yes", "on"].includes(String(value || "").toLowerCase());
+}
+
+function firstHeader(value) {
+  return Array.isArray(value) ? value[0] : value;
+}
+
+function requestOrigin(req) {
+  if (AUTH_BASE_URL) return AUTH_BASE_URL;
+
+  const forwardedProto = firstHeader(req.headers["x-forwarded-proto"]);
+  const forwardedHost = firstHeader(req.headers["x-forwarded-host"]);
+  const protocol = forwardedProto?.split(",")[0]?.trim() || (req.socket.encrypted ? "https" : "http");
+  const host = forwardedHost?.split(",")[0]?.trim() || req.headers.host || `localhost:${PORT}`;
+  return `${protocol}://${host}`;
+}
+
+function oauthRedirectUri(req) {
+  return `${requestOrigin(req)}/auth/github/callback`;
+}
+
+function randomToken(bytes = 32) {
+  return crypto.randomBytes(bytes).toString("base64url");
+}
+
+function parseCookies(req) {
+  const cookies = {};
+  const cookieHeader = req.headers.cookie || "";
+
+  for (const part of cookieHeader.split(";")) {
+    const separator = part.indexOf("=");
+    if (separator === -1) continue;
+
+    const name = part.slice(0, separator).trim();
+    const value = part.slice(separator + 1).trim();
+    if (!name) continue;
+
+    try {
+      cookies[name] = decodeURIComponent(value);
+    } catch {
+      cookies[name] = value;
+    }
+  }
+
+  return cookies;
+}
+
+function appendSetCookie(res, cookie) {
+  const current = res.getHeader("Set-Cookie");
+  if (!current) {
+    res.setHeader("Set-Cookie", cookie);
+  } else if (Array.isArray(current)) {
+    res.setHeader("Set-Cookie", [...current, cookie]);
+  } else {
+    res.setHeader("Set-Cookie", [current, cookie]);
+  }
+}
+
+function secureCookie(req) {
+  if (AUTH_COOKIE_SECURE != null) return booleanFromEnv(AUTH_COOKIE_SECURE);
+  return requestOrigin(req).startsWith("https://");
+}
+
+function sessionCookie(sessionId, req) {
+  const secure = secureCookie(req) ? "; Secure" : "";
+  return `${AUTH_COOKIE_NAME}=${encodeURIComponent(
+    sessionId,
+  )}; Path=/; HttpOnly; SameSite=Lax; Max-Age=${AUTH_SESSION_MAX_AGE_SECONDS}${secure}`;
+}
+
+function clearSessionCookie(req) {
+  const secure = secureCookie(req) ? "; Secure" : "";
+  return `${AUTH_COOKIE_NAME}=; Path=/; HttpOnly; SameSite=Lax; Max-Age=0${secure}`;
+}
+
+function safeNextPath(value) {
+  if (!value) return "/";
+
+  try {
+    const parsed = new URL(value, "http://read-later.local");
+    if (parsed.origin !== "http://read-later.local") return "/";
+    if (parsed.pathname.startsWith("/auth/")) return "/";
+    return `${parsed.pathname}${parsed.search}${parsed.hash}`;
+  } catch {
+    return "/";
+  }
+}
+
+function loginPathFor(url) {
+  const loginUrl = new URL("/auth/github", "http://read-later.local");
+  loginUrl.searchParams.set("next", safeNextPath(`${url.pathname}${url.search}`));
+  return `${loginUrl.pathname}${loginUrl.search}`;
+}
+
+function pruneExpiredAuthRecords() {
+  const now = Date.now();
+
+  for (const [sessionId, session] of sessions) {
+    if (session.expiresAt <= now) sessions.delete(sessionId);
+  }
+
+  for (const [state, pending] of oauthStates) {
+    if (pending.expiresAt <= now) oauthStates.delete(state);
+  }
+}
+
+function getSession(req) {
+  if (!AUTH_ENABLED) return null;
+
+  const sessionId = parseCookies(req)[AUTH_COOKIE_NAME];
+  if (!sessionId) return null;
+
+  const session = sessions.get(sessionId);
+  if (!session || session.expiresAt <= Date.now()) {
+    sessions.delete(sessionId);
+    return null;
+  }
+
+  return { id: sessionId, ...session };
+}
+
+function createSession(user) {
+  const sessionId = randomToken();
+  sessions.set(sessionId, {
+    createdAt: new Date().toISOString(),
+    expiresAt: Date.now() + AUTH_SESSION_MAX_AGE_SECONDS * 1000,
+    user,
+  });
+  return sessionId;
+}
+
+function consumeOAuthState(state) {
+  if (!state) return null;
+
+  const pending = oauthStates.get(state);
+  oauthStates.delete(state);
+  if (!pending || pending.expiresAt <= Date.now()) return null;
+  return pending;
+}
+
+function pkceChallenge(verifier) {
+  return crypto.createHash("sha256").update(verifier).digest("base64url");
+}
+
+function githubAuthHeaders(accessToken) {
+  return {
+    Accept: "application/vnd.github+json",
+    Authorization: `Bearer ${accessToken}`,
+    "User-Agent": "read-it-later",
+    "X-GitHub-Api-Version": GITHUB_API_VERSION,
+  };
+}
+
+async function githubOAuthRequest(apiPath, accessToken) {
+  const response = await fetch(`${GITHUB_OAUTH_API}${apiPath}`, {
+    headers: githubAuthHeaders(accessToken),
+  });
+  const data = await response.json().catch(() => ({}));
+
+  if (!response.ok) {
+    const message = data?.message || response.statusText;
+    throw new Error(`GitHub API ${response.status}: ${message}`);
+  }
+
+  return data;
+}
+
+function verifiedPrimaryEmail(emails) {
+  if (!Array.isArray(emails)) return "";
+
+  const primary = emails.find((email) => email.primary && email.verified);
+  const verified = emails.find((email) => email.verified);
+  return String(primary?.email || verified?.email || "").toLowerCase();
+}
+
+function githubProfileFromOAuth(profile, emails) {
+  const publicEmail = String(profile.email || "").toLowerCase();
+  const email = publicEmail || verifiedPrimaryEmail(emails);
+  const emailDomain = email.includes("@") ? email.split("@").pop() : "";
+  const login = String(profile.login || "");
+
+  return {
+    email,
+    emailDomain,
+    id: String(profile.id || ""),
+    login,
+    loginLower: login.toLowerCase(),
+    name: String(profile.name || login || email),
+    picture: String(profile.avatar_url || ""),
+    url: String(profile.html_url || ""),
+  };
+}
+
+function canDecideAccessWithoutPrivateEmails(profile) {
+  const loginLower = String(profile.login || "").toLowerCase();
+  const publicEmail = String(profile.email || "").toLowerCase();
+  const publicEmailDomain = publicEmail.includes("@") ? publicEmail.split("@").pop() : "";
+  const hasEmailAllowlist = AUTH_ALLOWED_EMAILS.length || AUTH_ALLOWED_DOMAINS.length;
+
+  return (
+    !hasEmailAllowlist ||
+    AUTH_ALLOWED_GITHUB_USERS.includes(loginLower) ||
+    AUTH_ALLOWED_EMAILS.includes(publicEmail) ||
+    (publicEmailDomain && AUTH_ALLOWED_DOMAINS.includes(publicEmailDomain))
+  );
+}
+
+function userIsAllowed(user) {
+  if (!AUTH_ALLOWED_GITHUB_USERS.length && !AUTH_ALLOWED_EMAILS.length && !AUTH_ALLOWED_DOMAINS.length) return true;
+  if (AUTH_ALLOWED_GITHUB_USERS.includes(user.loginLower)) return true;
+  if (user.email && AUTH_ALLOWED_EMAILS.includes(user.email)) return true;
+  return user.emailDomain && AUTH_ALLOWED_DOMAINS.includes(user.emailDomain);
+}
+
+function authorizeRequest(req, res, url) {
+  if (!AUTH_ENABLED) return true;
+
+  const session = getSession(req);
+  if (session) {
+    req.authSession = session;
+    return true;
+  }
+
+  if (url.pathname.startsWith("/api/")) {
+    sendJson(res, 401, {
+      error: "Sign in required",
+      loginUrl: loginPathFor(url),
+    });
+    return false;
+  }
+
+  if (req.method === "GET" || req.method === "HEAD") {
+    sendRedirect(res, 302, loginPathFor(url));
+    return false;
+  }
+
+  sendText(res, 401, "Sign in required");
+  return false;
+}
+
+async function startGitHubOAuth(req, res, url) {
+  if (!AUTH_ENABLED) {
+    sendRedirect(res, 303, "/");
+    return;
+  }
+
+  pruneExpiredAuthRecords();
+
+  const state = randomToken();
+  const codeVerifier = randomToken(48);
+  oauthStates.set(state, {
+    codeVerifier,
+    expiresAt: Date.now() + OAUTH_STATE_TTL_MS,
+    next: safeNextPath(url.searchParams.get("next")),
+  });
+
+  const authUrl = new URL(GITHUB_OAUTH_AUTH_ENDPOINT);
+  authUrl.searchParams.set("client_id", GITHUB_OAUTH_CLIENT_ID);
+  authUrl.searchParams.set("redirect_uri", oauthRedirectUri(req));
+  authUrl.searchParams.set("scope", GITHUB_OAUTH_SCOPE);
+  authUrl.searchParams.set("state", state);
+  authUrl.searchParams.set("code_challenge", pkceChallenge(codeVerifier));
+  authUrl.searchParams.set("code_challenge_method", "S256");
+  authUrl.searchParams.set("prompt", "select_account");
+
+  sendRedirect(res, 302, authUrl.href);
+}
+
+async function exchangeGitHubCode(req, code, codeVerifier) {
+  const body = new URLSearchParams({
+    client_id: GITHUB_OAUTH_CLIENT_ID,
+    client_secret: GITHUB_OAUTH_CLIENT_SECRET,
+    code,
+    code_verifier: codeVerifier,
+    redirect_uri: oauthRedirectUri(req),
+  });
+
+  const response = await fetch(GITHUB_OAUTH_TOKEN_ENDPOINT, {
+    body,
+    headers: {
+      Accept: "application/json",
+      "Content-Type": "application/x-www-form-urlencoded",
+    },
+    method: "POST",
+  });
+  const data = await response.json().catch(() => ({}));
+
+  if (!response.ok || data.error) {
+    const message = data.error_description || data.error || response.statusText;
+    throw new Error(`GitHub token exchange failed: ${message}`);
+  }
+
+  if (!data.access_token) {
+    throw new Error("GitHub token exchange did not return an access token");
+  }
+
+  return data;
+}
+
+async function finishGitHubOAuth(req, res, url) {
+  if (!AUTH_ENABLED) {
+    sendRedirect(res, 303, "/");
+    return;
+  }
+
+  const pending = consumeOAuthState(url.searchParams.get("state"));
+  if (!pending) {
+    sendText(res, 401, "Invalid or expired GitHub sign-in state.");
+    return;
+  }
+
+  const oauthError = url.searchParams.get("error");
+  if (oauthError) {
+    sendText(res, 401, `GitHub sign-in failed: ${oauthError}`);
+    return;
+  }
+
+  const code = url.searchParams.get("code");
+  if (!code) {
+    sendText(res, 400, "Missing GitHub authorization code.");
+    return;
+  }
+
+  try {
+    const tokens = await exchangeGitHubCode(req, code, pending.codeVerifier);
+    const profile = await githubOAuthRequest("/user", tokens.access_token);
+    let emails = [];
+
+    try {
+      emails = await githubOAuthRequest("/user/emails?per_page=100", tokens.access_token);
+    } catch (error) {
+      if (!canDecideAccessWithoutPrivateEmails(profile)) throw error;
+      console.warn(`GitHub email lookup skipped: ${error.message || error}`);
+    }
+
+    const user = githubProfileFromOAuth(profile, emails);
+    if (!user.id || !user.login) {
+      sendText(res, 401, "GitHub did not return a usable user profile.");
+      return;
+    }
+    if (!userIsAllowed(user)) {
+      sendText(res, 403, "This GitHub account is not allowed to access Read Later.");
+      return;
+    }
+
+    const sessionId = createSession(user);
+    appendSetCookie(res, sessionCookie(sessionId, req));
+    sendRedirect(res, 303, pending.next);
+  } catch (error) {
+    console.error(error);
+    sendText(res, 401, error.message || "GitHub sign-in failed.");
+  }
+}
+
+function signOut(req, res) {
+  const session = getSession(req);
+  if (session) sessions.delete(session.id);
+
+  appendSetCookie(res, clearSessionCookie(req));
+  sendJson(res, 200, { ok: true });
 }
 
 function isInside(parent, child) {
@@ -712,6 +1159,35 @@ const server = createServer(async (req, res) => {
   try {
     const url = new URL(req.url || "/", `http://${req.headers.host || "localhost"}`);
 
+    if (req.method === "GET" && url.pathname === "/auth/github") {
+      await startGitHubOAuth(req, res, url);
+      return;
+    }
+
+    if (req.method === "GET" && url.pathname === "/auth/github/callback") {
+      await finishGitHubOAuth(req, res, url);
+      return;
+    }
+
+    if (req.method === "POST" && url.pathname === "/auth/logout") {
+      signOut(req, res);
+      return;
+    }
+
+    if (req.method === "GET" && url.pathname === "/api/session") {
+      const session = getSession(req);
+      sendJson(res, 200, {
+        auth: {
+          enabled: AUTH_ENABLED,
+          provider: AUTH_ENABLED ? "github" : null,
+          user: session?.user || null,
+        },
+      });
+      return;
+    }
+
+    if (!authorizeRequest(req, res, url)) return;
+
     if (req.method === "GET" && url.pathname === "/api/health") {
       sendJson(res, 200, {
         articlesDir: ARTICLES_DIR,
@@ -787,6 +1263,18 @@ server.listen(PORT, HOST, () => {
   console.log(`Local:   http://localhost:${PORT}`);
   for (const url of lanUrls(PORT)) {
     console.log(`Phone:   ${url}`);
+  }
+  if (AUTH_ENABLED) {
+    const callbackOrigin = AUTH_BASE_URL || `http://localhost:${PORT}`;
+    console.log(`Auth:    GitHub OAuth`);
+    console.log(`OAuth:   ${callbackOrigin}/auth/github/callback`);
+    if (!AUTH_ALLOWED_GITHUB_USERS.length && !AUTH_ALLOWED_EMAILS.length && !AUTH_ALLOWED_DOMAINS.length) {
+      console.warn(
+        "Auth:    no AUTH_ALLOWED_GITHUB_USERS, AUTH_ALLOWED_EMAILS, or AUTH_ALLOWED_DOMAINS set; any GitHub account can sign in",
+      );
+    }
+  } else {
+    console.log("Auth:    disabled");
   }
   if (STORAGE_MODE === "github") {
     console.log(`Storage: GitHub ${GITHUB_OWNER}/${GITHUB_REPO}:${GITHUB_BRANCH}/${GITHUB_ARTICLES_PATH}`);

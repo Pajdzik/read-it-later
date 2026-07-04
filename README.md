@@ -30,6 +30,8 @@ You can override it when starting the app:
 ARTICLES_DIR="/path/to/Articles" npm start
 ```
 
+The server automatically loads a local `.env` file before reading configuration. Values already set in your shell take precedence.
+
 Read state is written directly to article frontmatter:
 
 ```yaml
@@ -40,6 +42,38 @@ readAt: "2026-05-24T22:33:00.000Z"
 Articles without frontmatter get a small frontmatter block the first time they are marked read or unread.
 
 No package install is required; the app uses only Node built-ins.
+
+## GitHub OAuth
+
+Authentication is disabled by default. Set GitHub OAuth app credentials in `.env` to require GitHub sign-in before serving the app or article APIs:
+
+```dotenv
+AUTH_BASE_URL=http://localhost:3055
+AUTH_ALLOWED_GITHUB_USERS=your-github-login
+GITHUB_OAUTH_CLIENT_ID=your-oauth-client-id
+GITHUB_OAUTH_CLIENT_SECRET=your-oauth-client-secret
+```
+
+Create a GitHub OAuth app, then set its authorization callback URL to:
+
+```text
+http://localhost:3055/auth/github/callback
+```
+
+If the app is served through another origin, set `AUTH_BASE_URL` to that origin and use the matching callback URI, for example `https://reader.example.com/auth/github/callback`.
+
+The OAuth credentials above are separate from the `GITHUB_TOKEN` used by GitHub-backed article storage.
+
+Optional auth settings:
+
+- `AUTH_ALLOWED_GITHUB_USERS`: comma-separated GitHub usernames allowed to sign in.
+- `AUTH_ALLOWED_EMAILS`: comma-separated verified GitHub account emails allowed to sign in.
+- `AUTH_ALLOWED_DOMAINS`: comma-separated verified GitHub account email domains allowed to sign in.
+- `GITHUB_OAUTH_SCOPE`: OAuth scopes to request, default `read:user user:email`.
+- `AUTH_SESSION_DAYS`: session lifetime, default `7`.
+- `AUTH_COOKIE_SECURE`: set to `true` when serving behind HTTPS and `AUTH_BASE_URL` cannot be inferred.
+
+If no allowlist is set, any GitHub account that can authorize the OAuth app can sign in.
 
 ## GitHub-backed deployment
 

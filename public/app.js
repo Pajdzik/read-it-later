@@ -1,6 +1,7 @@
 const state = {
   article: null,
   articles: [],
+  auth: { enabled: false, user: null },
   category: "all",
   filter: "all",
   query: "",
@@ -21,10 +22,13 @@ const elements = {
   readerTitle: document.querySelector("#readerTitle"),
   readButton: document.querySelector("#readButton"),
   searchInput: document.querySelector("#searchInput"),
+  sessionActions: document.querySelector("#sessionActions"),
+  signOutButton: document.querySelector("#signOutButton"),
   sortSelect: document.querySelector("#sortSelect"),
   sourceLink: document.querySelector("#sourceLink"),
   themeButton: document.querySelector("#themeButton"),
   unreadCount: document.querySelector("#unreadCount"),
+  userChip: document.querySelector("#userChip"),
 };
 
 const savedPrefs = JSON.parse(localStorage.getItem("readLaterPrefs") || "{}");
@@ -114,6 +118,23 @@ function hostFromUrl(value) {
 
 function plural(count, label) {
   return `${count} ${label}${count === 1 ? "" : "s"}`;
+}
+
+function currentPath() {
+  return `${location.pathname}${location.search}`;
+}
+
+function loginPath() {
+  return `/auth/github?next=${encodeURIComponent(currentPath())}`;
+}
+
+async function authFetch(url, options) {
+  const response = await fetch(url, options);
+  if (response.status === 401) {
+    location.assign(loginPath());
+    throw new Error("Sign in required");
+  }
+  return response;
 }
 
 function normalizeText(value) {
@@ -229,7 +250,7 @@ async function loadArticle(id) {
   setReaderLoading();
   renderList();
 
-  const response = await fetch(`/api/articles/${encodeURIComponent(id)}`);
+  const response = await authFetch(`/api/articles/${encodeURIComponent(id)}`);
   if (!response.ok) throw new Error(`Could not load article: ${response.status}`);
   const { article } = await response.json();
 
@@ -277,7 +298,7 @@ function renderReader() {
 }
 
 async function setArticleRead(id, read) {
-  const response = await fetch(`/api/articles/${encodeURIComponent(id)}/read`, {
+  const response = await authFetch(`/api/articles/${encodeURIComponent(id)}/read`, {
     body: JSON.stringify({ read }),
     headers: { "Content-Type": "application/json" },
     method: "PATCH",
@@ -514,7 +535,7 @@ function renderMarkdown(markdown, articleId) {
 
 async function loadArticles() {
   elements.articleList.innerHTML = '<li class="emptyList">Loading articles...</li>';
-  const response = await fetch("/api/articles");
+  const response = await authFetch("/api/articles");
   if (!response.ok) throw new Error(`Could not load articles: ${response.status}`);
   const { articles } = await response.json();
   state.articles = articles;
@@ -526,6 +547,22 @@ async function loadArticles() {
   const requested = new URLSearchParams(location.search).get("article");
   const first = filteredArticles()[0];
   await loadArticle(requested || first?.id);
+}
+
+function renderSession() {
+  const { enabled, user } = state.auth;
+  elements.sessionActions.hidden = !enabled || !user;
+  elements.userChip.textContent = user?.name || user?.login || user?.email || "";
+  elements.userChip.title = user?.login ? `@${user.login}${user.email ? ` / ${user.email}` : ""}` : user?.email || "";
+}
+
+async function loadSession() {
+  const response = await fetch("/api/session");
+  if (!response.ok) return;
+
+  const { auth } = await response.json();
+  state.auth = auth;
+  renderSession();
 }
 
 elements.articleList.addEventListener("click", async (event) => {
@@ -582,6 +619,15 @@ elements.themeButton.addEventListener("click", () => {
   applyTheme();
 });
 
+elements.signOutButton.addEventListener("click", async () => {
+  elements.signOutButton.disabled = true;
+  try {
+    await fetch("/auth/logout", { method: "POST" });
+  } finally {
+    location.assign("/");
+  }
+});
+
 window.matchMedia?.("(prefers-color-scheme: dark)").addEventListener("change", () => {
   if (state.theme === "system") applyTheme();
 });
@@ -590,8 +636,13 @@ elements.backButton.addEventListener("click", () => {
   document.body.classList.remove("readerOpen");
 });
 
-applyTheme();
-loadArticles().catch((error) => {
+async function boot() {
+  applyTheme();
+  await loadSession();
+  await loadArticles();
+}
+
+boot().catch((error) => {
   console.error(error);
   elements.articleList.innerHTML = `<li class="emptyList">Could not load articles. ${escapeHtml(error.message)}</li>`;
   showReader(false);
