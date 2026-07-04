@@ -20,6 +20,37 @@ const ARTICLES_DIR = path.resolve(process.env.ARTICLES_DIR || DEFAULT_ARTICLES_D
 const PUBLIC_DIR = path.join(__dirname, "public");
 const PORT = Number(process.env.PORT || 3055);
 const HOST = process.env.HOST || "0.0.0.0";
+const STORAGE_MODE =
+  process.env.STORAGE_MODE ||
+  (process.env.GITHUB_OWNER || process.env.GITHUB_REPO || process.env.GITHUB_TOKEN ? "github" : "local");
+
+const GITHUB_OWNER = process.env.GITHUB_OWNER || "";
+const GITHUB_REPO = process.env.GITHUB_REPO || "";
+const GITHUB_BRANCH = process.env.GITHUB_BRANCH || "main";
+const GITHUB_TOKEN = process.env.GITHUB_TOKEN || "";
+const GITHUB_ARTICLES_PATH = cleanRepoPath(
+  process.env.GITHUB_ARTICLES_PATH ?? process.env.ARTICLES_PATH ?? "Articles",
+);
+const GITHUB_API = "https://api.github.com";
+const GITHUB_API_VERSION = "2022-11-28";
+
+if (!["local", "github"].includes(STORAGE_MODE)) {
+  throw new Error(`Unsupported STORAGE_MODE: ${STORAGE_MODE}`);
+}
+
+if (STORAGE_MODE === "github") {
+  const missing = [
+    ["GITHUB_OWNER", GITHUB_OWNER],
+    ["GITHUB_REPO", GITHUB_REPO],
+    ["GITHUB_TOKEN", GITHUB_TOKEN],
+  ]
+    .filter(([, value]) => !value)
+    .map(([name]) => name);
+
+  if (missing.length) {
+    throw new Error(`GitHub storage is missing required env vars: ${missing.join(", ")}`);
+  }
+}
 
 function sendJson(res, status, payload) {
   const body = JSON.stringify(payload);
@@ -44,26 +75,57 @@ function isInside(parent, child) {
   return relative === "" || (relative && !relative.startsWith("..") && !path.isAbsolute(relative));
 }
 
-function articleId(relativePath) {
-  return Buffer.from(relativePath, "utf8").toString("base64url");
+function cleanRepoPath(value) {
+  const cleaned = String(value || "")
+    .replace(/\\/g, "/")
+    .replace(/^\/+|\/+$/g, "");
+  return cleaned === "." ? "" : cleaned;
 }
 
-function relativePathFromId(id) {
-  const decoded = Buffer.from(id, "base64url").toString("utf8");
-  const normalized = path.normalize(decoded);
-  if (path.isAbsolute(normalized) || normalized.startsWith("..")) {
-    throw new Error("Invalid article id");
+function normalizeRelativePath(value) {
+  const normalized = path.posix.normalize(cleanRepoPath(value));
+  if (!normalized || normalized === "." || path.posix.isAbsolute(normalized) || normalized.startsWith("..")) {
+    throw new Error("Invalid article path");
   }
   return normalized;
 }
 
+function encodeRepoPath(value) {
+  return value.split("/").map(encodeURIComponent).join("/");
+}
+
+function articleId(relativePath) {
+  return Buffer.from(normalizeRelativePath(relativePath), "utf8").toString("base64url");
+}
+
+function relativePathFromId(id) {
+  const decoded = Buffer.from(id, "base64url").toString("utf8");
+  return normalizeRelativePath(decoded);
+}
+
 function articlePathFromId(id) {
   const relativePath = relativePathFromId(id);
-  const fullPath = path.resolve(ARTICLES_DIR, relativePath);
+  const fullPath = path.resolve(ARTICLES_DIR, ...relativePath.split("/"));
   if (!isInside(ARTICLES_DIR, fullPath)) {
     throw new Error("Invalid article path");
   }
   return { fullPath, relativePath };
+}
+
+function repoPathFromRelative(relativePath) {
+  const normalized = normalizeRelativePath(relativePath);
+  return GITHUB_ARTICLES_PATH ? `${GITHUB_ARTICLES_PATH}/${normalized}` : normalized;
+}
+
+function relativePathFromRepoPath(repoPath) {
+  const normalized = normalizeRelativePath(repoPath);
+  if (!GITHUB_ARTICLES_PATH) return normalized;
+
+  if (normalized === GITHUB_ARTICLES_PATH || normalized.startsWith(`${GITHUB_ARTICLES_PATH}/`)) {
+    return normalized.slice(GITHUB_ARTICLES_PATH.length).replace(/^\/+/, "");
+  }
+
+  throw new Error("Repository path is outside the articles folder");
 }
 
 async function walkMarkdownFiles(dir) {
@@ -184,7 +246,7 @@ function titleFromContent(content) {
 
 function titleFromFilename(filename) {
   return path
-    .basename(filename, path.extname(filename))
+    .posix.basename(filename, path.posix.extname(filename))
     .replace(/^\d{4}-\d{2}-\d{2}\.\s*/, "")
     .trim();
 }
@@ -221,25 +283,24 @@ function readingStats(markdown) {
   };
 }
 
-async function articleSummary(filePath) {
-  const raw = await readFile(filePath, "utf8");
-  const fileStat = await stat(filePath);
-  const relativePath = path.relative(ARTICLES_DIR, filePath);
+function articleSummaryFromRaw(raw, relativePath, fileInfo = {}) {
   const id = articleId(relativePath);
   const { content, frontmatter } = splitFrontmatter(raw);
   const metadata = parseFrontmatter(frontmatter);
-  const filenameDate = dateFromFilename(path.basename(filePath));
+  const fallbackTimestamp = fileInfo.addedTimestamp ?? Date.now();
+  const fallbackDate = new Date(fallbackTimestamp).toISOString().slice(0, 10);
+  const filenameDate = dateFromFilename(path.posix.basename(relativePath));
   const created = dateFromString(firstValue(metadata.created)) || filenameDate;
   const published = dateFromString(firstValue(metadata.published)) || filenameDate;
-  const added = created || fileStat.birthtime.toISOString().slice(0, 10);
-  const categoryPath = path.dirname(relativePath);
-  const category = categoryPath === "." ? "Uncategorized" : categoryPath.split(path.sep).join(" / ");
+  const added = created || fallbackDate;
+  const categoryPath = path.posix.dirname(relativePath);
+  const category = categoryPath === "." ? "Uncategorized" : categoryPath.split("/").join(" / ");
   const stats = readingStats(content);
   const source = cleanScalar(firstValue(metadata.source) || sourceFromContent(content) || "");
 
   return {
     added,
-    addedTimestamp: Date.parse(added) || fileStat.birthtimeMs,
+    addedTimestamp: Date.parse(added) || fallbackTimestamp,
     author: Array.isArray(metadata.author)
       ? metadata.author.map(normalizeWikiLink).filter(Boolean)
       : normalizeWikiLink(metadata.author || ""),
@@ -247,34 +308,165 @@ async function articleSummary(filePath) {
     created,
     excerpt: summarize(content, metadata.description),
     id,
-    modifiedAt: fileStat.mtime.toISOString(),
+    modifiedAt: fileInfo.modifiedAt || null,
     published,
     publishedTimestamp: Date.parse(published) || 0,
     read: booleanFromYaml(metadata.read),
     readAt: nullableScalar(metadata.readAt),
     relativePath,
     source,
-    title: cleanScalar(firstValue(metadata.title)) || titleFromContent(content) || titleFromFilename(filePath),
+    title: cleanScalar(firstValue(metadata.title)) || titleFromContent(content) || titleFromFilename(relativePath),
     ...stats,
   };
 }
 
+async function localArticleSummary(filePath) {
+  const raw = await readFile(filePath, "utf8");
+  const fileStat = await stat(filePath);
+  const relativePath = cleanRepoPath(path.relative(ARTICLES_DIR, filePath));
+  return articleSummaryFromRaw(raw, relativePath, {
+    addedTimestamp: fileStat.birthtimeMs,
+    modifiedAt: fileStat.mtime.toISOString(),
+  });
+}
+
+class GitHubRequestError extends Error {
+  constructor(message, status, data) {
+    super(message);
+    this.name = "GitHubRequestError";
+    this.status = status;
+    this.data = data;
+  }
+}
+
+function githubHeaders(extra = {}) {
+  return {
+    Accept: "application/vnd.github+json",
+    Authorization: `Bearer ${GITHUB_TOKEN}`,
+    "User-Agent": "read-it-later",
+    "X-GitHub-Api-Version": GITHUB_API_VERSION,
+    ...extra,
+  };
+}
+
+async function githubRequest(apiPath, options = {}) {
+  const response = await fetch(`${GITHUB_API}${apiPath}`, {
+    ...options,
+    headers: githubHeaders(options.headers),
+  });
+  const contentType = response.headers.get("content-type") || "";
+  const data = contentType.includes("application/json") ? await response.json() : await response.text();
+
+  if (!response.ok) {
+    const message = typeof data === "object" && data?.message ? data.message : response.statusText;
+    throw new GitHubRequestError(`GitHub API ${response.status}: ${message}`, response.status, data);
+  }
+
+  return data;
+}
+
+async function githubRawRequest(apiPath) {
+  const response = await fetch(`${GITHUB_API}${apiPath}`, {
+    headers: githubHeaders({ Accept: "application/vnd.github.raw" }),
+  });
+
+  if (!response.ok) {
+    let message = response.statusText;
+    try {
+      const data = await response.json();
+      message = data?.message || message;
+    } catch {
+      message = await response.text();
+    }
+    throw new GitHubRequestError(`GitHub API ${response.status}: ${message}`, response.status);
+  }
+
+  return Buffer.from(await response.arrayBuffer());
+}
+
+function githubContentsPath(repoPath) {
+  const encodedPath = encodeRepoPath(repoPath);
+  return `/repos/${encodeURIComponent(GITHUB_OWNER)}/${encodeURIComponent(GITHUB_REPO)}/contents/${encodedPath}`;
+}
+
+async function getGitHubFile(repoPath) {
+  const pathWithRef = `${githubContentsPath(repoPath)}?ref=${encodeURIComponent(GITHUB_BRANCH)}`;
+  const file = await githubRequest(pathWithRef);
+
+  if (file.type !== "file" || !file.content) {
+    throw new Error(`GitHub file content is unavailable for ${repoPath}`);
+  }
+
+  return {
+    raw: Buffer.from(file.content.replace(/\s/g, ""), "base64").toString("utf8"),
+    sha: file.sha,
+  };
+}
+
+function isMarkdownArticlePath(relativePath) {
+  return (
+    relativePath.toLowerCase().endsWith(".md") &&
+    !relativePath.split("/").some((segment) => segment.startsWith("."))
+  );
+}
+
+async function listGitHubArticles() {
+  const tree = await githubRequest(
+    `/repos/${encodeURIComponent(GITHUB_OWNER)}/${encodeURIComponent(GITHUB_REPO)}/git/trees/${encodeURIComponent(
+      GITHUB_BRANCH,
+    )}?recursive=1`,
+  );
+
+  if (tree.truncated) {
+    throw new Error("GitHub repository tree is truncated; narrow GITHUB_ARTICLES_PATH before listing articles");
+  }
+
+  const prefix = GITHUB_ARTICLES_PATH ? `${GITHUB_ARTICLES_PATH}/` : "";
+  const repoPaths = tree.tree
+    .filter((entry) => entry.type === "blob" && entry.path.startsWith(prefix))
+    .map((entry) => entry.path)
+    .filter((repoPath) => isMarkdownArticlePath(relativePathFromRepoPath(repoPath)));
+
+  const articles = await Promise.all(
+    repoPaths.map(async (repoPath) => {
+      const relativePath = relativePathFromRepoPath(repoPath);
+      const { raw } = await getGitHubFile(repoPath);
+      return articleSummaryFromRaw(raw, relativePath, { addedTimestamp: 0 });
+    }),
+  );
+
+  articles.sort((a, b) => b.addedTimestamp - a.addedTimestamp || a.title.localeCompare(b.title));
+  return articles;
+}
+
+async function getGitHubArticle(id) {
+  const relativePath = relativePathFromId(id);
+  const { raw } = await getGitHubFile(repoPathFromRelative(relativePath));
+  const summary = articleSummaryFromRaw(raw, relativePath, { addedTimestamp: 0 });
+  const { content } = splitFrontmatter(raw);
+  return { ...summary, content };
+}
+
 async function listArticles() {
+  if (STORAGE_MODE === "github") return listGitHubArticles();
+
   if (!existsSync(ARTICLES_DIR)) {
     throw new Error(`Articles directory does not exist: ${ARTICLES_DIR}`);
   }
 
   const files = await walkMarkdownFiles(ARTICLES_DIR);
-  const articles = await Promise.all(files.map((filePath) => articleSummary(filePath)));
+  const articles = await Promise.all(files.map((filePath) => localArticleSummary(filePath)));
 
   articles.sort((a, b) => b.addedTimestamp - a.addedTimestamp || a.title.localeCompare(b.title));
   return articles;
 }
 
 async function getArticle(id) {
+  if (STORAGE_MODE === "github") return getGitHubArticle(id);
+
   const { fullPath } = articlePathFromId(id);
   const raw = await readFile(fullPath, "utf8");
-  const summary = await articleSummary(fullPath);
+  const summary = await localArticleSummary(fullPath);
   const { content } = splitFrontmatter(raw);
   return { ...summary, content };
 }
@@ -344,6 +536,11 @@ async function serveArticleAsset(res, articleIdParam, assetPath) {
     return;
   }
 
+  if (STORAGE_MODE === "github") {
+    await serveGitHubArticleAsset(res, articleIdParam, assetPath);
+    return;
+  }
+
   const { fullPath: articlePath } = articlePathFromId(articleIdParam);
   const encodedAssetPath = assetPath.split(/[?#]/)[0];
   let cleanAssetPath = encodedAssetPath;
@@ -379,6 +576,37 @@ async function serveArticleAsset(res, articleIdParam, assetPath) {
     }
     throw error;
   }
+}
+
+async function serveGitHubArticleAsset(res, articleIdParam, assetPath) {
+  const articleRelativePath = relativePathFromId(articleIdParam);
+  const encodedAssetPath = assetPath.split(/[?#]/)[0];
+  let cleanAssetPath = encodedAssetPath;
+  try {
+    cleanAssetPath = decodeURIComponent(encodedAssetPath);
+  } catch {
+    cleanAssetPath = encodedAssetPath;
+  }
+
+  const assetRelativePath = normalizeRelativePath(
+    path.posix.join(path.posix.dirname(articleRelativePath), cleanRepoPath(cleanAssetPath)),
+  );
+  const articleDir = path.posix.dirname(articleRelativePath);
+  if (articleDir !== "." && !assetRelativePath.startsWith(`${articleDir}/`)) {
+    sendText(res, 403, "Forbidden");
+    return;
+  }
+
+  const buffer = await githubRawRequest(
+    `${githubContentsPath(repoPathFromRelative(assetRelativePath))}?ref=${encodeURIComponent(GITHUB_BRANCH)}`,
+  );
+
+  res.writeHead(200, {
+    "Cache-Control": "public, max-age=3600",
+    "Content-Length": buffer.length,
+    "Content-Type": contentTypeFor(assetRelativePath),
+  });
+  res.end(buffer);
 }
 
 function yamlValue(value) {
@@ -417,9 +645,7 @@ function updateFrontmatter(frontmatter, updates) {
   return keptLines.join("\n");
 }
 
-async function setArticleRead(id, read) {
-  const { fullPath } = articlePathFromId(id);
-  const raw = await readFile(fullPath, "utf8");
+function articleContentWithReadState(raw, read) {
   const { content, frontmatter } = splitFrontmatter(raw);
   const nextReadState = {
     read,
@@ -427,11 +653,59 @@ async function setArticleRead(id, read) {
   };
   const nextFrontmatter = updateFrontmatter(frontmatter, nextReadState);
   const nextContent = `---\n${nextFrontmatter}\n---\n${content}`;
+  return { nextContent, nextReadState };
+}
+
+async function setLocalArticleRead(id, read) {
+  const { fullPath } = articlePathFromId(id);
+  const raw = await readFile(fullPath, "utf8");
+  const { nextContent, nextReadState } = articleContentWithReadState(raw, read);
   const tempFile = `${fullPath}.${process.pid}.tmp`;
 
   await writeFile(tempFile, nextContent, "utf8");
   await rename(tempFile, fullPath);
   return nextReadState;
+}
+
+async function putGitHubFile(repoPath, content, sha, message) {
+  await githubRequest(githubContentsPath(repoPath), {
+    body: JSON.stringify({
+      branch: GITHUB_BRANCH,
+      content: Buffer.from(content, "utf8").toString("base64"),
+      message,
+      sha,
+    }),
+    headers: { "Content-Type": "application/json" },
+    method: "PUT",
+  });
+}
+
+async function setGitHubArticleRead(id, read) {
+  const relativePath = relativePathFromId(id);
+  const repoPath = repoPathFromRelative(relativePath);
+  const message = `${read ? "Mark read" : "Mark unread"}: ${relativePath}`;
+
+  for (let attempt = 0; attempt < 2; attempt += 1) {
+    const { raw, sha } = await getGitHubFile(repoPath);
+    const { nextContent, nextReadState } = articleContentWithReadState(raw, read);
+
+    try {
+      await putGitHubFile(repoPath, nextContent, sha, message);
+      return nextReadState;
+    } catch (error) {
+      if (error instanceof GitHubRequestError && error.status === 409 && attempt === 0) {
+        continue;
+      }
+      throw error;
+    }
+  }
+
+  throw new Error("Could not update GitHub file after retrying conflict");
+}
+
+async function setArticleRead(id, read) {
+  if (STORAGE_MODE === "github") return setGitHubArticleRead(id, read);
+  return setLocalArticleRead(id, read);
 }
 
 const server = createServer(async (req, res) => {
@@ -441,7 +715,17 @@ const server = createServer(async (req, res) => {
     if (req.method === "GET" && url.pathname === "/api/health") {
       sendJson(res, 200, {
         articlesDir: ARTICLES_DIR,
+        github:
+          STORAGE_MODE === "github"
+            ? {
+                articlesPath: GITHUB_ARTICLES_PATH || ".",
+                branch: GITHUB_BRANCH,
+                owner: GITHUB_OWNER,
+                repo: GITHUB_REPO,
+              }
+            : null,
         ok: true,
+        storageMode: STORAGE_MODE,
       });
       return;
     }
@@ -504,5 +788,9 @@ server.listen(PORT, HOST, () => {
   for (const url of lanUrls(PORT)) {
     console.log(`Phone:   ${url}`);
   }
-  console.log(`Articles: ${ARTICLES_DIR}`);
+  if (STORAGE_MODE === "github") {
+    console.log(`Storage: GitHub ${GITHUB_OWNER}/${GITHUB_REPO}:${GITHUB_BRANCH}/${GITHUB_ARTICLES_PATH}`);
+  } else {
+    console.log(`Articles: ${ARTICLES_DIR}`);
+  }
 });
