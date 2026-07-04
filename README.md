@@ -43,6 +43,37 @@ Articles without frontmatter get a small frontmatter block the first time they a
 
 No package install is required; the app uses only Node built-ins.
 
+## Docker deployment
+
+Build the image:
+
+```sh
+docker build -t read-it-later .
+```
+
+Run with GitHub-backed storage:
+
+```sh
+docker run --rm -p 3055:3055 \
+  -e STORAGE_MODE=github \
+  -e GITHUB_OWNER="your-github-user-or-org" \
+  -e GITHUB_REPO="your-repo" \
+  -e GITHUB_BRANCH="main" \
+  -e GITHUB_ARTICLES_PATH="Articles" \
+  -e GITHUB_TOKEN="github_pat_..." \
+  -e AUTH_BASE_URL="https://reader.example.com" \
+  read-it-later
+```
+
+For local file-backed storage, mount the article folder and point `ARTICLES_DIR` at the container path:
+
+```sh
+docker run --rm -p 3055:3055 \
+  -v "/path/to/Articles:/articles" \
+  -e ARTICLES_DIR="/articles" \
+  read-it-later
+```
+
 ## GitHub OAuth
 
 Authentication is disabled by default. Set GitHub OAuth app credentials in `.env` to require GitHub sign-in before serving the app or article APIs:
