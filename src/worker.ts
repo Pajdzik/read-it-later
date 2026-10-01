@@ -1,5 +1,7 @@
 import type { Env } from "./contracts";
 import { errorResponse } from "./contracts";
+import { handleAuth } from "./auth/handler";
+import { handleArticles } from "./articles/handler";
 
 const securityHeaders = {
   "Cache-Control": "private, no-store",
@@ -22,7 +24,12 @@ export default {
       return withSecurityHeaders(Response.json({ ok: true }, { headers: { "Cache-Control": "public, max-age=30" } }));
     }
     if (url.pathname === "/api" || url.pathname.startsWith("/api/") || url.pathname === "/auth" || url.pathname.startsWith("/auth/")) {
-      return withSecurityHeaders(errorResponse(404, "not_found", "Route not found"));
+      try {
+        const response = await handleAuth(request, env) ?? await handleArticles(request, env);
+        return withSecurityHeaders(response ?? errorResponse(404, "not_found", "Route not found"));
+      } catch {
+        return withSecurityHeaders(errorResponse(503, "service_unavailable", "The service is temporarily unavailable. Please retry."));
+      }
     }
     const asset = await env.ASSETS.fetch(request);
     return withSecurityHeaders(asset);
