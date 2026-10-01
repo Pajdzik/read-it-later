@@ -343,6 +343,7 @@ async function initialize() {
     const form = $("#add-form");
     form.hidden = true;
     $(".title-option").hidden = true;
+    $("#sign-in-prompt").className = "sign-in-prompt";
     $("#sign-in-prompt").hidden = false;
     $("#sign-in-prompt a").addEventListener("click", stashDraft);
     $("#empty h3").textContent = "Your list is waiting";

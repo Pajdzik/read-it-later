@@ -109,6 +109,7 @@ try {
   await page.unroute("**/api/session");
   await page.reload();
   await page.locator("#logout").waitFor();
+  await page.locator("#add-open").click();
   await page
     .locator("#add-url")
     .fill("https://example.com/browser-smoke?utm_source=smoke");
