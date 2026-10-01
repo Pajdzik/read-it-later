@@ -190,7 +190,6 @@ async function load(reset = true) {
     if (generation !== loadGeneration) return;
     state.cursor = page.nextCursor;
     render(page.items, !reset);
-    $("#unread-count").textContent = "Your reading list";
   } catch (e) {
     if (generation !== loadGeneration) return;
     showNotice((e as Error).message, true);
