@@ -1,0 +1,85 @@
+# Implementation tracker
+
+Source of truth: [design.md](design.md). Status: planning completed; service implementation has not started. This tracker is intended for future chunks and subagents, not a request to launch them now.
+
+Check off a task only after its acceptance criteria pass. Each chunk should be one reviewable change; split further if needed. The integrating agent owns shared contracts, migrations, dependencies, and release checks. A subagent receives the task ID, prerequisite commits, owned paths, relevant design sections, and required evidence. It returns changed files, checks/results, and unresolved issues. It must not deploy, modify secrets, or refactor another chunk's files without explicit assignment.
+
+## Completed preparation
+
+- [x] P01 Inspect the repository and preserve the existing Markdown-reader prototype.
+- [x] P02 Remove personal default paths/branding and ignore local data and Worker artifacts.
+- [x] P03 Write the service design and check current Cloudflare/MDN documentation.
+- [x] P04 Create this dependency-ordered tracker.
+
+## MVP chunks
+
+| ID | Chunk | Depends on | Suggested owned paths |
+| --- | --- | --- | --- |
+| M01 | Worker foundation and shared contracts | Design | `src/worker.ts`, `src/contracts.ts`, tooling/config |
+| M02 | D1 schema and article repository | M01 | `migrations/`, `src/articles/repository.ts` |
+| M03 | Owner authentication and capture tokens | M01, M02 | `src/auth/`, auth migration, auth tests |
+| M04 | Library and capture API | M02, M03 | `src/articles/validation.ts`, API handlers/tests |
+| M05 | Responsive inbox | M01; integrate after M04 | `web/` inbox assets and UI checks |
+| M06 | Desktop/mobile capture | M03, M04, M05 | Add UI, PWA files, capture guides |
+| M07 | Portable export/import | M02, M03, M04 | transfer handlers, format fixtures/tests |
+| M08 | Free-tier deployment and release | M05, M06, M07 | deployment config, release docs/checks |
+
+- [ ] **M01 — Establish the Worker foundation and freeze contracts.** Create TypeScript configuration, pinned Wrangler/build tooling, local dev/check/build/test scripts, static asset routing, public health endpoint and shared DTO/error definitions. Leave the prototype start/check commands available with clearly distinct new commands. Centralize route wiring so future subagents can supply handlers without competing edits.
+  Acceptance: a fresh checkout installs from lockfile, typechecks and builds; local Worker serves the app shell and health; `/api/*` cannot fall through to SPA HTML; no Node filesystem/listening-server dependency in the Worker bundle; configuration contains no secrets. Confirm the design's API and import format in fixtures before parallel work.
+
+- [ ] **M02 — Add D1 persistence.** Create article/auth-table migrations and parameterized repository methods for save, get, list, title/read update, and deletion. The integrating agent assigns migration numbers; M03 adds auth behavior rather than duplicating base schema. Implement stable keyset ordering and unique normalized URL handling.
+  Acceptance: apply migrations to fresh local D1; concurrent duplicate saves leave one record; repeated read writes preserve the first timestamp; unread clears it; pagination neither drops nor repeats equal-timestamp items on a fixed dataset. Test reads and writes against local D1 rather than an in-memory mock alone. Verify query plans use intended list indexes.
+
+- [ ] **M03 — Implement private owner access.** Add GitHub OAuth, browser-bound one-time state, hashed persistent sessions, fixed numeric owner allowlist, logout, CSRF protection, settings token creation/list/revocation, and the capture limiter. Use mocked provider responses for automated tests and a real local callback for manual validation. Keep production auth fail-closed.
+  Acceptance: anonymous library calls fail; wrong owner fails; expired/replayed/unbound state fails; missing deployment auth configuration fails closed; cross-origin cookie writes fail; logout survives a new isolate; token plaintext is only returned at creation. Capture tokens cannot access any library or settings route. Revocation and limits work across independent Worker instances. No secrets in logs or built client assets.
+
+- [ ] **M04 — Implement the article HTTP API.** Connect validation/normalization to M02 persistence and M03 guards. Implement documented create/list/detail/update/delete/capture responses, body limits and safe error mapping. Do not fetch remote article pages. Add the session endpoint and error fixtures if not delivered in M03.
+  Acceptance: HTTP(S) saves work; credentials and unsafe schemes fail; tracking-only duplicates collapse while meaningful query/path differences stay distinct. Duplicate saves preserve read/title state. Search wildcard input is literal; invalid cursors and limits fail predictably. Storage failure returns a retryable failure, never success. Unauthorized and capture-token scope tests cover all routes.
+
+- [ ] **M05 — Build the responsive inbox.** Start against M01 fixtures if M04 is still running, then integrate real APIs. Default Unread, with Read/All, search, pagination, original links, explicit read/unread actions, title edits, delete confirmation, token settings, theme, and keyboard support. Port existing styling selectively into `web/`; avoid changing the preserved prototype to serve both products.
+  Acceptance: save → list → open original → mark read → reload → mark unread works; another device sees persisted state after refresh. Opening a link alone does not mark read. Mutation failures preserve correct state; empty/loading/session-expiry/errors are usable. Verify narrow phone and desktop layouts, focus order, labels, and contrast. Never insert title or URL as unsanitized HTML.
+
+- [ ] **M06 — Add capture from desktop and mobile.** Deliver the Add route, bookmarklet installation, iOS Shortcut instructions or importable Shortcut artifact if available, manifest/icons/service worker, and a supported PWA share-target flow. Use the same create API for browser saves. Add confirmation and login-draft recovery. Explain Shortcut token rotation and paste fallback.
+  Acceptance: bookmarklet prefills an encoded URL/title on a normal desktop page; a CSP-blocked page has a documented paste fallback. On an actual iOS device, a shared URL reaches the capture API and reports success/duplicate/revoked-token failure. On an actual supported Android/browser setup, installed PWA sharing prefills the form. Generic shared text and logged-out drafts recover correctly; GET does not save; private responses are never cached. If devices are unavailable, record those checks as pending and do not claim mobile release validation.
+
+- [ ] **M07 — Deliver backup and restore.** Add versioned JSON export and bounded atomic import, UI download/upload actions, duplicate/conflicting-ID policy and fixtures. Exclude all sessions, OAuth state and capture tokens. Document how to split imports exceeding MVP limits.
+  Acceptance: export a library containing unread/read records and Unicode titles, import into empty D1, and reconcile counts/URLs/dates/read state. Reimport changes nothing; invalid input and a mid-batch failure leave no partial writes; existing URL conflicts do not overwrite state. Exports do not include credentials. Check a multi-page export and document concurrent-edit consistency.
+
+- [ ] **M08 — Prepare and validate free deployment.** Configure separate local/staging/production D1 bindings, asset routing, secrets and origin/owner settings. Document account setup, GitHub OAuth callback, migrations, deployment, backups/restore, quota monitoring, and migration-compatible rollback. Recheck current Worker/D1 quotas and chosen rate-limiter availability/cost; keep paid services disabled. Deployment is a separate action when requested, not part of this planning change.
+  Acceptance: production build and integration checks pass; once deployment is authorized, release smoke checks run on a `workers.dev` origin with private access, desktop/mobile capture, read-state persistence, and export/restore verified. Test quota/storage failures without consuming actual account limits. Record URL, migration version, evidence and any pending device checks. Do not declare the service shipped while required checks remain pending.
+
+## Archive chunks: after MVP
+
+| ID | Chunk | Depends on |
+| --- | --- | --- |
+| A01 | Preservation feasibility and safe-fetch decision | M08 |
+| A02 | Markdown copy storage and manual capture | A01 |
+| A03 | In-site Markdown reader and download | A02 |
+| A04 | Durable automatic capture, if feasible | A01, A02 |
+| A05 | Archive release and backup validation | A03; A04 if enabled |
+
+- [ ] **A01 — Test archive feasibility before committing infrastructure.** Evaluate Readability/Markdown conversion in the deployed runtime against public static, large, dynamic, blocked and malformed HTML fixtures. Measure CPU/memory/output size. Prove DNS/redirect/rebinding protections for automatic fetching or select manual/browser-clipped Markdown only. Write a short decision record with package versions, measured limits and costs.
+  Acceptance: a concrete supported route is documented. Automatic extraction is explicitly gated if it exceeds free limits or safe-fetch enforcement is unresolved. No paid service is enabled to mask an unsuccessful spike.
+
+- [ ] **A02 — Store and accept Markdown copies.** Add separate copy metadata/content tables, owner-only upload/paste, UTF-8 byte limit, replacement confirmation, and archive status. Keep original URL and read state independent. Only expand schema for automatic jobs when A04 is selected.
+  Acceptance: manual browser-clipped Markdown survives reload, stays private, rejects oversized input, and does not change read state. URL saving continues to work when copy storage fails. Deleting an article deletes its copy. Backup format advances with backward-compatible import of version 1.
+
+- [ ] **A03 — Read preserved copies safely.** Add sanitized in-site rendering, Open original, capture metadata, readable narrow-screen layout, and Markdown download with frontmatter. Disable raw HTML and dangerous protocols. Explain external image dependency.
+  Acceptance: XSS fixture links/HTML do not execute; code blocks, tables, headings and relative links render correctly. A saved text copy remains readable when the original is unavailable. Missing copies have a clear original-link fallback; images are not claimed to be offline.
+
+- [ ] **A04 — Implement automatic capture only after A01 passes.** Add leased D1 jobs, scheduled bounded processing, three-attempt backoff, manual retry, SSRF-safe streamed fetching, extraction and atomic completion. The normal save API commits the URL before scheduling preservation. Document schedule/quota impact.
+  Acceptance: worker crash recovery, duplicate job claims, exhausted retries, unsafe redirects/private destinations, oversized responses, and extraction errors are covered. Original-link saving works during extraction failures. Test representative extraction CPU against the selected plan. If A01 chooses manual-only, mark this task deferred with the reason, not completed.
+
+- [ ] **A05 — Validate archive backup and release.** Export/import copy content and metadata without auth secrets; test restoring a preserved library. Run the archive behavior on the deployed origin and record supported source types, missing images and failed extraction behavior.
+  Acceptance: a restored copy can be read/downloaded while its source is unavailable. No archive failures silently replace the last successful copy. Document measured storage headroom and when an R2 migration would become useful.
+
+## Optional migration
+
+- [ ] **X01 — Import the existing Obsidian library.** After M07 (and A02 for copies), create a read-only importer from prototype frontmatter to the versioned import format. Produce a dry-run report of valid records, duplicate URLs, invalid/missing source URLs, unrecognized read flags and dates. Preserve source files and do not infer read status for ambiguous records.
+  Acceptance: dry-run and import counts reconcile; original vault files are byte-identical afterward; existing service records remain intact; malformed source files are reported individually. Retire the old flow only after owner review of the reconciliation.
+
+## Parallel work and handoff
+
+After M01/M02 land, M03 can build auth while M05 builds the UI against frozen fixtures. M04 integrates after M03; M06 and M07 can run in parallel once their prerequisites land, with the integrating agent owning shared route wiring and any overlapping UI controls. A03 and A04 can work separately after A02, provided A01 authorizes automatic fetching. Do not parallelize migrations or lockfile edits without one designated owner.
+
+Every handoff includes task ID, implementation summary, changed paths, commands/results, manual evidence, and remaining limitations. Use targeted tests for state transitions, boundaries, persistence, auth, and hostile input; avoid tests that merely mirror styling or implementation internals. Only widen validation after a new change or unresolved failure. No service implementation tasks are checked off by this planning pass.

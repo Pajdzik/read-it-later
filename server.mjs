@@ -16,8 +16,7 @@ const __dirname = path.dirname(fileURLToPath(import.meta.url));
 
 loadDotEnv(path.join(__dirname, ".env"));
 
-const DEFAULT_ARTICLES_DIR =
-  "/Users/kamil/Library/Mobile Documents/iCloud~md~obsidian/Documents/Kamilpedia/Articles";
+const DEFAULT_ARTICLES_DIR = path.join(__dirname, "articles");
 
 const ARTICLES_DIR = path.resolve(process.env.ARTICLES_DIR || DEFAULT_ARTICLES_DIR);
 const PUBLIC_DIR = path.join(__dirname, "public");
