@@ -389,7 +389,7 @@ $("#add-form").addEventListener("submit", async (e) => {
   button.disabled = true;
   try {
     invalidateLoads();
-    const result = await request<{ article: Article; duplicate: boolean }>(
+    const result = await request<{ article: Article; duplicate: boolean; metadataUpdated?: boolean }>(
       "/api/articles",
       {
         method: "POST",
@@ -407,7 +407,7 @@ $("#add-form").addEventListener("submit", async (e) => {
       );
     showNotice(
       result.duplicate
-        ? "That link is already in your list."
+        ? result.metadataUpdated ? "Preview details updated." : "That link is already in your list."
         : "Saved for later.",
     );
     await load();
