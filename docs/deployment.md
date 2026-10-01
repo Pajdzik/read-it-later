@@ -8,7 +8,7 @@ This service targets Workers Free with Workers Static Assets and D1. Deployment 
 2. Run the repository's Worker typecheck, tests and build commands. The prototype's `npm start` is a separate Node server; do not upload it as the Worker.
 3. Keep the Cloudflare account on Workers Free. Recheck [Worker limits](https://developers.cloudflare.com/workers/platform/limits/) and [D1 pricing](https://developers.cloudflare.com/d1/platform/pricing/). Static asset requests are [free and unlimited](https://developers.cloudflare.com/workers/static-assets/billing-and-limitations/); dynamic requests and D1 operations have shared account quotas.
 4. Create separate staging and production D1 databases with Wrangler. Replace the corresponding database IDs in the configuration; local development uses Wrangler's local storage rather than these remote databases. Never reuse production data for tests.
-5. Set the application origin to the exact HTTPS `workers.dev` hostname. Register a GitHub OAuth app whose callback is `<origin>/auth/github/callback`. Configure the owner's immutable numeric GitHub user ID rather than their changeable login.
+5. Replace `<account-subdomain>` in each `APP_ORIGIN` in `wrangler.jsonc` with the Workers subdomain assigned to your Cloudflare account, or use the exact custom domain routed to that Worker. Do not assume the hostname from the Worker name alone. Register a separate GitHub OAuth app for each environment with callback `<origin>/auth/github/callback`. Set `OWNER_GITHUB_ID` to the owner's immutable numeric GitHub user ID rather than their changeable login.
 6. Store OAuth credentials with `wrangler secret put` for the selected environment. Never commit them or put them in frontend variables. The capture Shortcut needs its own revocable capture token, not these OAuth credentials.
 7. Apply migrations to the selected remote D1 database, then deploy the Worker and built assets. Confirm environment/binding names against `wrangler.jsonc` before any command using `--remote`.
 
@@ -32,13 +32,13 @@ pnpm exec playwright install chromium
 pnpm test:browser
 ```
 
-Configure `APP_ORIGIN`, `OWNER_GITHUB_ID`, `GITHUB_CLIENT_ID`, and `GITHUB_CLIENT_SECRET` for each deployed environment. `DEV_AUTH_BYPASS` must not be set there. Use the Wrangler executable installed by pnpm:
+The staging and production `APP_ORIGIN` and `OWNER_GITHUB_ID` values are non-secret Worker vars in `wrangler.jsonc`; replace their placeholders before deployment. Set the matching `GITHUB_CLIENT_ID` and `GITHUB_CLIENT_SECRET` as Wrangler secrets for each environment. `DEV_AUTH_BYPASS` must not be set there. Use the Wrangler executable installed by pnpm:
 
 ```sh
 pnpm exec wrangler login
 pnpm exec wrangler d1 create read-later-staging
 pnpm exec wrangler d1 create read-later-production
-# Fill the returned IDs and origins into the matching environment in wrangler.jsonc.
+# Fill the returned IDs, actual origins, and owner's numeric GitHub ID into the matching environment in wrangler.jsonc.
 pnpm exec wrangler secret put GITHUB_CLIENT_ID --env staging
 pnpm exec wrangler secret put GITHUB_CLIENT_SECRET --env staging
 pnpm exec wrangler d1 migrations apply read-later-staging --remote --env staging

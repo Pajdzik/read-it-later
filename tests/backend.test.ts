@@ -56,6 +56,11 @@ describe('article HTTP handlers', () => {
     expect((await route(hostile)).status).toBe(403);
   });
 
+  it('does not claim similarly prefixed article routes', async () => {
+    const unavailableDb = { ...env, DB: { prepare() { throw new Error('should not query storage'); } } } as unknown as Env;
+    expect(await handleArticles(new Request(`${origin}/api/articlesfoo`), unavailableDb)).toBeNull();
+  });
+
   it('keeps capture tokens save-only, rate limited durably, and revocable', async () => {
     const sessionToken = 'saved-session-token'; const csrf = 'saved-csrf';
     await env.DB.prepare('INSERT INTO sessions(token_hash,csrf_token,expires_at,created_at) VALUES(?,?,?,?)')
@@ -205,6 +210,21 @@ describe('article HTTP handlers', () => {
     expect(item).toEqual({ title: '日本語 📰', read_at: '2026-01-02T00:00:00.000Z' });
   });
 
+  it('paginates opaque Unicode article IDs up to the import length limit', async () => {
+    for (const id of ['界'.repeat(128), 'second']) {
+      await env.DB.prepare('INSERT INTO articles(id,url,normalized_url,title,created_at,updated_at,read_at) VALUES(?,?,?,?,?,?,NULL)')
+        .bind(id, `https://example.com/${encodeURIComponent(id)}`, `https://example.com/${encodeURIComponent(id)}`, id,
+          '2026-01-01T00:00:00.000Z', '2026-01-01T00:00:00.000Z').run();
+    }
+    const page = await route(request('/api/articles?status=all&limit=1'));
+    expect(page.status).toBe(200);
+    const result = await page.json() as { items: Array<{ id: string }>; nextCursor: string };
+    expect(result.items).toHaveLength(1);
+    const next = await route(request(`/api/articles?status=all&limit=1&cursor=${encodeURIComponent(result.nextCursor)}`));
+    expect(next.status).toBe(200);
+    expect((await next.json() as { items: Array<{ id: string }> }).items).toHaveLength(1);
+  });
+
   it('validates the full import before writing and rolls back a failed batch', async () => {
     const badDate = { version: 1, exportedAt: '2026-01-01T00:00:00.000Z', articles: [{ id: 'bad', url: 'https://example.com/bad', title: 'Bad', createdAt: 'not-date', updatedAt: '2026-01-01T00:00:00.000Z', readAt: null }] };
     expect((await route(request('/api/import', 'POST', badDate))).status).toBe(400);
@@ -228,5 +248,23 @@ describe('article HTTP handlers', () => {
     ] };
     const response = await route(request('/api/import', 'POST', document));
     expect(response.status).toBe(400);
+  });
+
+  it('skips a concurrent imported URL without overwriting the winning article', async () => {
+    const exportedAt = '2026-01-01T00:00:00.000Z';
+    const importDocument = (id: string, title: string) => ({ version: 1, exportedAt, articles: [
+      { id, url: 'https://example.com/race', title, createdAt: exportedAt, updatedAt: exportedAt, readAt: null },
+    ] });
+    const responses = await Promise.all([
+      route(request('/api/import', 'POST', importDocument('race-one', 'First'))),
+      route(request('/api/import', 'POST', importDocument('race-two', 'Second'))),
+    ]);
+    const counts = await Promise.all(responses.map(async (response) => response.json() as Promise<{ imported: number; skipped: number }>));
+    expect(counts.reduce((sum, count) => sum + count.imported, 0)).toBe(1);
+    expect(counts.reduce((sum, count) => sum + count.skipped, 0)).toBe(1);
+    const row = await env.DB.prepare('SELECT id,title FROM articles WHERE normalized_url = ?')
+      .bind('https://example.com/race').first<{ id: string; title: string }>();
+    expect(row?.id).toMatch(/race-one|race-two/);
+    expect(row?.title).toBe(row?.id === 'race-one' ? 'First' : 'Second');
   });
 });

@@ -19,7 +19,8 @@ function storageFailure(): Response { return fail(503, 'storage_unavailable', 'T
 export async function handleArticles(request: Request, env: Env): Promise<Response | null> {
   const url = new URL(request.url); const method = request.method.toUpperCase();
   if (url.pathname === '/api/capture' && method === 'POST') return capture(request, env);
-  if (!url.pathname.startsWith('/api/articles') && url.pathname !== '/api/export' && url.pathname !== '/api/import') return null;
+  const isArticlePath = url.pathname === '/api/articles' || /^\/api\/articles\/[^/]+$/.test(url.pathname);
+  if (!isArticlePath && url.pathname !== '/api/export' && url.pathname !== '/api/import') return null;
   const needsWrite = method !== 'GET';
   let session: Awaited<ReturnType<typeof requireSession>>;
   try { session = await requireSession(request, env, needsWrite); } catch { return storageFailure(); }
@@ -45,7 +46,6 @@ export async function handleArticles(request: Request, env: Env): Promise<Respon
   } catch (error) {
     if (error instanceof BodyTooLargeError) return fail(413, 'body_too_large', error.message);
     if (error instanceof ValidationError) return fail(400, 'invalid_request', error.message);
-    if (error instanceof Error && /invalid article (cursor|status)|invalid page size/i.test(error.message)) return fail(400, 'invalid_request', error.message);
     return storageFailure();
   }
 }
@@ -64,11 +64,7 @@ async function capture(request: Request, env: Env): Promise<Response> {
   try { auth = await validateCaptureToken(request, env); } catch { return storageFailure(); }
   if (isResponse(auth)) return auth;
   try {
-    const input = parseObject(await readJson(request), ['url', 'title'], ['url']);
-    const normalized = normalizeArticleUrl(input.url);
-    const title = validateTitle(input.title, defaultTitle(normalized.url));
-    const result = await saveArticle(env.DB, { ...normalized, title });
-    return json(result, result.duplicate ? 200 : 201);
+    return await createArticle(request, env);
   } catch (error) {
     if (error instanceof BodyTooLargeError) return fail(413, 'body_too_large', error.message);
     if (error instanceof ValidationError) return fail(400, 'invalid_request', error.message);
@@ -88,7 +84,7 @@ async function listRoute(url: URL, env: Env): Promise<Response> {
   const limit = limitText === null ? 50 : (/^\d+$/.test(limitText) ? Number(limitText) : NaN);
   if (!Number.isInteger(limit) || limit < 1 || limit > 100) throw new ValidationError('limit must be an integer from 1 to 100');
   const cursor = url.searchParams.get('cursor') || undefined;
-  if (cursor && cursor.length > 512) throw new ValidationError('cursor is invalid');
+  if (cursor && cursor.length > 2048) throw new ValidationError('cursor is invalid');
   return json(await listArticles(env.DB, { status, q, limit, cursor }));
 }
 
@@ -155,29 +151,30 @@ async function importArticles(request: Request, env: Env): Promise<Response> {
     const readAt = item.readAt === null ? null : validTimestamp(item.readAt, 'readAt');
     normalized.push({ id: item.id, url: url.url, normalizedUrl: url.normalizedUrl, title: item.title.trim(), createdAt, updatedAt, readAt });
   }
-  const existingIds = new Map<string, string>(); const existingUrls = new Set<string>();
+  const existingIds = new Map<string, string>();
   for (const group of chunks(normalized, 80)) {
     const idRows = await env.DB.prepare(`SELECT id, normalized_url FROM articles WHERE id IN (${group.map(() => '?').join(',')})`).bind(...group.map((x) => x.id)).all<{ id: string; normalized_url: string }>();
     for (const row of idRows.results || []) existingIds.set(row.id, row.normalized_url);
-    const urlRows = await env.DB.prepare(`SELECT normalized_url FROM articles WHERE normalized_url IN (${group.map(() => '?').join(',')})`).bind(...group.map((x) => x.normalizedUrl)).all<{ normalized_url: string }>();
-    for (const row of urlRows.results || []) existingUrls.add(row.normalized_url);
   }
   const seenUrls = new Set<string>(); const toInsert: typeof normalized = [];
   let skipped = 0;
   for (const item of normalized) {
     const idUrl = existingIds.get(item.id);
     if (idUrl !== undefined && idUrl !== item.normalizedUrl) throw new ValidationError('an article ID already belongs to a different URL');
-    if (seenUrls.has(item.normalizedUrl) || idUrl !== undefined || existingUrls.has(item.normalizedUrl)) { skipped++; seenUrls.add(item.normalizedUrl); continue; }
+    if (seenUrls.has(item.normalizedUrl) || idUrl !== undefined) { skipped++; seenUrls.add(item.normalizedUrl); continue; }
     seenUrls.add(item.normalizedUrl);
     toInsert.push(item);
   }
+  let imported = 0;
   if (toInsert.length) {
     const statements = toInsert.map((item) => env.DB.prepare(`INSERT INTO articles (id,url,normalized_url,title,created_at,updated_at,read_at)
-      VALUES (?, ?, ?, ?, ?, ?, ?)`)
+      VALUES (?, ?, ?, ?, ?, ?, ?) ON CONFLICT(normalized_url) DO NOTHING`)
       .bind(item.id, item.url, item.normalizedUrl, item.title, item.createdAt, item.updatedAt, item.readAt));
-    await env.DB.batch(statements);
+    const results = await env.DB.batch(statements);
+    skipped += results.reduce((count, result) => count + ((result.meta.changes ?? 0) === 0 ? 1 : 0), 0);
+    imported = results.reduce((count, result) => count + (result.meta.changes ?? 0), 0);
   }
-  return json({ imported: toInsert.length, skipped }, 200);
+  return json({ imported, skipped }, 200);
 }
 
 function validTimestamp(value: unknown, field: string): string {

@@ -1,45 +1,197 @@
 <!doctype html>
 <html lang="en">
-<head>
-  <meta charset="utf-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1">
-  <meta name="theme-color" content="#f7f7f2">
-  <meta name="description" content="A quiet, private place for the things you want to read later.">
-  <title>Later — your reading list</title>
-  <link rel="manifest" href="/manifest.webmanifest">
-  <link rel="icon" href="/icons/icon.svg" type="image/svg+xml">
-  <link rel="stylesheet" href="/app.v1.css">
-</head>
-<body>
-  <header class="topbar">
-    <a class="brand" href="/" aria-label="Later home"><span class="brand-mark" aria-hidden="true">L</span><span>later<span class="brand-dot">.</span></span></a>
-    <div class="top-actions">
-      <span id="account" class="account" hidden></span>
-      <button id="theme-toggle" class="icon-button" type="button" aria-label="Switch theme" title="Switch theme">◐</button>
-      <button id="settings-open" class="icon-button" type="button" aria-label="Settings" title="Settings">⚙</button>
-      <button id="logout" class="text-button" type="button" hidden>Sign out</button>
-    </div>
-  </header>
-  <main class="shell">
-    <section class="hero"><div><p class="eyebrow">A little room to think</p><h1>Your reading, <em>at your pace.</em></h1><p class="hero-copy">Save the good things. Come back when you’re ready.</p></div><div class="hero-count"><strong id="unread-count">A quiet place</strong><span>take your time</span></div></section>
-    <section class="add-panel" aria-labelledby="add-heading">
-      <div class="add-heading"><span class="add-plus" aria-hidden="true">＋</span><div><h2 id="add-heading">Save something for later</h2><p>Paste a link and we’ll keep your place.</p></div></div>
-      <form id="add-form" class="add-form"><label class="sr-only" for="add-url">Article URL</label><input id="add-url" type="url" inputmode="url" placeholder="Paste an article link…" required maxlength="8192" autocomplete="url"><button class="button primary" type="submit">Save link <span aria-hidden="true">↗</span></button></form>
-      <label class="title-option" for="add-title">Add a title <span>(optional)</span><input id="add-title" type="text" maxlength="500" placeholder="Give it a name"></label>
-    </section>
-    <section class="library" aria-label="Your articles">
-      <div class="library-heading"><div><p class="eyebrow">Your collection</p><h2>Reading list</h2></div><label class="search"><span aria-hidden="true">⌕</span><span class="sr-only">Search title or URL</span><input id="search" type="search" placeholder="Search your list" autocomplete="off"></label></div>
-      <div class="list-controls"><div class="tabs" role="group" aria-label="Filter articles"><button type="button" data-status="unread" aria-pressed="true">Unread</button><button type="button" data-status="read" aria-pressed="false">Read</button><button type="button" data-status="all" aria-pressed="false">All</button></div><span id="result-count" class="muted"></span></div>
-      <p id="notice" role="status" aria-live="polite" class="notice" hidden></p>
-      <div id="loading" class="loading" role="status">Getting your list…</div>
-      <ul id="articles" class="articles" aria-label="Saved articles"></ul>
-      <div id="empty" class="empty" hidden><span class="empty-icon" aria-hidden="true">✳</span><h3>Nothing here yet</h3><p>When you save an article, it’ll be waiting here.</p></div>
-      <button id="more" class="button secondary more" type="button" hidden>Show more</button>
-    </section>
-    <footer class="footer"><span>Small steps, good reads.</span><div><button id="export" class="link-button" type="button">Export library</button><label class="link-button import-label">Import JSON<input id="import-file" type="file" accept="application/json,.json"></label><button id="footer-settings" class="link-button" type="button">Settings</button></div></footer>
-  </main>
-  <dialog id="detail-dialog" class="dialog"><form method="dialog" class="dialog-close"><button class="icon-button" aria-label="Close">×</button></form><div id="detail-content"></div></dialog>
-  <dialog id="settings-dialog" class="dialog settings-dialog"><form method="dialog" class="dialog-close"><button class="icon-button" aria-label="Close">×</button></form><p class="eyebrow">Your account</p><h2>Settings</h2><p id="settings-status" class="muted"></p><section class="settings-section"><h3>Capture tokens</h3><p>Use a token with the iOS Shortcut to save links from the Share menu. A token is shown once when created.</p><form id="token-form" class="token-form"><label for="token-label">Device or shortcut name</label><div><input id="token-label" maxlength="80" placeholder="e.g. My iPhone" required><button class="button primary" type="submit">Create token</button></div></form><div id="new-token" class="new-token" hidden></div><ul id="tokens" class="token-list"></ul></section><section class="settings-section"><h3>Capture help</h3><p>Set up your desktop bookmarklet or iOS Shortcut using the <a href="/capture">capture guide</a>.</p></section></dialog>
-  <script type="module" src="/app.v1.js"></script>
-</body>
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <meta name="theme-color" content="#f7f7f2" />
+    <meta
+      name="description"
+      content="A quiet, private place for the things you want to read later."
+    />
+    <title>Later — your reading list</title>
+    <link rel="manifest" href="/manifest.webmanifest" />
+    <link rel="icon" href="/icons/icon.svg" type="image/svg+xml" />
+    <link rel="stylesheet" href="/app.v1.css" />
+  </head>
+  <body>
+    <header class="topbar">
+      <a class="brand" href="/" aria-label="Later home"
+        ><span class="brand-mark" aria-hidden="true">L</span
+        ><span>later<span class="brand-dot">.</span></span></a
+      >
+      <div class="top-actions">
+        <span id="account" class="account" hidden></span>
+        <button
+          id="theme-toggle"
+          class="icon-button"
+          type="button"
+          aria-label="Switch theme"
+          title="Switch theme"
+        >
+          ◐
+        </button>
+        <button
+          id="settings-open"
+          class="icon-button"
+          type="button"
+          aria-label="Settings"
+          title="Settings"
+        >
+          ⚙
+        </button>
+        <button id="logout" class="text-button" type="button" hidden>
+          Sign out
+        </button>
+      </div>
+    </header>
+    <main class="shell">
+      <section class="hero">
+        <div>
+          <p class="eyebrow">A little room to think</p>
+          <h1>Your reading, <em>at your pace.</em></h1>
+          <p class="hero-copy">
+            Save the good things. Come back when you’re ready.
+          </p>
+        </div>
+        <div class="hero-count">
+          <strong id="unread-count">A quiet place</strong
+          ><span>take your time</span>
+        </div>
+      </section>
+      <section class="add-panel" aria-labelledby="add-heading">
+        <div class="add-heading">
+          <span class="add-plus" aria-hidden="true">＋</span>
+          <div>
+            <h2 id="add-heading">Save something for later</h2>
+            <p>Paste a link and we’ll keep your place.</p>
+          </div>
+        </div>
+        <form id="add-form" class="add-form">
+          <label class="sr-only" for="add-url">Article URL</label
+          ><input
+            id="add-url"
+            type="url"
+            inputmode="url"
+            placeholder="Paste an article link…"
+            required
+            maxlength="8192"
+            autocomplete="url"
+          /><button class="button primary" type="submit">
+            Save link <span aria-hidden="true">↗</span>
+          </button>
+        </form>
+        <label class="title-option" for="add-title"
+          >Add a title <span>(optional)</span
+          ><input
+            id="add-title"
+            type="text"
+            maxlength="500"
+            placeholder="Give it a name"
+        /></label>
+      </section>
+      <section class="library" aria-label="Your articles">
+        <div class="library-heading">
+          <div>
+            <p class="eyebrow">Your collection</p>
+            <h2>Reading list</h2>
+          </div>
+          <label class="search"
+            ><span aria-hidden="true">⌕</span
+            ><span class="sr-only">Search title or URL</span
+            ><input
+              id="search"
+              type="search"
+              placeholder="Search your list"
+              autocomplete="off"
+          /></label>
+        </div>
+        <div class="list-controls">
+          <div class="tabs" role="group" aria-label="Filter articles">
+            <button type="button" data-status="unread" aria-pressed="true">
+              Unread</button
+            ><button type="button" data-status="read" aria-pressed="false">
+              Read</button
+            ><button type="button" data-status="all" aria-pressed="false">
+              All
+            </button>
+          </div>
+          <span id="result-count" class="muted"></span>
+        </div>
+        <p
+          id="notice"
+          role="status"
+          aria-live="polite"
+          class="notice"
+          hidden
+        ></p>
+        <div id="loading" class="loading" role="status">Getting your list…</div>
+        <ul id="articles" class="articles" aria-label="Saved articles"></ul>
+        <div id="empty" class="empty" hidden>
+          <span class="empty-icon" aria-hidden="true">✳</span>
+          <h3>Nothing here yet</h3>
+          <p>When you save an article, it’ll be waiting here.</p>
+        </div>
+        <button id="more" class="button secondary more" type="button" hidden>
+          Show more
+        </button>
+      </section>
+      <footer class="footer">
+        <span>Small steps, good reads.</span>
+        <div>
+          <button id="export" class="link-button" type="button">
+            Export library</button
+          ><label class="link-button import-label"
+            >Import JSON<input
+              id="import-file"
+              type="file"
+              accept="application/json,.json" /></label
+          ><button id="footer-settings" class="link-button" type="button">
+            Settings
+          </button>
+        </div>
+      </footer>
+    </main>
+    <dialog id="detail-dialog" class="dialog">
+      <form method="dialog" class="dialog-close">
+        <button class="icon-button" aria-label="Close">×</button>
+      </form>
+      <div id="detail-content"></div>
+    </dialog>
+    <dialog id="settings-dialog" class="dialog settings-dialog">
+      <form method="dialog" class="dialog-close">
+        <button class="icon-button" aria-label="Close">×</button>
+      </form>
+      <p class="eyebrow">Your account</p>
+      <h2>Settings</h2>
+      <p id="settings-status" class="muted"></p>
+      <section class="settings-section">
+        <h3>Capture tokens</h3>
+        <p>
+          Use a token with the iOS Shortcut to save links from the Share menu. A
+          token is shown once when created.
+        </p>
+        <form id="token-form" class="token-form">
+          <label for="token-label">Device or shortcut name</label>
+          <div>
+            <input
+              id="token-label"
+              maxlength="80"
+              placeholder="e.g. My iPhone"
+              required
+            /><button class="button primary" type="submit">Create token</button>
+          </div>
+        </form>
+        <div id="new-token" class="new-token" hidden></div>
+        <ul id="tokens" class="token-list"></ul>
+      </section>
+      <section class="settings-section">
+        <h3>Capture help</h3>
+        <p>
+          Set up your desktop bookmarklet or iOS Shortcut using the
+          <a href="/capture">capture guide</a>.
+        </p>
+      </section>
+    </dialog>
+    <script type="module" src="/app.v1.js"></script>
+  </body>
 </html>

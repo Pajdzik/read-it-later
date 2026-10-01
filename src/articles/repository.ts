@@ -1,4 +1,5 @@
 import type { Article, ArticleCursor } from "../contracts";
+import { ValidationError } from "./validation";
 
 export type ArticleStatus = "unread" | "read" | "all";
 
@@ -33,23 +34,28 @@ function mapArticle(row: Record<string, unknown> | null): Article | null {
 }
 
 function encodeCursor(cursor: ArticleCursor): string {
-  return btoa(JSON.stringify(cursor)).replace(/\+/g, "-").replace(/\//g, "_").replace(/=+$/g, "");
+  const bytes = new TextEncoder().encode(JSON.stringify(cursor));
+  let binary = "";
+  for (const byte of bytes) binary += String.fromCharCode(byte);
+  return btoa(binary).replace(/\+/g, "-").replace(/\//g, "_").replace(/=+$/g, "");
 }
 
 function decodeCursor(value: string): ArticleCursor {
-  if (value.length > 512 || !/^[A-Za-z0-9_-]+$/.test(value)) throw new Error("Invalid article cursor");
+  if (value.length > 2048 || !/^[A-Za-z0-9_-]+$/.test(value)) throw new ValidationError("cursor is invalid");
   try {
     const raw = value.replace(/-/g, "+").replace(/_/g, "/");
-    const parsed: unknown = JSON.parse(atob(raw + "=".repeat((4 - (raw.length % 4)) % 4)));
+    const binary = atob(raw + "=".repeat((4 - (raw.length % 4)) % 4));
+    const bytes = Uint8Array.from(binary, (char) => char.charCodeAt(0));
+    const parsed: unknown = JSON.parse(new TextDecoder("utf-8", { fatal: true }).decode(bytes));
     if (!parsed || typeof parsed !== "object") throw new Error();
     const cursor = parsed as Partial<ArticleCursor>;
     if (Object.keys(parsed).length !== 2 || typeof cursor.createdAt !== "string" ||
         typeof cursor.id !== "string" || !cursor.id || cursor.id.length > 128 ||
         !/^\d{4}-\d\d-\d\dT\d\d:\d\d:\d\d\.\d{3}Z$/.test(cursor.createdAt) ||
-        new Date(cursor.createdAt).toISOString() !== cursor.createdAt) throw new Error();
+      new Date(cursor.createdAt).toISOString() !== cursor.createdAt) throw new Error();
     return { createdAt: cursor.createdAt, id: cursor.id };
   } catch {
-    throw new Error("Invalid article cursor");
+    throw new ValidationError("cursor is invalid");
   }
 }
 
@@ -64,21 +70,14 @@ export async function saveArticle(
   const now = new Date().toISOString();
   const id = crypto.randomUUID();
   const title = input.title?.trim() || input.url;
-  try {
-    await db.prepare(
-      "INSERT INTO articles (id,url,normalized_url,title,created_at,updated_at,read_at) VALUES (?,?,?,?,?,?,NULL)",
-    ).bind(id, input.url, input.normalizedUrl, title, now, now).run();
-    const article = await getArticle(db, id);
-    if (!article) throw new Error("Inserted article could not be read");
-    return { article, duplicate: false };
-  } catch (error) {
-    const message = error instanceof Error ? error.message : "";
-    if (!/unique constraint failed: articles\.normalized_url/i.test(message)) throw error;
-    const existing = await db.prepare("SELECT id,url,title,created_at,updated_at,read_at FROM articles WHERE normalized_url = ?")
-      .bind(input.normalizedUrl).first<Record<string, unknown>>();
-    if (!existing) throw error;
-    return { article: mapArticle(existing)!, duplicate: true };
-  }
+  const inserted = await db.prepare(
+    "INSERT INTO articles (id,url,normalized_url,title,created_at,updated_at,read_at) VALUES (?,?,?,?,?,?,NULL) ON CONFLICT(normalized_url) DO NOTHING RETURNING id,url,title,created_at,updated_at,read_at",
+  ).bind(id, input.url, input.normalizedUrl, title, now, now).first<Record<string, unknown>>();
+  if (inserted) return { article: mapArticle(inserted)!, duplicate: false };
+  const existing = await db.prepare("SELECT id,url,title,created_at,updated_at,read_at FROM articles WHERE normalized_url = ?")
+    .bind(input.normalizedUrl).first<Record<string, unknown>>();
+  if (!existing) throw new Error("Duplicate article could not be read");
+  return { article: mapArticle(existing)!, duplicate: true };
 }
 
 export async function getArticle(db: D1Database, id: string): Promise<Article | null> {
@@ -92,8 +91,8 @@ export async function listArticles(
   options: ListArticlesInput,
 ): Promise<{ items: Article[]; nextCursor: string | null }> {
   const limit = options.limit ?? 50;
-  if (!Number.isInteger(limit) || limit < 1 || limit > 100) throw new Error("Invalid page size");
-  if (!["unread", "read", "all"].includes(options.status)) throw new Error("Invalid article status");
+  if (!Number.isInteger(limit) || limit < 1 || limit > 100) throw new ValidationError("limit must be an integer from 1 to 100");
+  if (!["unread", "read", "all"].includes(options.status)) throw new ValidationError("status must be unread, read, or all");
   const where: string[] = [];
   const values: unknown[] = [];
   if (options.status === "unread") where.push("read_at IS NULL");
