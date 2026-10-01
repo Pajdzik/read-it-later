@@ -6,9 +6,10 @@ node_modules/
 !.env.example
 
 # Private article data and future Worker tooling
-articles/
+/articles/
 .dev.vars
 .dev.vars.*
 .wrangler/
 dist/
 coverage/
+!.dev.vars.example
