@@ -53,8 +53,6 @@ export async function getSession(request: Request, env: Env): Promise<Session | 
   const tokenHash = await digest(raw);
   const row = await env.DB.prepare('SELECT csrf_token, expires_at FROM sessions WHERE token_hash = ?')
     .bind(tokenHash).first<{ csrf_token: string; expires_at: string }>();
-  await env.DB.prepare('DELETE FROM sessions WHERE rowid IN (SELECT rowid FROM sessions WHERE expires_at <= ? LIMIT 100)')
-    .bind(new Date().toISOString()).run();
   if (!row) return null;
   if (row.expires_at <= new Date().toISOString()) {
     await env.DB.prepare('DELETE FROM sessions WHERE token_hash = ?').bind(tokenHash).run();
@@ -81,7 +79,7 @@ export async function requireSession(request: Request, env: Env, write = false):
 
 export function isResponse(value: unknown): value is Response { return value instanceof Response; }
 
-function isLoopbackRequest(request: Request, env: Env): boolean {
+export function isLoopbackRequest(request: Request, env: Env): boolean {
   try {
     const target = new URL(request.url); const configured = new URL(env.APP_ORIGIN || '');
     return target.origin === configured.origin && isLoopbackOrigin(target.origin);

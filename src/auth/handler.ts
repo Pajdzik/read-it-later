@@ -3,7 +3,7 @@ import { errorResponse } from '../contracts.js';
 import { BodyTooLargeError, parseObject, readJson, ValidationError } from '../articles/validation.js';
 import {
   authConfigured, bindingCookie, clearBindingCookie, clearSessionCookie, cookie, digest,
-  getSession, isResponse, randomToken, requireSession, sessionCookie, validateCaptureToken,
+  getSession, isLoopbackRequest, isResponse, randomToken, requireSession, sessionCookie, validateCaptureToken,
 } from './core.js';
 
 const PRIVATE = { 'Cache-Control': 'private, no-store', 'Pragma': 'no-cache' };
@@ -104,18 +104,13 @@ async function finishOAuth(request: Request, env: Env): Promise<Response> {
     const rawSession = randomToken(); const csrf = randomToken(); const createdAt = new Date();
     await env.DB.prepare('INSERT INTO sessions (token_hash, csrf_token, expires_at, created_at) VALUES (?, ?, ?, ?)')
       .bind(await digest(rawSession), csrf, new Date(createdAt.getTime() + SESSION_SECONDS * 1000).toISOString(), createdAt.toISOString()).run();
+    await env.DB.prepare('DELETE FROM sessions WHERE rowid IN (SELECT rowid FROM sessions WHERE expires_at <= ? LIMIT 100)')
+      .bind(createdAt.toISOString()).run();
     const headers = new Headers({ ...PRIVATE, Location: `${env.APP_ORIGIN!.replace(/\/$/, '')}/add` });
     headers.append('Set-Cookie', sessionCookie(rawSession, env, SESSION_SECONDS));
     headers.append('Set-Cookie', clearBindingCookie(env));
     return new Response(null, { status: 302, headers });
   } catch { return oauthFailure(env); }
-}
-
-function isLoopbackRequest(request: Request, env: Env): boolean {
-  try {
-    const target = new URL(request.url); const configured = new URL(env.APP_ORIGIN || '');
-    return target.origin === configured.origin && target.protocol === 'http:' && ['localhost', '127.0.0.1', '[::1]'].includes(target.hostname);
-  } catch { return false; }
 }
 
 function oauthFailure(env: Env): Response {
