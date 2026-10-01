@@ -22,8 +22,7 @@ export function normalizeArticleUrl(input: unknown): { url: string; normalizedUr
   // Keep retained query bytes and ordering intact; URLSearchParams would turn
   // `%20` into `+` and silently change otherwise meaningful source URLs.
   const rawQuery = parsed.search.slice(1);
-  const kept = rawQuery.split('&').filter((part) => {
-    if (!part) return false;
+  const kept = (rawQuery ? rawQuery.split('&') : []).filter((part) => {
     let key = part.split('=', 1)[0].replaceAll('+', ' ');
     try { key = decodeURIComponent(key); } catch { /* preserve malformed but URL-accepted query data */ }
     const lower = key.toLowerCase();

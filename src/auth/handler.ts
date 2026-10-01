@@ -104,7 +104,7 @@ async function finishOAuth(request: Request, env: Env): Promise<Response> {
     const rawSession = randomToken(); const csrf = randomToken(); const createdAt = new Date();
     await env.DB.prepare('INSERT INTO sessions (token_hash, csrf_token, expires_at, created_at) VALUES (?, ?, ?, ?)')
       .bind(await digest(rawSession), csrf, new Date(createdAt.getTime() + SESSION_SECONDS * 1000).toISOString(), createdAt.toISOString()).run();
-    const headers = new Headers({ ...PRIVATE, Location: `${env.APP_ORIGIN!.replace(/\/$/, '')}/` });
+    const headers = new Headers({ ...PRIVATE, Location: `${env.APP_ORIGIN!.replace(/\/$/, '')}/add` });
     headers.append('Set-Cookie', sessionCookie(rawSession, env, SESSION_SECONDS));
     headers.append('Set-Cookie', clearBindingCookie(env));
     return new Response(null, { status: 302, headers });

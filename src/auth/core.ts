@@ -46,7 +46,7 @@ export function authConfigured(env: Env): boolean {
 export interface Session { tokenHash: string; csrfToken: string; }
 
 export async function getSession(request: Request, env: Env): Promise<Session | null> {
-  if (env.DEV_AUTH_BYPASS === 'true' && isLoopbackOrigin(env.APP_ORIGIN) && isLoopbackRequest(request)) return { tokenHash: 'dev-bypass', csrfToken: 'dev-bypass' };
+  if (env.DEV_AUTH_BYPASS === 'true' && isLoopbackOrigin(env.APP_ORIGIN) && isLoopbackRequest(request, env)) return { tokenHash: 'dev-bypass', csrfToken: 'dev-bypass' };
   if (!authConfigured(env)) return null;
   const raw = cookie(request, SESSION_COOKIE);
   if (!raw) return null;
@@ -64,7 +64,7 @@ export async function getSession(request: Request, env: Env): Promise<Session | 
 }
 
 export async function requireSession(request: Request, env: Env, write = false): Promise<Session | Response> {
-  if (env.DEV_AUTH_BYPASS === 'true' && isLoopbackOrigin(env.APP_ORIGIN) && isLoopbackRequest(request)) {
+  if (env.DEV_AUTH_BYPASS === 'true' && isLoopbackOrigin(env.APP_ORIGIN) && isLoopbackRequest(request, env)) {
     if (write && (request.headers.get('Origin') !== origin(env) || request.headers.get('X-CSRF-Token') !== 'dev-bypass')) return errorResponse(403, 'csrf', 'Request verification failed.');
     return { tokenHash: 'dev-bypass', csrfToken: 'dev-bypass' };
   }
@@ -81,8 +81,11 @@ export async function requireSession(request: Request, env: Env, write = false):
 
 export function isResponse(value: unknown): value is Response { return value instanceof Response; }
 
-function isLoopbackRequest(request: Request): boolean {
-  try { const u = new URL(request.url); return isLoopbackOrigin(u.origin); } catch { return false; }
+function isLoopbackRequest(request: Request, env: Env): boolean {
+  try {
+    const target = new URL(request.url); const configured = new URL(env.APP_ORIGIN || '');
+    return target.origin === configured.origin && isLoopbackOrigin(target.origin);
+  } catch { return false; }
 }
 
 export function constantTimeEqual(a: string, b: string): boolean {

@@ -41,6 +41,7 @@ describe('article HTTP handlers', () => {
     expect(normalizeArticleUrl('https://example.com/a/B?q=one+two').normalizedUrl).not.toBe(first.normalizedUrl);
     expect(() => normalizeArticleUrl('https://user:pass@example.com/a')).toThrow();
     expect(() => normalizeArticleUrl('file:///tmp/a')).toThrow();
+    expect(normalizeArticleUrl('https://example.com/?a=1&&b=2').normalizedUrl).toBe('https://example.com/?a=1&&b=2');
   });
 
   it('saves duplicates without changing title/read state and rejects cross-origin writes', async () => {
@@ -156,6 +157,8 @@ describe('article HTTP handlers', () => {
   it('fails closed for non-loopback bypass, missing configuration, expired sessions, and logout', async () => {
     const remote = await handleArticles(new Request('http://attacker.example/api/articles'), env);
     expect(remote?.status).toBe(503);
+    const otherLoopback = await handleArticles(new Request('http://localhost:9999/api/articles'), env);
+    expect(otherLoopback?.status).toBe(503);
     const missing = await handleArticles(new Request('https://service.example/api/articles'), { DB: testEnv.DB, ASSETS: testEnv.ASSETS } as Env);
     expect(missing?.status).toBe(503);
     const rawSession = 'expired-session';
