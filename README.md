@@ -33,6 +33,7 @@ pnpm test:browser
 - [Service design](docs/design.md): product scope, architecture, capture flows, API and archive plan.
 - [Implementation tracker](docs/tasks.md): chunks, dependencies, acceptance criteria and pending release checks.
 - [Capture guide](docs/capture.md): bookmarklet, iOS Shortcut and installed PWA sharing.
+- [CI checks](docs/ci.md): GitHub run locations, reruns and local validation.
 - [Deployment and operations](docs/deployment.md): Cloudflare bindings, OAuth setup, release checks, backups and rollback.
 - [Prototype guide](docs/prototype.md): the preserved local/GitHub Markdown reader.
 
