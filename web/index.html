@@ -45,65 +45,27 @@
       </div>
     </header>
     <main class="shell">
-      <section class="hero">
-        <div>
-          <p class="eyebrow">A little room to think</p>
-          <h1>Your reading, <em>at your pace.</em></h1>
-          <p class="hero-copy">
-            Save the good things. Come back when you’re ready.
-          </p>
-        </div>
-        <div class="hero-count">
-          <strong id="unread-count">A quiet place</strong
-          ><span>take your time</span>
-        </div>
-      </section>
-      <section class="add-panel" aria-labelledby="add-heading">
-        <div class="add-heading">
-          <span class="add-plus" aria-hidden="true">＋</span>
-          <div>
-            <h2 id="add-heading">Save something for later</h2>
-            <p>Paste a link and we’ll keep your place.</p>
-          </div>
-        </div>
-        <form id="add-form" class="add-form">
-          <label class="sr-only" for="add-url">Article URL</label
-          ><input
-            id="add-url"
-            type="url"
-            inputmode="url"
-            placeholder="Paste an article link…"
-            required
-            maxlength="8192"
-            autocomplete="url"
-          /><button class="button primary" type="submit">
-            Save link <span aria-hidden="true">↗</span>
-          </button>
-        </form>
-        <label class="title-option" for="add-title"
-          >Add a title <span>(optional)</span
-          ><input
-            id="add-title"
-            type="text"
-            maxlength="500"
-            placeholder="Give it a name"
-        /></label>
-      </section>
       <section class="library" aria-label="Your articles">
         <div class="library-heading">
           <div>
             <p class="eyebrow">Your collection</p>
             <h2>Reading list</h2>
+            <p id="unread-count" class="library-status">Your reading list</p>
           </div>
-          <label class="search"
-            ><span aria-hidden="true">⌕</span
-            ><span class="sr-only">Search title or URL</span
-            ><input
-              id="search"
-              type="search"
-              placeholder="Search your list"
-              autocomplete="off"
-          /></label>
+          <div class="library-actions">
+            <label class="search"
+              ><span aria-hidden="true">⌕</span
+              ><span class="sr-only">Search title or URL</span
+              ><input
+                id="search"
+                type="search"
+                placeholder="Search your list"
+                autocomplete="off"
+            /></label>
+            <button id="add-open" class="button primary add-open" type="button">
+              <span aria-hidden="true">＋</span> Add article
+            </button>
+          </div>
         </div>
         <div class="list-controls">
           <div class="tabs" role="group" aria-label="Filter articles">
@@ -151,6 +113,43 @@
         </div>
       </footer>
     </main>
+    <dialog id="add-dialog" class="dialog add-dialog" aria-labelledby="add-heading">
+      <form method="dialog" class="dialog-close">
+        <button class="icon-button" aria-label="Close">×</button>
+      </form>
+      <div class="add-heading">
+        <span class="add-plus" aria-hidden="true">＋</span>
+        <div>
+          <h2 id="add-heading">Save something for later</h2>
+          <p>Paste a link and we’ll keep your place.</p>
+        </div>
+      </div>
+      <form id="add-form" class="add-form">
+        <label class="sr-only" for="add-url">Article URL</label
+        ><input
+          id="add-url"
+          type="url"
+          inputmode="url"
+          placeholder="Paste an article link…"
+          required
+          maxlength="8192"
+          autocomplete="url"
+        /><button class="button primary" type="submit">
+          Save link <span aria-hidden="true">↗</span>
+        </button>
+      </form>
+      <label class="title-option" for="add-title"
+        >Add a title <span>(optional)</span
+        ><input
+          id="add-title"
+          type="text"
+          maxlength="500"
+          placeholder="Give it a name"
+      /></label>
+      <p id="sign-in-prompt" class="sign-in-prompt" hidden>
+        Sign in to keep your saved links in sync. <a href="/auth/github">Continue with GitHub →</a>
+      </p>
+    </dialog>
     <dialog id="detail-dialog" class="dialog">
       <form method="dialog" class="dialog-close">
         <button class="icon-button" aria-label="Close">×</button>

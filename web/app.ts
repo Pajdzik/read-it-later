@@ -343,14 +343,8 @@ async function initialize() {
     const form = $("#add-form");
     form.hidden = true;
     $(".title-option").hidden = true;
-    const p = document.createElement("p");
-    p.className = "sign-in-prompt";
-    p.append("Sign in to keep your saved links in sync. ");
-    const a = el("a", "Continue with GitHub →");
-    a.href = "/auth/github";
-    a.addEventListener("click", stashDraft);
-    p.append(a);
-    $(".add-panel").append(p);
+    $("#sign-in-prompt").hidden = false;
+    $("#sign-in-prompt a").addEventListener("click", stashDraft);
     $("#empty h3").textContent = "Your list is waiting";
     $("#empty p").textContent =
       "Sign in to see saved articles across your devices.";
@@ -374,8 +368,14 @@ function recoverDraft() {
     $<HTMLInputElement>("#add-url").value = d.url || "";
     $<HTMLInputElement>("#add-title").value = d.title || "";
     showNotice("Your unsaved link is back. Save it when you’re ready.");
+    if (!$<HTMLDialogElement>("#add-dialog").open)
+      $<HTMLDialogElement>("#add-dialog").showModal();
   } catch {}
 }
+$("#add-open").addEventListener("click", () => {
+  $<HTMLDialogElement>("#add-dialog").showModal();
+  if (state.session?.authenticated) $("#add-url").focus();
+});
 $("#add-form").addEventListener("submit", async (e) => {
   e.preventDefault();
   if (!state.session?.authenticated) {
@@ -399,6 +399,7 @@ $("#add-form").addEventListener("submit", async (e) => {
     $<HTMLInputElement>("#add-url").value = "";
     $<HTMLInputElement>("#add-title").value = "";
     sessionStorage.removeItem("later-add-draft");
+    $<HTMLDialogElement>("#add-dialog").close();
     state.status = "all";
     document
       .querySelectorAll<HTMLButtonElement>("[data-status]")
@@ -634,6 +635,8 @@ if (
     showNotice(
       "We couldn’t find one clear link. Paste the link you want to save.",
     );
+  if (!$<HTMLDialogElement>("#add-dialog").open)
+    $<HTMLDialogElement>("#add-dialog").showModal();
 }
 if ("serviceWorker" in navigator)
   addEventListener("load", () =>
