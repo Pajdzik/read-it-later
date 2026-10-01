@@ -385,6 +385,17 @@ button {
   color: var(--muted);
   font-size: 12px;
 }
+.article-description {
+  max-width: 68ch;
+  margin: 7px 0 9px;
+  color: var(--muted);
+  font-size: 14px;
+  line-height: 1.5;
+}
+.detail-description {
+  max-width: 62ch;
+  line-height: 1.55;
+}
 .original-link {
   font-size: 12px;
   text-decoration: none;

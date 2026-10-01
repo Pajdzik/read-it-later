@@ -6,6 +6,7 @@ import {
   normalizeArticleUrl, parseObject, readJson, ValidationError, validateTitle,
 } from './validation.js';
 import { isResponse, requireSession, validateCaptureToken } from '../auth/core.js';
+import { fetchArticleMetadata } from './metadata.js';
 
 const PRIVATE = { 'Cache-Control': 'private, no-store', 'Pragma': 'no-cache' };
 type ImportArticle = Article;
@@ -53,8 +54,10 @@ export async function handleArticles(request: Request, env: Env): Promise<Respon
 async function createArticle(request: Request, env: Env): Promise<Response> {
   const input = parseObject(await readJson(request), ['url', 'title'], ['url']);
   const normalized = normalizeArticleUrl(input.url);
-  const title = validateTitle(input.title, defaultTitle(normalized.url));
-  const result = await saveArticle(env.DB, { ...normalized, title });
+  const suppliedTitle = input.title === undefined ? undefined : validateTitle(input.title, defaultTitle(normalized.url));
+  const metadata = await fetchArticleMetadata(normalized.url);
+  const title = suppliedTitle || metadata.title || defaultTitle(normalized.url);
+  const result = await saveArticle(env.DB, { ...normalized, title, author: metadata.author, description: metadata.description });
   return json(result, result.duplicate ? 200 : 201);
 }
 
@@ -141,7 +144,7 @@ async function importArticles(request: Request, env: Env): Promise<Response> {
   const seenIds = new Set<string>();
   const normalized: Array<ImportArticle & { normalizedUrl: string }> = [];
   for (const value of input.articles) {
-    const item = parseObject(value, ['id', 'url', 'title', 'createdAt', 'updatedAt', 'readAt'], ['id', 'url', 'title', 'createdAt', 'updatedAt', 'readAt']);
+    const item = parseObject(value, ['id', 'url', 'title', 'author', 'description', 'createdAt', 'updatedAt', 'readAt'], ['id', 'url', 'title', 'createdAt', 'updatedAt', 'readAt']);
     if (typeof item.id !== 'string' || !item.id || item.id.length > 128) throw new ValidationError('article id is invalid');
     if (seenIds.has(item.id)) throw new ValidationError('import contains duplicate article IDs');
     seenIds.add(item.id);
@@ -149,7 +152,9 @@ async function importArticles(request: Request, env: Env): Promise<Response> {
     if (typeof item.title !== 'string' || !item.title.trim() || item.title.trim().length > MAX_TITLE_LENGTH) throw new ValidationError('article title is invalid');
     const createdAt = validTimestamp(item.createdAt, 'createdAt'); const updatedAt = validTimestamp(item.updatedAt, 'updatedAt');
     const readAt = item.readAt === null ? null : validTimestamp(item.readAt, 'readAt');
-    normalized.push({ id: item.id, url: url.url, normalizedUrl: url.normalizedUrl, title: item.title.trim(), createdAt, updatedAt, readAt });
+    const author = optionalImportText(item.author, 'author', 200);
+    const description = optionalImportText(item.description, 'description', 500);
+    normalized.push({ id: item.id, url: url.url, normalizedUrl: url.normalizedUrl, title: item.title.trim(), author, description, createdAt, updatedAt, readAt });
   }
   const existingIds = new Map<string, string>();
   for (const group of chunks(normalized, 80)) {
@@ -167,9 +172,9 @@ async function importArticles(request: Request, env: Env): Promise<Response> {
   }
   let imported = 0;
   if (toInsert.length) {
-    const statements = toInsert.map((item) => env.DB.prepare(`INSERT INTO articles (id,url,normalized_url,title,created_at,updated_at,read_at)
-      VALUES (?, ?, ?, ?, ?, ?, ?) ON CONFLICT(normalized_url) DO NOTHING`)
-      .bind(item.id, item.url, item.normalizedUrl, item.title, item.createdAt, item.updatedAt, item.readAt));
+    const statements = toInsert.map((item) => env.DB.prepare(`INSERT INTO articles (id,url,normalized_url,title,author,description,created_at,updated_at,read_at)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?) ON CONFLICT(normalized_url) DO NOTHING`)
+      .bind(item.id, item.url, item.normalizedUrl, item.title, item.author, item.description, item.createdAt, item.updatedAt, item.readAt));
     const results = await env.DB.batch(statements);
     skipped += results.reduce((count, result) => count + ((result.meta.changes ?? 0) === 0 ? 1 : 0), 0);
     imported = results.reduce((count, result) => count + (result.meta.changes ?? 0), 0);
@@ -186,6 +191,11 @@ function validTimestamp(value: unknown, field: string): string {
     throw new ValidationError(`${field} must be a UTC ISO timestamp`);
   }
   return value;
+}
+function optionalImportText(value: unknown, field: string, limit: number): string | null {
+  if (value === undefined || value === null) return null;
+  if (typeof value !== 'string' || value.length > limit || !value.trim()) throw new ValidationError(`article ${field} is invalid`);
+  return value.trim();
 }
 function* chunks<T>(values: T[], size: number): Generator<T[]> {
   for (let i = 0; i < values.length; i += size) yield values.slice(i, i + size);
