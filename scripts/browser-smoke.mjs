@@ -186,6 +186,10 @@ try {
     await page.locator("#add-url").inputValue(),
     "https://example.com/unsaved",
   );
+  await page
+    .locator("#add-dialog")
+    .getByRole("button", { name: "Close", exact: true })
+    .click();
   await page.unroute("**/api/articles");
   await page.route("**/api/articles?*", (route) =>
     route.fulfill({
