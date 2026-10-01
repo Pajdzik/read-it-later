@@ -1,4 +1,4 @@
-# Read Later
+# Potem
 
 A private article inbox: save URLs from desktop or mobile, open the original when ready, and explicitly mark articles read.
 

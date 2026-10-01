@@ -72,7 +72,7 @@ try {
       ]);
       const html = await home.text();
       ready =
-        health.ok && home.ok && html.includes("Later — your reading list");
+        health.ok && home.ok && html.includes("Potem — your reading list");
     } catch {}
     if (ready) break;
     if (server.exitCode !== null)
