@@ -375,6 +375,7 @@ function recoverDraft() {
 }
 $("#add-open").addEventListener("click", () => {
   $<HTMLDialogElement>("#add-dialog").showModal();
+  $("#add-notice").hidden = true;
   if (state.session?.authenticated) $("#add-url").focus();
 });
 $("#add-form").addEventListener("submit", async (e) => {
@@ -414,7 +415,10 @@ $("#add-form").addEventListener("submit", async (e) => {
     );
     await load();
   } catch (err) {
-    showNotice(`Couldn’t save this link. ${(err as Error).message}`, true);
+    const addNotice = $("#add-notice");
+    addNotice.textContent = `Couldn’t save this link. ${(err as Error).message}`;
+    addNotice.classList.add("error");
+    addNotice.hidden = false;
   } finally {
     button.disabled = false;
   }

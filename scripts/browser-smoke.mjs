@@ -178,6 +178,7 @@ try {
       });
     else await route.continue();
   });
+  await page.locator("#add-open").click();
   await page.locator("#add-url").fill("https://example.com/unsaved");
   await page.locator("#add-form button").click();
   await page.getByText(/Couldn’t save this link/).waitFor();
