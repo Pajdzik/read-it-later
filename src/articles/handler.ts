@@ -109,23 +109,31 @@ async function patchArticle(request: Request, env: Env, id: string): Promise<Res
 }
 
 async function exportArticles(env: Env): Promise<Response> {
-  const exportedAt = new Date().toISOString(); let cursor: string | undefined; let first = true;
+  const exportedAt = new Date().toISOString();
+  // Read before committing HTTP 200 so an initial storage outage returns 503.
+  let page = await listArticles(env.DB, { status: 'all', limit: 100 });
+  let first = true;
+  const encoder = new TextEncoder();
   const stream = new ReadableStream<Uint8Array>({
-    async start(controller) { controller.enqueue(new TextEncoder().encode(`{"version":1,"exportedAt":${JSON.stringify(exportedAt)},"articles":[`)); },
+    start(controller) {
+      controller.enqueue(encoder.encode(`{"version":1,"exportedAt":${JSON.stringify(exportedAt)},"articles":[`));
+    },
     async pull(controller) {
       try {
-        if (!first && !cursor) { controller.enqueue(new TextEncoder().encode(']}')); controller.close(); return; }
-        const page = await listArticles(env.DB, { status: 'all', limit: 100, cursor });
-        const prefix = first ? '' : ','; first = false;
-        if (page.items.length) controller.enqueue(new TextEncoder().encode(prefix + page.items.map((article) => JSON.stringify(article)).join(',')));
-        cursor = page.nextCursor || undefined;
-        if (!cursor) { controller.enqueue(new TextEncoder().encode(']}')); controller.close(); }
+        if (!first && page.nextCursor) {
+          page = await listArticles(env.DB, { status: 'all', limit: 100, cursor: page.nextCursor });
+        }
+        if (page.items.length) {
+          controller.enqueue(encoder.encode((first ? '' : ',') + page.items.map(article => JSON.stringify(article)).join(',')));
+        }
+        first = false;
+        if (!page.nextCursor) { controller.enqueue(encoder.encode(']}')); controller.close(); }
       } catch { controller.error(new Error('Export could not be completed')); }
     },
   });
   return new Response(stream, { status: 200, headers: {
     ...PRIVATE, 'Content-Type': 'application/json; charset=utf-8',
-    'Content-Disposition': `attachment; filename="read-later-export-${new Date().toISOString().slice(0, 10)}.json"`,
+    'Content-Disposition': `attachment; filename="read-later-export-${exportedAt.slice(0, 10)}.json"`,
   } });
 }
 

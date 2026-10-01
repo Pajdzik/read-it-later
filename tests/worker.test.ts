@@ -22,3 +22,15 @@ describe('integrated Worker routing', () => {
     }
   });
 });
+
+describe('export storage failures', () => {
+  it('returns a retryable error before starting an export when the first query fails', async () => {
+    const broken = {
+      ...env, APP_ORIGIN: 'http://localhost:8787', DEV_AUTH_BYPASS: 'true',
+      DB: { prepare() { throw new Error('simulated storage outage'); } },
+    } as unknown as Env;
+    const response = await worker.fetch(new Request('http://localhost:8787/api/export'), broken);
+    expect(response.status).toBe(503);
+    expect(await response.json()).toHaveProperty('error');
+  });
+});
