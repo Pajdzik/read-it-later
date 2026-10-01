@@ -1,0 +1,29 @@
+# CI checks
+
+The `Checks` workflow runs on every push and pull request. It installs the pinned pnpm and Node.js versions, checks JavaScript syntax and TypeScript, runs unit tests, builds the Worker in dry-run mode, and runs the Chromium browser smoke test.
+
+## Find a run
+
+Open the repository's **Actions** tab on GitHub and select **Checks**. Open a run to see each named step and its logs. For a pull request, the same result appears in the pull request's **Checks** section.
+
+If the workflow was added on a stacked pull request branch, the workflow file is only on that branch until the pull request containing it is merged. GitHub will show runs associated with that branch or pull request, but the workflow won't be available from the repository's default branch until the change reaches it.
+
+## Rerun checks
+
+To retry a failed run, open it from **Actions → Checks**, then choose **Re-run jobs** (or **Re-run failed jobs**) from the run page. To start a fresh run manually, use **Run workflow** on the **Checks** page and select the branch. GitHub requires the workflow to exist on the default branch for manual dispatch to be available; once merged there, manual runs can target another branch.
+
+Newer runs for the same branch cancel older in-progress runs, so a canceled run can simply be replaced by the latest push or a manual run.
+
+## Run the same checks locally
+
+With Node.js 22 and pnpm 12.4.1 installed, run:
+
+```sh
+pnpm install --frozen-lockfile
+pnpm check
+pnpm typecheck
+pnpm test
+pnpm build
+pnpm exec playwright install --with-deps chromium
+pnpm test:browser
+```

@@ -1,6 +1,6 @@
 # Read Later: service design
 
-Status: proposed implementation. Updated September 30, 2026. This document is the contract for the tasks in [tasks.md](tasks.md); it does not describe features already shipped.
+Status: MVP implemented locally; deployment and native-device release validation pending. Updated September 30, 2026. This document is the contract for [tasks.md](tasks.md); Markdown preservation remains a future phase.
 
 ## Product decision
 
@@ -43,7 +43,7 @@ flowchart LR
 
 Use one deployment and same-origin APIs, without CORS in the MVP. Route `/api/*` and `/auth/*` through the Worker before assets; serve the public app shell via assets. The shell contains no private data. Authentication guards every library request. Keep domain validation and storage access separate from HTTP handlers, but avoid a generic multi-provider storage abstraction. D1 queries live in a small repository module; local development uses Wrangler's local D1 with the same migrations. The old `server.mjs` cannot be deployed unchanged as a Worker: it uses a listening HTTP server, filesystem storage, and process-local sessions.
 
-Suggested implementation layout:
+Implementation layout:
 
 ```text
 src/worker.ts          routing and response policies
