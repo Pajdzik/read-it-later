@@ -42,14 +42,14 @@
     "production": {
       "name": "read-it-later-production",
       "vars": {
-        "APP_ORIGIN": "https://read-it-later-production.<account-subdomain>.workers.dev",
-        "OWNER_GITHUB_ID": "replace-with-numeric-github-user-id"
+        "APP_ORIGIN": "https://read-it-later-production.pajdzik.workers.dev",
+        "OWNER_GITHUB_ID": "1497744"
       },
       "d1_databases": [
         {
           "binding": "DB",
           "database_name": "read-later-production",
-          "database_id": "22222222-2222-4222-8222-222222222222",
+          "database_id": "e4a7e714-8e4e-413d-8f13-51c0c02fab5f",
           "migrations_dir": "migrations"
         }
       ]
