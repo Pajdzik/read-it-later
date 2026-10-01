@@ -41,3 +41,9 @@ temp
 
 Dockerfile
 .dockerignore
+
+# Private Worker configuration and article data
+.dev.vars
+.dev.vars.*
+articles
+.wrangler
