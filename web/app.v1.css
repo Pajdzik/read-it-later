@@ -273,13 +273,28 @@ button {
   font-size: 14px;
 }
 .library {
-  padding: 43px 2px 0;
+  padding: 30px 2px 0;
 }
 .library-heading {
   display: flex;
   justify-content: space-between;
-  align-items: end;
+  align-items: center;
   gap: 15px;
+}
+.library-status {
+  margin: 5px 0 0;
+  color: var(--muted);
+  font-size: 12px;
+}
+.library-actions {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+.add-open {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
 }
 .library-heading .eyebrow {
   margin-bottom: 4px;
@@ -496,6 +511,15 @@ button {
   padding: 26px;
   box-shadow: 0 20px 90px #0003;
 }
+.add-dialog {
+  width: min(520px, calc(100% - 30px));
+}
+.add-dialog .add-heading {
+  margin-bottom: 18px;
+}
+.add-dialog .title-option input {
+  margin-top: 3px;
+}
 .dialog::backdrop {
   background: #1b2721aa;
   backdrop-filter: blur(2px);
@@ -613,15 +637,6 @@ button {
   .shell {
     width: calc(100% - 30px);
   }
-  .hero {
-    padding: 37px 0 25px;
-  }
-  .hero-count {
-    max-width: 125px;
-  }
-  .add-panel {
-    padding: 17px 15px;
-  }
   .add-form {
     flex-direction: column;
   }
@@ -629,14 +644,22 @@ button {
     width: 100%;
   }
   .library {
-    padding-top: 34px;
+    padding-top: 24px;
   }
   .library-heading {
     align-items: start;
     flex-direction: column;
+    gap: 15px;
+  }
+  .library-actions {
+    width: 100%;
   }
   .search {
-    width: 100%;
+    flex: 1;
+    width: auto;
+  }
+  .add-open {
+    padding-inline: 12px;
   }
   .list-controls {
     margin-top: 15px;
@@ -671,9 +694,6 @@ button {
   }
   .dialog {
     padding: 20px;
-  }
-  .hero h1 {
-    font-size: 36px;
   }
 }
 @media (prefers-reduced-motion: no-preference) {

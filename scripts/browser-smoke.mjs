@@ -109,6 +109,7 @@ try {
   await page.unroute("**/api/session");
   await page.reload();
   await page.locator("#logout").waitFor();
+  await page.locator("#add-open").click();
   await page
     .locator("#add-url")
     .fill("https://example.com/browser-smoke?utm_source=smoke");
@@ -177,6 +178,7 @@ try {
       });
     else await route.continue();
   });
+  await page.locator("#add-open").click();
   await page.locator("#add-url").fill("https://example.com/unsaved");
   await page.locator("#add-form button").click();
   await page.getByText(/Couldn’t save this link/).waitFor();
@@ -184,6 +186,10 @@ try {
     await page.locator("#add-url").inputValue(),
     "https://example.com/unsaved",
   );
+  await page
+    .locator("#add-dialog")
+    .getByRole("button", { name: "Close", exact: true })
+    .click();
   await page.unroute("**/api/articles");
   await page.route("**/api/articles?*", (route) =>
     route.fulfill({
