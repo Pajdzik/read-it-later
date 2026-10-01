@@ -42,9 +42,14 @@ export function parseArticleMetadata(html: string): ArticleMetadata {
     if (key && value && !meta.has(key)) meta.set(key, value);
   }
   const titleTag = /<title\b[^>]*>([\s\S]*?)<\/title\s*>/i.exec(html)?.[1];
+  let socialAuthor: string | undefined;
+  for (let index = 1; index <= 4 && !socialAuthor; index++) {
+    const label = meta.get(`twitter:label${index}`);
+    if (label && /author|written\s+by|byline/i.test(label)) socialAuthor = meta.get(`twitter:data${index}`);
+  }
   return {
     title: clean(meta.get("og:title") || meta.get("twitter:title") || titleTag, MAX_TITLE),
-    author: clean(meta.get("author") || meta.get("article:author"), MAX_AUTHOR),
+    author: clean(meta.get("author") || meta.get("article:author") || socialAuthor, MAX_AUTHOR),
     description: clean(meta.get("og:description") || meta.get("twitter:description") || meta.get("description"), MAX_DESCRIPTION),
   };
 }

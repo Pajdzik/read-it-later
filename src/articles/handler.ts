@@ -54,10 +54,14 @@ export async function handleArticles(request: Request, env: Env): Promise<Respon
 async function createArticle(request: Request, env: Env): Promise<Response> {
   const input = parseObject(await readJson(request), ['url', 'title'], ['url']);
   const normalized = normalizeArticleUrl(input.url);
-  const suppliedTitle = input.title === undefined ? undefined : validateTitle(input.title, defaultTitle(normalized.url));
+  const fallbackTitle = defaultTitle(normalized.url);
+  const suppliedTitle = input.title === undefined ? undefined : validateTitle(input.title, fallbackTitle);
   const metadata = await fetchArticleMetadata(normalized.url);
-  const title = suppliedTitle || metadata.title || defaultTitle(normalized.url);
-  const result = await saveArticle(env.DB, { ...normalized, title, author: metadata.author, description: metadata.description });
+  const title = suppliedTitle || metadata.title || fallbackTitle;
+  const result = await saveArticle(env.DB, {
+    ...normalized, title, fallbackTitle: suppliedTitle ? undefined : fallbackTitle,
+    author: metadata.author, description: metadata.description,
+  });
   return json(result, result.duplicate ? 200 : 201);
 }
 

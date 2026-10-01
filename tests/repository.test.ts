@@ -22,6 +22,58 @@ describe("D1 article repository", () => {
     expect(count?.count).toBe(1);
   });
 
+  it("fills missing preview metadata on duplicate saves without replacing a custom title", async () => {
+    const url = "https://example.com/article";
+    const first = await saveArticle(env.DB, {
+      url,
+      normalizedUrl: url,
+      title: "My title",
+    });
+    await updateArticle(env.DB, first.article.id, { read: true }, "2026-09-30T10:00:00.000Z");
+    const refreshed = await saveArticle(env.DB, {
+      url,
+      normalizedUrl: url,
+      title: "Page title",
+      fallbackTitle: "example.com/article",
+      author: "Alex Writer",
+      description: "A short lead.",
+    });
+    expect(refreshed.duplicate).toBe(true);
+    expect(refreshed.metadataUpdated).toBe(true);
+    expect(refreshed.article).toMatchObject({
+      id: first.article.id,
+      title: "My title",
+      author: "Alex Writer",
+      description: "A short lead.",
+      readAt: "2026-09-30T10:00:00.000Z",
+    });
+  });
+
+  it("replaces a URL fallback title when a duplicate save finds page metadata", async () => {
+    const url = "https://example.com/article";
+    const first = await saveArticle(env.DB, {
+      url,
+      normalizedUrl: url,
+      title: "example.com/article",
+    });
+    await updateArticle(env.DB, first.article.id, { read: true }, "2026-09-30T10:00:00.000Z");
+    const refreshed = await saveArticle(env.DB, {
+      url,
+      normalizedUrl: url,
+      title: "A proper page title",
+      fallbackTitle: "example.com/article",
+      author: "Alex Writer",
+      description: "A short lead.",
+    });
+    expect(refreshed.metadataUpdated).toBe(true);
+    expect(refreshed.article).toMatchObject({
+      title: "A proper page title",
+      author: "Alex Writer",
+      description: "A short lead.",
+      readAt: "2026-09-30T10:00:00.000Z",
+    });
+  });
+
   it("keeps the first read timestamp, clears it on unread and updates only effective changes", async () => {
     const { article } = await saveArticle(env.DB, { url: "https://example.com/", normalizedUrl: "https://example.com/" });
     const firstRead = await updateArticle(env.DB, article.id, { read: true }, "2026-09-30T10:00:00.000Z");

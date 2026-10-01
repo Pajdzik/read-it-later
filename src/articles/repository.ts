@@ -7,6 +7,7 @@ export interface SaveArticleInput {
   url: string;
   normalizedUrl: string;
   title?: string;
+  fallbackTitle?: string;
   author?: string;
   description?: string;
 }
@@ -70,18 +71,28 @@ function escapeLike(value: string): string {
 export async function saveArticle(
   db: D1Database,
   input: SaveArticleInput,
-): Promise<{ article: Article; duplicate: boolean }> {
+): Promise<{ article: Article; duplicate: boolean; metadataUpdated: boolean }> {
   const now = new Date().toISOString();
   const id = crypto.randomUUID();
-  const title = input.title?.trim() || input.url;
+  const insertTitle = input.title?.trim() || input.url;
   const inserted = await db.prepare(
     "INSERT INTO articles (id,url,normalized_url,title,author,description,created_at,updated_at,read_at) VALUES (?,?,?,?,?,?,?,?,NULL) ON CONFLICT(normalized_url) DO NOTHING RETURNING id,url,title,author,description,created_at,updated_at,read_at",
-  ).bind(id, input.url, input.normalizedUrl, title, input.author ?? null, input.description ?? null, now, now).first<Record<string, unknown>>();
-  if (inserted) return { article: mapArticle(inserted)!, duplicate: false };
+  ).bind(id, input.url, input.normalizedUrl, insertTitle, input.author ?? null, input.description ?? null, now, now).first<Record<string, unknown>>();
+  if (inserted) return { article: mapArticle(inserted)!, duplicate: false, metadataUpdated: false };
   const existing = await db.prepare("SELECT id,url,title,author,description,created_at,updated_at,read_at FROM articles WHERE normalized_url = ?")
     .bind(input.normalizedUrl).first<Record<string, unknown>>();
   if (!existing) throw new Error("Duplicate article could not be read");
-  return { article: mapArticle(existing)!, duplicate: true };
+  const current = mapArticle(existing)!;
+  const updatedTitle = input.fallbackTitle && current.title === input.fallbackTitle && input.title
+    ? input.title
+    : current.title;
+  const author = current.author ?? input.author ?? null;
+  const description = current.description ?? input.description ?? null;
+  const metadataUpdated = updatedTitle !== current.title || author !== current.author || description !== current.description;
+  if (!metadataUpdated) return { article: current, duplicate: true, metadataUpdated: false };
+  await db.prepare("UPDATE articles SET title = ?, author = ?, description = ?, updated_at = ? WHERE id = ?")
+    .bind(updatedTitle, author, description, now, current.id).run();
+  return { article: (await getArticle(db, current.id))!, duplicate: true, metadataUpdated: true };
 }
 
 export async function getArticle(db: D1Database, id: string): Promise<Article | null> {
