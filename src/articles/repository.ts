@@ -7,6 +7,8 @@ export interface SaveArticleInput {
   url: string;
   normalizedUrl: string;
   title?: string;
+  author?: string;
+  description?: string;
 }
 
 export interface ListArticlesInput {
@@ -27,6 +29,8 @@ function mapArticle(row: Record<string, unknown> | null): Article | null {
     id: String(row.id),
     url: String(row.url),
     title: String(row.title),
+    author: row.author == null ? null : String(row.author),
+    description: row.description == null ? null : String(row.description),
     createdAt: String(row.created_at),
     updatedAt: String(row.updated_at),
     readAt: row.read_at === null ? null : String(row.read_at),
@@ -71,17 +75,17 @@ export async function saveArticle(
   const id = crypto.randomUUID();
   const title = input.title?.trim() || input.url;
   const inserted = await db.prepare(
-    "INSERT INTO articles (id,url,normalized_url,title,created_at,updated_at,read_at) VALUES (?,?,?,?,?,?,NULL) ON CONFLICT(normalized_url) DO NOTHING RETURNING id,url,title,created_at,updated_at,read_at",
-  ).bind(id, input.url, input.normalizedUrl, title, now, now).first<Record<string, unknown>>();
+    "INSERT INTO articles (id,url,normalized_url,title,author,description,created_at,updated_at,read_at) VALUES (?,?,?,?,?,?,?,?,NULL) ON CONFLICT(normalized_url) DO NOTHING RETURNING id,url,title,author,description,created_at,updated_at,read_at",
+  ).bind(id, input.url, input.normalizedUrl, title, input.author ?? null, input.description ?? null, now, now).first<Record<string, unknown>>();
   if (inserted) return { article: mapArticle(inserted)!, duplicate: false };
-  const existing = await db.prepare("SELECT id,url,title,created_at,updated_at,read_at FROM articles WHERE normalized_url = ?")
+  const existing = await db.prepare("SELECT id,url,title,author,description,created_at,updated_at,read_at FROM articles WHERE normalized_url = ?")
     .bind(input.normalizedUrl).first<Record<string, unknown>>();
   if (!existing) throw new Error("Duplicate article could not be read");
   return { article: mapArticle(existing)!, duplicate: true };
 }
 
 export async function getArticle(db: D1Database, id: string): Promise<Article | null> {
-  const row = await db.prepare("SELECT id,url,title,created_at,updated_at,read_at FROM articles WHERE id = ?")
+  const row = await db.prepare("SELECT id,url,title,author,description,created_at,updated_at,read_at FROM articles WHERE id = ?")
     .bind(id).first<Record<string, unknown>>();
   return mapArticle(row);
 }
@@ -107,7 +111,7 @@ export async function listArticles(
     where.push("(created_at < ? OR (created_at = ? AND id < ?))");
     values.push(cursor.createdAt, cursor.createdAt, cursor.id);
   }
-  const sql = `SELECT id,url,title,created_at,updated_at,read_at FROM articles${where.length ? ` WHERE ${where.join(" AND ")}` : ""} ORDER BY created_at DESC,id DESC LIMIT ?`;
+  const sql = `SELECT id,url,title,author,description,created_at,updated_at,read_at FROM articles${where.length ? ` WHERE ${where.join(" AND ")}` : ""} ORDER BY created_at DESC,id DESC LIMIT ?`;
   values.push(limit + 1);
   const rows = await db.prepare(sql).bind(...values).all<Record<string, unknown>>();
   const found = rows.results ?? [];

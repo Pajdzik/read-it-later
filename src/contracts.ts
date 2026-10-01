@@ -12,6 +12,8 @@ export interface Article {
   id: string;
   url: string;
   title: string;
+  author: string | null;
+  description: string | null;
   createdAt: string;
   updatedAt: string;
   readAt: string | null;

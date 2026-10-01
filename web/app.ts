@@ -2,6 +2,8 @@ type Article = {
   id: string;
   url: string;
   title: string;
+  author: string | null;
+  description: string | null;
   createdAt: string;
   updatedAt: string;
   readAt: string | null;
@@ -129,15 +131,20 @@ function renderArticle(article: Article) {
   title.addEventListener("click", () => openDetail(article));
   const meta = el(
     "p",
-    `${sourceHost(article.url)} · Saved ${dateLabel(article.createdAt)}`,
+    `${sourceHost(article.url)}${article.author ? ` · By ${article.author}` : ""} · Saved ${dateLabel(article.createdAt)}`,
     "article-meta",
   );
+  const description = article.description
+    ? el("p", article.description, "article-description")
+    : null;
   const link = el("a", "Open original ↗", "original-link");
   link.href = safeHttpUrl(article.url) || "#";
   link.target = "_blank";
   link.rel = "noopener noreferrer";
   link.addEventListener("click", (e) => e.stopPropagation());
-  main.append(title, meta, link);
+  main.append(title, meta);
+  if (description) main.append(description);
+  main.append(link);
   const actions = el("div", undefined, "article-actions");
   const read = el(
     "button",
@@ -292,6 +299,8 @@ function renderDetail(article: Article) {
   root.append(
     eyebrow,
     el("h2", article.title),
+    ...(article.author ? [el("p", `By ${article.author}`, "muted")] : []),
+    ...(article.description ? [el("p", article.description, "detail-description")] : []),
     el("p", `Saved ${dateLabel(article.createdAt)}`, "muted"),
     form,
     el("h3", "Original link"),
