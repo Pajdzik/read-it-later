@@ -46,7 +46,7 @@ pnpm build:web
 pnpm exec wrangler deploy --env staging
 ```
 
-Run validation on staging before repeating the secret, migration, and deploy commands with `--env production` and the production database name. Never run those commands against placeholder IDs. `pnpm build` is a dry run, not a publication. Local authentication bypass must remain absent from staging/production. Do not configure a fail-open route for an authenticated API.
+Run validation on staging before deploying production. On a push to `main`, the `Checks` workflow applies pending production migrations and deploys the Worker after CI passes. Configure the repository's `production` Actions environment with `CLOUDFLARE_API_TOKEN` and `CLOUDFLARE_ACCOUNT_ID`; the token needs Workers Scripts Edit and D1 Edit permissions for the configured production resources. Never run those commands against placeholder IDs. `pnpm build` is a dry run, not a publication. Local authentication bypass must remain absent from staging/production. Do not configure a fail-open route for an authenticated API.
 
 ## Release checklist
 

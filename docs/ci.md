@@ -1,6 +1,8 @@
 # CI checks
 
-The `Checks` workflow runs on every push and pull request. It installs the pinned pnpm and Node.js versions, checks JavaScript syntax and TypeScript, runs unit tests, builds the Worker in dry-run mode, and runs the Chromium browser smoke test.
+The `Checks` workflow runs on every push and pull request. It installs the pinned pnpm and Node.js versions, checks JavaScript syntax and TypeScript, runs unit tests, builds the Worker in dry-run mode, and runs the Chromium browser smoke test. After all checks pass on a push to `main`, it applies pending production D1 migrations and deploys the production Worker.
+
+The production job uses the `production` GitHub Actions environment and requires `CLOUDFLARE_API_TOKEN` and `CLOUDFLARE_ACCOUNT_ID` secrets. The token needs Workers Scripts Edit and D1 Edit permissions for the configured production resources. Pull requests and pushes to other branches never run the production job.
 
 ## Find a run
 
