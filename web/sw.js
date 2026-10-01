@@ -1,5 +1,5 @@
 const CACHE = "later-public-v1";
-const PUBLIC_ASSETS = ["/app.v1.css", "/app.v1.js", "/icons/icon.v1.svg", "/icons/maskable.v1.svg", "/icons/icon-192.v1.png", "/icons/icon-512.v1.png"];
+const PUBLIC_ASSETS = ["/app.v1.css", "/app.v1.js", "/icons/icon.v2.svg", "/icons/maskable.v2.svg", "/icons/icon-192.v2.png", "/icons/icon-512.v2.png"];
 self.addEventListener("install", event => {
   event.waitUntil(caches.open(CACHE).then(cache => cache.addAll(PUBLIC_ASSETS)).then(() => self.skipWaiting()));
 });

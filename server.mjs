@@ -547,7 +547,7 @@ async function finishGitHubOAuth(req, res, url) {
       return;
     }
     if (!userIsAllowed(user)) {
-      sendText(res, 403, "This GitHub account is not allowed to access Read Later.");
+      sendText(res, 403, "This GitHub account is not allowed to access Potem.");
       return;
     }
 
@@ -1367,7 +1367,7 @@ function lanUrls(port) {
 }
 
 server.listen(PORT, HOST, () => {
-  console.log(`Read It Later is running`);
+  console.log(`Potem is running`);
   console.log(`Local:   http://localhost:${PORT}`);
   for (const url of lanUrls(PORT)) {
     console.log(`Phone:   ${url}`);
