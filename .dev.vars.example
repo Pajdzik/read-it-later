@@ -1,0 +1,7 @@
+# Copy to .dev.vars for local Worker development; never commit .dev.vars.
+APP_ORIGIN=http://localhost:8787
+DEV_AUTH_BYPASS=true
+# For real GitHub authentication, disable bypass and use an HTTPS local tunnel.
+# GITHUB_CLIENT_ID=your-oauth-client-id
+# GITHUB_CLIENT_SECRET=your-oauth-client-secret
+# OWNER_GITHUB_ID=your-immutable-numeric-github-id
