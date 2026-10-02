@@ -72,7 +72,7 @@ export async function requireSession(request: Request, env: Env, write = false):
   if (write) {
     const expected = origin(env);
     if (!expected || request.headers.get('Origin') !== expected) return errorResponse(403, 'forbidden', 'Request origin is not allowed.');
-    if (!constantTimeEqual(request.headers.get('X-CSRF-Token') || '', session.csrfToken)) return errorResponse(403, 'csrf', 'Request verification failed.');
+    if (!(await constantTimeEqual(request.headers.get('X-CSRF-Token') || '', session.csrfToken))) return errorResponse(403, 'csrf', 'Request verification failed.');
   }
   return session;
 }
@@ -86,12 +86,13 @@ export function isLoopbackRequest(request: Request, env: Env): boolean {
   } catch { return false; }
 }
 
-export function constantTimeEqual(a: string, b: string): boolean {
-  const aa = encoder.encode(a); const bb = encoder.encode(b);
-  let mismatch = aa.length ^ bb.length;
-  const n = Math.max(aa.length, bb.length);
-  for (let i = 0; i < n; i++) mismatch |= (aa[i % (aa.length || 1)] || 0) ^ (bb[i % (bb.length || 1)] || 0);
-  return mismatch === 0;
+export async function constantTimeEqual(a: string, b: string): Promise<boolean> {
+  const [aHash, bHash] = await Promise.all([
+    crypto.subtle.digest('SHA-256', encoder.encode(a)),
+    crypto.subtle.digest('SHA-256', encoder.encode(b)),
+  ]);
+  return (crypto.subtle as import('@cloudflare/workers-types').SubtleCrypto)
+    .timingSafeEqual(aHash, bHash);
 }
 
 export function sessionCookie(value: string, env: Env, maxAge: number): string {
