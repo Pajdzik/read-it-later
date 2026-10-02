@@ -1,6 +1,6 @@
 # Potem
 
-**Potem** means “later” in Polish. It is a private, single-owner article inbox: send a URL from your desktop or phone, open the original document when ready, and explicitly mark it read. The website uses the lowercase **potem.** wordmark.
+**Potem** means “later” in Polish. It is a private, single-owner article inbox: send a URL from your desktop or phone, open the original document when ready, and explicitly mark it read. The website uses the lowercase **potem.** wordmark with two bookmarks forming a pause symbol: save your place and read later.
 
 The current service stores links, article metadata, read state, and optional owner-provided Markdown copies. The repository also retains the original Node.js Markdown-reader prototype.
 

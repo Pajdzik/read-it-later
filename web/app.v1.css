@@ -88,16 +88,11 @@ button {
   letter-spacing: -1px;
 }
 .brand-mark {
-  width: 31px;
-  height: 31px;
-  border-radius: 10px;
-  background: var(--green);
-  color: #fff;
-  display: grid;
-  place-items: center;
-  font:
-    700 17px Georgia,
-    serif;
+  width: 38px;
+  height: 38px;
+  flex-shrink: 0;
+  display: block;
+  color: var(--green);
 }
 .brand-dot {
   color: var(--orange);
