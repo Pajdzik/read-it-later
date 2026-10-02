@@ -2,7 +2,11 @@
 
 In article details, paste or upload Markdown and optionally check **Also save to GitHub** before choosing **Save Markdown copy**. The checkbox starts unchecked each time the editor opens. Potem saves the copy in D1 first, then sends that saved revision to GitHub. Unchecked saves make no GitHub write. The original link and read state remain independent.
 
-Production targets **`Pajdzik/Kamilpedia`**, branch **`main`**, folder **`Articles`**. This repository is public: checked articles are public there. Files always inherit the destination repository's visibility. The destination and last confirmed backup status appear below the save button. This is an optional copy of owner-provided Markdown, not automatic extraction from the original website.
+The desktop bookmarklet's capture dialog also includes **Also save to GitHub**, unchecked by default. Review the captured Markdown, keep **Save this Markdown copy** enabled, optionally check GitHub, and choose **Save link**. Potem saves the URL and local Markdown before sending that saved copy to GitHub. A failed local copy save, a changed source URL, or link-only saving prevents a GitHub write. Existing copies retain their revision protection.
+
+If GitHub fails after capture, the local copy remains saved and **Retry GitHub save for saved copy** retries its saved revision without another copy write. Retry checks that the persisted revision still matches; otherwise, open article details to review the current copy. **Done** dismisses the capture while leaving the local copy intact. The retry survives a reload, while the publishing checkbox starts unchecked again. Article details retain **Save saved copy to GitHub** for later retries.
+
+Production targets **`Pajdzik/Kamilpedia`**, branch **`main`**, folder **`Articles`**. This repository is public: checked articles are public there. Files always inherit the destination repository's visibility. Capture shows the configured destination; article details show the last confirmed backup status. GitHub receives the saved Markdown, including browser-clipped copies, rather than fetching the source website.
 
 ## Configuration
 
@@ -44,6 +48,8 @@ revision: "copy-revision"
 String values use JSON quoting, which is valid YAML and preserves Unicode, quotes, and newlines. A body's existing frontmatter stays in the body. Authentication records, tokens, and read state are excluded. D1 remains authoritative; edits made directly in GitHub are not imported automatically.
 
 `GET /api/articles/:id/github` returns `{backup}` with configured destination, `not_saved`, `saved`, or `outdated`, and the last confirmed time. Status describes the last successful Potem operation; it does not poll GitHub for later manual edits or deletion. Changing the title or copy marks the recorded backup outdated; read-state changes do not. Changing the destination starts a new `not_saved` status.
+
+`GET /api/github` returns `{github: {configured, message?, repository?, branch?, folder?}}` so capture can show configuration before an article exists. It requires an owner session, returns private/no-store responses, makes no GitHub request, and never returns the token. Save-only capture tokens cannot read this configuration.
 
 `POST /api/articles/:id/github` accepts `{expectedRevision}` and saves the persisted copy. Both routes require an owner session; POST also requires same-origin/CSRF validation. Capture tokens cannot use either route. Responses are private/no-store. A stale revision is rejected before sending content. The Worker rechecks D1 after reading the GitHub file, then supplies the current blob SHA for replacement. Concurrent GitHub conflicts return an error without blindly retrying. A destination file without this article's Potem format/ID is never replaced. Repeating a save with identical content makes no extra commit.
 

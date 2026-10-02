@@ -150,6 +150,11 @@
         <textarea id="capture-markdown" rows="10" maxlength="262144" aria-describedby="capture-copy-status"></textarea>
         <label class="capture-copy-toggle"><input id="capture-copy-enabled" type="checkbox" checked /> Save this Markdown copy</label>
         <p id="capture-copy-status" class="muted" role="status" aria-live="polite"></p>
+        <label class="capture-copy-toggle"><input id="capture-github-enabled" type="checkbox" /> Also save to GitHub</label>
+        <p id="capture-github-status" class="muted" role="status" aria-live="polite">Checking GitHub destination…</p>
+        <p class="muted copy-explainer">GitHub files follow the repository’s visibility. The production destination, Pajdzik/Kamilpedia, is public.</p>
+        <button id="capture-github-retry" class="button secondary" type="button" hidden>Retry GitHub save for saved copy</button>
+        <button id="capture-github-done" class="button secondary" type="button" hidden>Done</button>
       </section>
       <p id="sign-in-prompt" hidden>
         Sign in to keep your saved links in sync. <a href="/auth/github">Continue with GitHub →</a>

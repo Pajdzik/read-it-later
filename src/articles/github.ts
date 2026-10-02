@@ -1,4 +1,4 @@
-import type { Article, ArticleCopy, Env, GitHubBackupStatus } from '../contracts';
+import type { Article, ArticleCopy, Env, GitHubBackupConfiguration, GitHubBackupStatus } from '../contracts';
 import { digest } from '../auth/core';
 import { getArticle, getArticleCopy } from './repository';
 
@@ -9,6 +9,22 @@ export class GitHubBackupError extends Error {
   constructor(public status: number, public code: string, message: string) {
     super(message);
     this.name = 'GitHubBackupError';
+  }
+}
+
+export function getGitHubBackupConfiguration(env: Env): GitHubBackupConfiguration {
+  try {
+    const target = targetFor(env, 'capture-configuration');
+    const slash = target.path.lastIndexOf('/');
+    return {
+      configured: true,
+      repository: target.repository,
+      branch: target.branch,
+      folder: slash < 0 ? '' : target.path.slice(0, slash),
+    };
+  } catch (error) {
+    if (error instanceof GitHubBackupError) return { configured: false, message: error.message };
+    throw error;
   }
 }
 

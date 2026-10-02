@@ -41,6 +41,14 @@ export interface GitHubBackupStatus {
   backedUpAt?: string;
 }
 
+export interface GitHubBackupConfiguration {
+  configured: boolean;
+  message?: string;
+  repository?: string;
+  branch?: string;
+  folder?: string;
+}
+
 export interface ApiError {
   error: { code: string; message: string };
 }
