@@ -118,9 +118,38 @@ try {
     0,
     "A session outage must not look like a sign-in prompt.",
   );
+  assert.equal(await page.locator("#library-sign-in").isHidden(), true);
+  await page.unroute("**/api/session");
+  await page.route("**/api/session", (route) => route.fulfill({
+    status: 200,
+    contentType: "application/json",
+    body: JSON.stringify({ authenticated: false }),
+  }));
+  await page.reload();
+  const signIn = page.locator("#library-sign-in");
+  await signIn.waitFor({ state: "visible" });
+  assert.equal(await page.locator("#add-dialog").evaluate((dialog) => dialog.open), false,
+    "A fresh browser must be able to sign in without opening Add article.");
+  await page.route("**/auth/github", (route) => route.fulfill({
+    status: 200, contentType: "text/plain", body: "Sign-in reached",
+  }));
+  await signIn.click();
+  await page.waitForURL(base + "/auth/github");
+  assert.equal(await page.locator("body").innerText(), "Sign-in reached");
+  await page.unroute("**/auth/github");
+  await page.goto(base);
+  await page.setViewportSize({ width: 390, height: 844 });
+  await signIn.waitFor({ state: "visible" });
+  const signInBounds = await signIn.boundingBox();
+  assert.ok(signInBounds && signInBounds.x >= 0 && signInBounds.x + signInBounds.width <= 390,
+    "Sign-in must fit on a phone screen.");
+  await page.screenshot({ path: path.join(os.tmpdir(), "potem-anonymous-sign-in-mobile.png") });
+  await page.setViewportSize({ width: 1440, height: 1000 });
+  await page.screenshot({ path: path.join(os.tmpdir(), "potem-anonymous-sign-in-desktop.png") });
   await page.unroute("**/api/session");
   await page.reload();
   await page.locator("#logout").waitFor();
+  assert.equal(await signIn.isHidden(), true, "Signed-in owners must not see the sign-in prompt.");
   await page.locator("#add-open").click();
   await page
     .locator("#add-url")

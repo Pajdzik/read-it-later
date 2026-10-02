@@ -652,6 +652,8 @@ async function initialize() {
     $("#sign-in-prompt").className = "sign-in-prompt";
     $("#sign-in-prompt").hidden = false;
     $("#sign-in-prompt a").addEventListener("click", stashDraft);
+    $("#library-sign-in").hidden = false;
+    $("#library-sign-in").addEventListener("click", stashDraft);
     $("#empty h3").textContent = "Your list is waiting";
     $("#empty p").textContent =
       "Sign in to see saved articles across your devices.";

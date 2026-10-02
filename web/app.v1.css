@@ -459,6 +459,11 @@ button {
   margin: 0;
   font-size: 13px;
 }
+#library-sign-in {
+  display: inline-block;
+  margin-top: 18px;
+  text-decoration: none;
+}
 .more {
   display: block;
   margin: 20px auto;
