@@ -123,6 +123,44 @@ try {
   const article = page
     .locator(".article")
     .filter({ hasText: "Browser smoke article" });
+  await title.click();
+  const detail = page.locator("#detail-content");
+  const markdown = detail.getByRole("textbox", { name: "Markdown copy" });
+  await detail.getByText("No Markdown copy saved yet.").waitFor();
+  await markdown.fill("# Browser copy\n\nPasted draft.");
+  await page.route("**/api/articles/*/copy", async (route) => {
+    if (route.request().method() === "PUT")
+      await route.fulfill({ status: 503, contentType: "application/json", body: JSON.stringify({ error: { message: "Simulated copy outage" } }) });
+    else await route.continue();
+  });
+  await detail.getByRole("button", { name: "Save Markdown copy" }).click();
+  await detail.getByText(/Simulated copy outage/).waitFor();
+  assert.equal(await markdown.inputValue(), "# Browser copy\n\nPasted draft.", "A failed copy save must keep the draft.");
+  await page.unroute("**/api/articles/*/copy");
+  await detail.getByRole("button", { name: "Save Markdown copy" }).click();
+  await detail.getByText(/pasted Markdown/).waitFor();
+  await markdown.fill("# Cancelled replacement");
+  page.once("dialog", (dialog) => dialog.dismiss());
+  await detail.getByRole("button", { name: "Save Markdown copy" }).click();
+  assert.equal(await markdown.inputValue(), "# Cancelled replacement", "Canceling replacement must preserve the draft.");
+  const uploadedMarkdown = "# Uploaded copy\n\nLoaded from a Markdown file.";
+  await detail.locator('input[type="file"]').setInputFiles({ name: "clipped.md", mimeType: "text/markdown", buffer: Buffer.from(uploadedMarkdown) });
+  await detail.getByText(/clipped\.md loaded/).waitFor();
+  page.once("dialog", (dialog) => dialog.accept());
+  await detail.getByRole("button", { name: "Save Markdown copy" }).click();
+  await detail.getByText(/uploaded file/).waitFor();
+  await page.locator("#detail-dialog .dialog-close button").click();
+  await page.reload();
+  await page.locator("#logout").waitFor();
+  await title.waitFor();
+  await title.click();
+  await page.locator("#detail-content .copy-status").getByText(/uploaded file/).waitFor();
+  assert.equal(await page.locator("#detail-content").getByRole("textbox", { name: "Markdown copy" }).inputValue(), uploadedMarkdown, "Uploaded Markdown must survive reload.");
+  await page.setViewportSize({ width: 390, height: 844 });
+  assert.equal(await page.evaluate(() => document.documentElement.scrollWidth > innerWidth), false, "Markdown editor must fit a narrow viewport.");
+  await page.setViewportSize({ width: 1440, height: 1000 });
+  await page.locator("#detail-dialog .dialog-close button").click();
+  await page.getByRole("button", { name: "All", exact: true }).click();
   await article.getByRole("button", { name: "Mark read", exact: true }).click();
   await article
     .getByRole("button", { name: "Mark unread", exact: true })
@@ -140,7 +178,7 @@ try {
       });
     else await route.continue();
   });
-  await page.locator("#detail-content input").fill("Failed edit");
+  await page.locator("#detail-content .edit-form input").fill("Failed edit");
   await page
     .locator("#detail-content")
     .getByRole("button", { name: "Save title" })

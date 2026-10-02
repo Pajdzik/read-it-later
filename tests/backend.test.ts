@@ -56,6 +56,53 @@ describe('article HTTP handlers', () => {
     expect((await route(hostile)).status).toBe(403);
   });
 
+  it('stores private Markdown copies with atomic revisions and independent article state', async () => {
+    await env.DB.prepare('INSERT INTO articles(id,url,normalized_url,title,created_at,updated_at,read_at) VALUES(?,?,?,?,?,?,?)')
+      .bind('copy-article', 'https://example.com/copy', 'https://example.com/copy', 'Copy test', '2026-01-01T00:00:00.000Z', '2026-01-02T00:00:00.000Z', '2026-01-03T00:00:00.000Z').run();
+    const get = () => route(request('/api/articles/copy-article/copy'));
+    expect(await (await get()).json()).toEqual({ copy: null });
+    const prefix = '# Unicode 📰\n\n';
+    const markdown = prefix + 'é'.repeat((262144 - new TextEncoder().encode(prefix).byteLength) / 2);
+    expect(new TextEncoder().encode(markdown).byteLength).toBe(262144);
+    const first = await route(request('/api/articles/copy-article/copy', 'PUT', { markdown, source: 'paste', expectedRevision: null }));
+    expect(first.status).toBe(200);
+    const copy = (await first.json() as { copy: { revision: string; capturedAt: string; source: string; markdown: string } }).copy;
+    expect(copy).toMatchObject({ markdown, source: 'paste', capturedAt: expect.any(String), revision: expect.any(String) });
+    expect((await route(request('/api/articles/copy-article/copy', 'PUT', { markdown: 'stale replacement', source: 'paste', expectedRevision: 'stale-revision' }))).status).toBe(409);
+    await expect((await get()).json()).resolves.toMatchObject({ copy: { markdown } });
+    const boundary = await route(request('/api/articles/copy-article/copy', 'PUT', { markdown: `${markdown}é`, source: 'upload', expectedRevision: copy.revision }));
+    expect(boundary.status).toBe(413);
+    const replaced = await route(request('/api/articles/copy-article/copy', 'PUT', { markdown: '## Uploaded', source: 'upload', expectedRevision: copy.revision }));
+    expect(replaced.status).toBe(200);
+    const current = (await replaced.json() as { copy: { revision: string } }).copy;
+    const concurrent = await Promise.all([
+      route(request('/api/articles/copy-article/copy', 'PUT', { markdown: '## Concurrent A', source: 'paste', expectedRevision: current.revision })),
+      route(request('/api/articles/copy-article/copy', 'PUT', { markdown: '## Concurrent B', source: 'upload', expectedRevision: current.revision })),
+    ]);
+    expect(concurrent.map((response) => response.status).sort()).toEqual([200, 409]);
+    const article = await env.DB.prepare('SELECT title,updated_at,read_at FROM articles WHERE id = ?').bind('copy-article').first<{ title: string; updated_at: string; read_at: string }>();
+    expect(article).toEqual({ title: 'Copy test', updated_at: '2026-01-02T00:00:00.000Z', read_at: '2026-01-03T00:00:00.000Z' });
+    expect((await route(request('/api/articles/copy-article', 'DELETE', undefined, { Origin: origin, 'X-CSRF-Token': 'dev-bypass' }))).status).toBe(204);
+    expect(await env.DB.prepare('SELECT article_id FROM article_copies WHERE article_id = ?').bind('copy-article').first()).toBeNull();
+  });
+
+  it('rejects invalid copy envelopes, unknown fields, origin failures, and copy access outside owner sessions', async () => {
+    await env.DB.prepare('INSERT INTO articles(id,url,normalized_url,title,created_at,updated_at,read_at) VALUES(?,?,?,?,?,?,NULL)')
+      .bind('private-copy', 'https://example.com/private', 'https://example.com/private', 'Private', '2026-01-01T00:00:00.000Z', '2026-01-01T00:00:00.000Z').run();
+    expect((await route(request('/api/articles/private-copy/copy', 'PUT', { markdown: ' ', source: 'paste', expectedRevision: null }))).status).toBe(400);
+    const missing = await route(request('/api/articles/no-such-article/copy'));
+    expect(missing.status).toBe(404);
+    expect(missing.headers.get('Cache-Control')).toContain('no-store');
+    expect((await route(request('/api/articles/private-copy/copy', 'PUT', { markdown: '# Valid', source: 'paste', expectedRevision: null, other: true }))).status).toBe(400);
+    expect((await route(request('/api/articles/private-copy/copy', 'PUT', { markdown: '# Valid', source: 'paste', expectedRevision: null }, { Origin: 'https://attacker.example' }))).status).toBe(403);
+    const missingCsrf = new Request(origin + '/api/articles/private-copy/copy', { method: 'PUT', headers: { Origin: origin, 'Content-Type': 'application/json' }, body: JSON.stringify({ markdown: '# Missing CSRF', source: 'paste', expectedRevision: null }) });
+    expect((await route(missingCsrf)).status).toBe(403);
+    const tokenRequest = new Request('https://service.example/api/articles/private-copy/copy', { headers: { Authorization: 'Bearer capture-token' } });
+    expect((await handleArticles(tokenRequest, ownerEnv))?.status).toBe(401);
+    const anonymous = await handleArticles(new Request('https://service.example/api/articles/private-copy/copy'), { ...ownerEnv, APP_ORIGIN: undefined } as Env);
+    expect(anonymous?.status).toBe(503);
+  });
+
   it('does not claim similarly prefixed article routes', async () => {
     const unavailableDb = { ...env, DB: { prepare() { throw new Error('should not query storage'); } } } as unknown as Env;
     expect(await handleArticles(new Request(`${origin}/api/articlesfoo`), unavailableDb)).toBeNull();
@@ -198,9 +245,12 @@ describe('article HTTP handlers', () => {
         .bind(`exp-${i}`, `https://example.com/${i}`, `https://example.com/${i}`, i === 0 ? '日本語 📰' : `Title ${i}`,
           new Date(Date.UTC(2026, 0, 1, 0, 0, i)).toISOString(), new Date(Date.UTC(2026, 0, 1, 0, 0, i)).toISOString(), i === 0 ? '2026-01-02T00:00:00.000Z' : null).run();
     }
+    await env.DB.prepare('INSERT INTO article_copies(article_id,markdown,captured_at,source,revision) VALUES(?,?,?,?,?)')
+      .bind('exp-0', '# Backup 📰\n\nescaped \u0000\t content', '2026-01-04T00:00:00.000Z', 'upload', 'copy-revision-1').run();
     const exported = await route(request('/api/export'));
-    const document = await exported.json() as { version: number; articles: unknown[] };
-    expect(document.version).toBe(1); expect(document.articles).toHaveLength(105);
+    const document = await exported.json() as { version: number; articles: Array<{ id: string; copy?: { markdown: string; capturedAt: string; source: string; revision: string } }> };
+    expect(document.version).toBe(2); expect(document.articles).toHaveLength(105);
+    expect(document.articles.find((article) => article.id === 'exp-0')?.copy).toEqual({ markdown: '# Backup 📰\n\nescaped \u0000\t content', capturedAt: '2026-01-04T00:00:00.000Z', source: 'upload', revision: 'copy-revision-1' });
     await env.DB.prepare('DELETE FROM articles').run();
     const first = await route(request('/api/import', 'POST', document));
     expect(first.status).toBe(200); expect(await first.json()).toEqual({ imported: 105, skipped: 0 });
@@ -208,6 +258,8 @@ describe('article HTTP handlers', () => {
     expect(await second.json()).toEqual({ imported: 0, skipped: 105 });
     const item = await env.DB.prepare('SELECT title,read_at FROM articles WHERE id = ?').bind('exp-0').first<{ title: string; read_at: string }>();
     expect(item).toEqual({ title: '日本語 📰', read_at: '2026-01-02T00:00:00.000Z' });
+    expect(await env.DB.prepare('SELECT markdown,captured_at,source,revision FROM article_copies WHERE article_id = ?').bind('exp-0').first())
+      .toEqual({ markdown: '# Backup 📰\n\nescaped \u0000\t content', captured_at: '2026-01-04T00:00:00.000Z', source: 'upload', revision: 'copy-revision-1' });
   });
 
   it('paginates opaque Unicode article IDs up to the import length limit', async () => {
@@ -239,6 +291,34 @@ describe('article HTTP handlers', () => {
     await env.DB.prepare('DROP TRIGGER fail_backend_import').run();
   });
 
+  it('validates imported copies before writing and rolls article plus copy back on copy storage failure', async () => {
+    const exportedAt = '2026-01-01T00:00:00.000Z';
+    const item = { id: 'copy-import', url: 'https://example.com/copy-import', title: 'Copy import', createdAt: exportedAt, updatedAt: exportedAt, readAt: null };
+    const invalid = { version: 2, exportedAt, articles: [{ ...item, copy: { markdown: ' ', capturedAt: exportedAt, source: 'paste', revision: 'revision' } }] };
+    expect((await route(request('/api/import', 'POST', invalid))).status).toBe(400);
+    await env.DB.prepare(`CREATE TRIGGER fail_copy_import BEFORE INSERT ON article_copies BEGIN SELECT RAISE(ABORT, 'forced copy failure'); END`).run();
+    const document = { version: 2, exportedAt, articles: [{ ...item, copy: { markdown: '# Copy', capturedAt: exportedAt, source: 'paste', revision: 'revision' } }] };
+    expect((await route(request('/api/import', 'POST', document))).status).toBe(503);
+    expect(await env.DB.prepare('SELECT id FROM articles WHERE id = ?').bind('copy-import').first()).toBeNull();
+    await env.DB.prepare('DROP TRIGGER fail_copy_import').run();
+  });
+
+  it('rejects oversized escaped JSON envelopes and preserves an existing copy when storage fails', async () => {
+    await env.DB.prepare('INSERT INTO articles(id,url,normalized_url,title,created_at,updated_at,read_at) VALUES(?,?,?,?,?,?,NULL)')
+      .bind('copy-failure', 'https://example.com/copy-failure', 'https://example.com/copy-failure', 'Copy failure', '2026-01-01T00:00:00.000Z', '2026-01-01T00:00:00.000Z').run();
+    const create = await route(request('/api/articles/copy-failure/copy', 'PUT', { markdown: '# Prior', source: 'paste', expectedRevision: null }));
+    const prior = (await create.json() as { copy: { revision: string } }).copy;
+    const maxEnvelope = '\u0001'.repeat(262144);
+    expect((await route(request('/api/articles/copy-failure/copy', 'PUT', { markdown: maxEnvelope, source: 'paste', expectedRevision: prior.revision }))).status).toBe(200);
+    const tooLargeEscapedEnvelope = '\u0001'.repeat(400000);
+    expect((await route(request('/api/articles/copy-failure/copy', 'PUT', { markdown: tooLargeEscapedEnvelope, source: 'paste', expectedRevision: prior.revision }))).status).toBe(413);
+    const current = await env.DB.prepare('SELECT revision FROM article_copies WHERE article_id = ?').bind('copy-failure').first<{ revision: string }>();
+    await env.DB.prepare("CREATE TRIGGER fail_copy_update BEFORE UPDATE ON article_copies BEGIN SELECT RAISE(ABORT, 'forced copy update failure'); END").run();
+    expect((await route(request('/api/articles/copy-failure/copy', 'PUT', { markdown: '# Failed write', source: 'upload', expectedRevision: current!.revision }))).status).toBe(503);
+    await env.DB.prepare('DROP TRIGGER fail_copy_update').run();
+    expect(await env.DB.prepare('SELECT markdown FROM article_copies WHERE article_id = ?').bind('copy-failure').first()).toEqual({ markdown: maxEnvelope });
+  });
+
   it('rejects conflicting imported IDs even when another record shares that normalized URL', async () => {
     await env.DB.prepare('INSERT INTO articles(id,url,normalized_url,title,created_at,updated_at,read_at) VALUES(?,?,?,?,?,?,NULL)')
       .bind('owned-id', 'https://example.com/original', 'https://example.com/original', 'Original', '2026-01-01T00:00:00.000Z', '2026-01-01T00:00:00.000Z').run();
@@ -266,5 +346,16 @@ describe('article HTTP handlers', () => {
       .bind('https://example.com/race').first<{ id: string; title: string }>();
     expect(row?.id).toMatch(/race-one|race-two/);
     expect(row?.title).toBe(row?.id === 'race-one' ? 'First' : 'Second');
+  });
+
+  it('does not attach an incoming copy when an imported URL is already present', async () => {
+    const exportedAt = '2026-01-01T00:00:00.000Z';
+    await env.DB.prepare('INSERT INTO articles(id,url,normalized_url,title,created_at,updated_at,read_at) VALUES(?,?,?,?,?,?,NULL)')
+      .bind('url-winner', 'https://example.com/already-saved', 'https://example.com/already-saved', 'Existing title', exportedAt, exportedAt).run();
+    const document = { version: 2, exportedAt, articles: [{ id: 'incoming-id', url: 'https://example.com/already-saved', title: 'Incoming', createdAt: exportedAt, updatedAt: exportedAt, readAt: null, copy: { markdown: '# Must not attach', capturedAt: exportedAt, source: 'paste', revision: 'incoming-revision' } }] };
+    const result = await route(request('/api/import', 'POST', document));
+    expect(await result.json()).toEqual({ imported: 0, skipped: 1 });
+    expect(await env.DB.prepare('SELECT article_id FROM article_copies WHERE article_id IN (?,?)').bind('incoming-id', 'url-winner').first()).toBeNull();
+    expect(await env.DB.prepare('SELECT title FROM articles WHERE id = ?').bind('url-winner').first()).toEqual({ title: 'Existing title' });
   });
 });

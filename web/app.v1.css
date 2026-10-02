@@ -554,6 +554,49 @@ button {
   margin-top: 20px;
   padding-top: 18px;
 }
+.copy-editor {
+  border-top: 1px solid var(--line);
+  margin-top: 22px;
+  padding-top: 8px;
+}
+.copy-editor h3 {
+  font: 500 20px Georgia, serif;
+}
+.copy-editor .copy-status {
+  font-size: 12px;
+  line-height: 1.5;
+  overflow-wrap: anywhere;
+}
+.copy-editor textarea {
+  display: block;
+  width: 100%;
+  min-height: 190px;
+  margin: 6px 0 14px;
+  padding: 11px;
+  border: 1px solid var(--line);
+  border-radius: 9px;
+  background: var(--white);
+  color: var(--ink);
+  font: 13px/1.5 ui-monospace, SFMono-Regular, Menlo, monospace;
+  resize: vertical;
+}
+.copy-editor input[type="file"] {
+  display: block;
+  width: 100%;
+  margin: 7px 0 14px;
+  font-size: 12px;
+}
+.copy-editor .copy-message {
+  margin-bottom: 0;
+}
+@media (max-width: 520px) {
+  .copy-editor textarea {
+    min-height: 150px;
+  }
+  .copy-editor button {
+    width: 100%;
+  }
+}
 .settings-dialog > h2 {
   margin-bottom: 3px;
 }

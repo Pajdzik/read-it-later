@@ -1,6 +1,6 @@
 # Read Later: service design
 
-Status: MVP implemented locally; deployment and native-device release validation pending. Updated September 30, 2026. This document is the contract for [tasks.md](tasks.md); Markdown preservation remains a future phase.
+Status: MVP implemented locally; deployment and native-device release validation pending. Updated October 1, 2026. This document is the product contract for [tasks.md](tasks.md). The manual Markdown preservation decision and A02 implementation details are in [markdown-preservation.md](markdown-preservation.md); deployed extraction benchmarking has not been run.
 
 ## Product decision
 
@@ -12,7 +12,7 @@ The database should be ordinary tables, SQL migrations, and prepared statements.
 
 MVP includes owner login, save URL with optional title, duplicate detection, unread/read/all lists, title and URL search, stable pagination, original-page links, read/unread toggles, deletion, and JSON export/import. Desktop capture uses an Add form and a bookmarklet. Mobile capture uses the same form, an iOS Shortcut, and a PWA share target on supported devices. Saving does not fetch the source page: use supplied title or hostname plus path as the display label.
 
-Phase 2 adds best-effort Markdown preservation and an in-site reader for saved copies. Tags, recommendations, email ingestion, native apps, collaborative accounts, automatic read tracking, full-text archive search, image mirroring, and browser rendering infrastructure are deferred. Links to PDFs or other HTTP documents are accepted in the MVP, but HTML extraction in phase 2 does not imply PDF conversion.
+Phase 2 starts with owner-provided Markdown copies; safe automatic extraction and an in-site reader remain separate deferred work. Tags, recommendations, email ingestion, native apps, collaborative accounts, automatic read tracking, full-text archive search, image mirroring, and browser rendering infrastructure are deferred. Links to PDFs or other HTTP documents are accepted in the MVP, but HTML extraction does not imply PDF conversion.
 
 ## User experience and capture
 
@@ -114,11 +114,11 @@ Only session and health/OAuth entry points have anonymous access. Distinguish 40
 
 Keyset cursor encodes the last `(createdAt,id)` and is validated; order descending and use the same filters each page. Search is case-insensitive title/URL substring search, bound and with LIKE wildcards escaped. MVP search may scan this small personal library; defer FTS until measurements warrant it. Refresh after mutations and clear stale cursors on filter changes. Avoid downloading the full library for every page.
 
-Export format is `{version:1, exportedAt, articles:[…]}` and excludes auth tables. Import validates the entire batch before writing, preserves IDs/dates for new items, skips existing normalized URLs without changing read state, and rejects an ID colliding with a different URL. Use D1 transactional batches and limit SQL statement sizes; tests must cover atomic failure and repeat import. Export large libraries in bounded pages; document snapshot consistency limits if edits happen during export. Download exports regularly; provider recovery is additional protection, not the only backup.
+Export format version 2 adds an optional private Markdown `copy` per article; import remains compatible with version 1 and excludes auth tables. Import validates the entire batch before writing, preserves IDs/dates and copy metadata for new items, skips existing normalized URLs without changing state, and rejects an ID colliding with a different URL. Use D1 transactional batches and limit SQL statement sizes; tests must cover atomic failure and repeat import. Export large libraries in bounded pages; document snapshot consistency limits if edits happen during export. Download exports regularly; provider recovery is additional protection, not the only backup.
 
 ## Markdown preservation: phase 2
 
-Start with owner-submitted Markdown uploads/paste, including files produced by Obsidian Web Clipper, then evaluate server-side extraction. Browser-clipped content handles logged-in and JavaScript pages better than an unauthenticated fetch. Never send browser cookies to the service or bypass paywalls. Store Markdown in a separate `article_copies` table keyed by article ID, with content, captured time, source URL, extractor version and status/error metadata. Keep read state in `articles`. Default to a maximum 256 KiB UTF-8 Markdown copy; avoid returning copies in list queries. D1 keeps the first archive iteration to one database; move large text/assets to R2 only after a measured need and a separate cost review.
+Owner-provided Markdown handles logged-in and JavaScript pages better than an unauthenticated fetch. Never send browser cookies to the service or bypass paywalls. Store Markdown in `article_copies`, keyed by article ID, with content, capture time, paste/upload source, and opaque revision. Keep read state in `articles`. Limit copies to 256 KiB UTF-8; avoid returning copies in list queries. D1 keeps the first archive iteration to one database; move large text/assets to R2 only after a measured need and a separate cost review. Automatic extraction remains deferred until DNS, redirect, and rebinding protection plus runtime costs are measured in deployment.
 
 For automatic capture, persist a bounded D1 job with pending/running/succeeded/failed state, attempt count, next retry time, and lease expiry. A scheduled Worker processes a small batch, uses conditional lease updates, and retries temporary failures with capped backoff (three attempts); exhausted jobs expose an error and manual retry. Save the URL first, regardless of archive success. Crashed jobs become claimable when their leases expire. Write the copy and finish the job atomically. Do not rely on `waitUntil` as a durable queue.
 

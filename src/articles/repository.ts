@@ -1,4 +1,4 @@
-import type { Article, ArticleCursor } from "../contracts";
+import type { Article, ArticleCopy, ArticleCursor } from "../contracts";
 import { ValidationError } from "./validation";
 
 export type ArticleStatus = "unread" | "read" | "all";
@@ -22,6 +22,77 @@ export interface ListArticlesInput {
 export interface UpdateArticleInput {
   read?: boolean;
   title?: string;
+}
+
+export interface SaveArticleCopyInput extends ArticleCopy {}
+
+function mapArticleCopy(row: Record<string, unknown> | null): ArticleCopy | null {
+  if (!row) return null;
+  return {
+    markdown: String(row.markdown),
+    capturedAt: String(row.captured_at),
+    source: String(row.source) as ArticleCopy["source"],
+    revision: String(row.revision),
+  };
+}
+
+export async function getArticleCopy(db: D1Database, id: string): Promise<ArticleCopy | null> {
+  const row = await db.prepare("SELECT markdown,captured_at,source,revision FROM article_copies WHERE article_id = ?")
+    .bind(id).first<Record<string, unknown>>();
+  return mapArticleCopy(row);
+}
+
+export async function listArticlesForExport(
+  db: D1Database,
+  limit = 25,
+  cursor?: string,
+): Promise<{ items: Array<{ article: Article; copy: ArticleCopy | null }>; nextCursor: string | null }> {
+  const values: unknown[] = [];
+  const where = cursor ? " WHERE (a.created_at < ? OR (a.created_at = ? AND a.id < ?))" : "";
+  if (cursor) {
+    const decoded = decodeCursor(cursor);
+    values.push(decoded.createdAt, decoded.createdAt, decoded.id);
+  }
+  values.push(limit + 1);
+  const rows = await db.prepare(`SELECT a.id,a.url,a.title,a.author,a.description,a.created_at,a.updated_at,a.read_at,
+      c.markdown AS copy_markdown,c.captured_at AS copy_captured_at,c.source AS copy_source,c.revision AS copy_revision
+    FROM articles a LEFT JOIN article_copies c ON c.article_id = a.id${where}
+    ORDER BY a.created_at DESC,a.id DESC LIMIT ?`).bind(...values).all<Record<string, unknown>>();
+  const found = rows.results ?? [];
+  const hasMore = found.length > limit;
+  const page = found.slice(0, limit).map((row) => ({
+    article: mapArticle(row)!,
+    copy: row.copy_markdown == null ? null : mapArticleCopy({
+      markdown: row.copy_markdown, captured_at: row.copy_captured_at,
+      source: row.copy_source, revision: row.copy_revision,
+    }),
+  }));
+  const last = page.at(-1)?.article;
+  return {
+    items: page,
+    nextCursor: hasMore && last ? encodeCursor({ createdAt: last.createdAt, id: last.id }) : null,
+  };
+}
+
+export async function saveArticleCopy(
+  db: D1Database,
+  id: string,
+  copy: SaveArticleCopyInput,
+  expectedRevision: string | null,
+): Promise<"saved" | "conflict" | "missing"> {
+  const now = copy.capturedAt;
+  const result = expectedRevision === null
+    ? await db.prepare(`INSERT INTO article_copies (article_id,markdown,captured_at,source,revision)
+        SELECT ?,?,?,?,? WHERE EXISTS (SELECT 1 FROM articles WHERE id = ?)
+        ON CONFLICT(article_id) DO NOTHING`)
+      .bind(id, copy.markdown, now, copy.source, copy.revision, id).run()
+    : await db.prepare(`UPDATE article_copies SET markdown = ?, captured_at = ?, source = ?, revision = ?
+        WHERE article_id = ? AND revision = ? AND EXISTS (SELECT 1 FROM articles WHERE id = ?)`)
+      .bind(copy.markdown, now, copy.source, copy.revision, id, expectedRevision, id).run();
+  if ((result.meta.changes ?? 0) > 0) return "saved";
+  const article = await db.prepare("SELECT 1 AS found FROM articles WHERE id = ?").bind(id).first();
+  if (!article) return "missing";
+  return "conflict";
 }
 
 function mapArticle(row: Record<string, unknown> | null): Article | null {

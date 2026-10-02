@@ -10,6 +10,7 @@ type Article = {
 };
 type Session = { authenticated: boolean; csrfToken?: string };
 type Page = { items: Article[]; nextCursor: string | null };
+type ArticleCopy = { markdown: string; capturedAt: string; source: "paste" | "upload"; revision: string };
 const $ = <T extends HTMLElement = HTMLElement>(selector: string): T =>
   document.querySelector<T>(selector)!;
 const state = {
@@ -21,6 +22,7 @@ const state = {
   theme: localStorage.getItem("later-theme") || "system",
   selected: null as Article | null,
 };
+const copyDrafts = new Map<string, { markdown: string; source: "paste" | "upload" }>();
 const list = $("#articles"),
   notice = $("#notice"),
   empty = $("#empty"),
@@ -61,6 +63,7 @@ async function request<T>(path: string, init: RequestInit = {}): Promise<T> {
   });
   if (response.status === 401) {
     stashDraft();
+    copyDrafts.clear();
     location.assign("/auth/github");
     throw new Error("Sign in to continue.");
   }
@@ -306,6 +309,138 @@ function renderDetail(article: Article) {
     url,
     actions,
   );
+  void renderCopyEditor(article);
+}
+
+async function renderCopyEditor(article: Article) {
+  const root = $("#detail-content");
+  const section = el("section", undefined, "copy-editor");
+  section.setAttribute("aria-label", "Markdown copy");
+  section.append(el("h3", "Markdown copy"));
+  section.append(el("p", "Stored as Markdown text. External image links still depend on the source site.", "muted copy-explainer"));
+  const status = el("p", "Checking for a saved copy…", "muted copy-status");
+  status.setAttribute("aria-live", "polite");
+  const label = el("label", "Paste Markdown", "field-label");
+  const textarea = el("textarea");
+  textarea.rows = 12;
+  textarea.maxLength = 262144;
+  textarea.setAttribute("aria-label", "Markdown copy");
+  textarea.placeholder = "Paste a browser-clipped Markdown copy here…";
+  label.append(textarea);
+  const fileLabel = el("label", "Load a .md or .markdown file", "field-label copy-file-label");
+  const file = el("input");
+  file.type = "file";
+  file.accept = ".md,.markdown,text/markdown,text/plain";
+  fileLabel.append(file);
+  const message = el("p", undefined, "notice copy-message");
+  message.hidden = true;
+  message.setAttribute("role", "status");
+  const save = el("button", "Save Markdown copy", "button primary");
+  save.type = "button";
+  let saved: ArticleCopy | null = null;
+  let source: ArticleCopy["source"] = "paste";
+  save.disabled = true;
+  const showError = (text: string) => {
+    message.textContent = text;
+    message.classList.add("error");
+    message.hidden = false;
+  };
+  const showStatus = (text: string) => {
+    status.textContent = text;
+  };
+  file.addEventListener("change", async () => {
+    const selected = file.files?.[0];
+    if (!selected) return;
+    try {
+      if (!/\.(?:md|markdown)$/i.test(selected.name)) throw new Error("Choose a .md or .markdown file.");
+      if (selected.size > 262144) throw new Error("Markdown files must be at most 262144 bytes.");
+      const bytes = new Uint8Array(await selected.arrayBuffer());
+      const text = new TextDecoder("utf-8", { fatal: true }).decode(bytes);
+      const textBytes = new TextEncoder().encode(text).byteLength;
+      if (textBytes > 262144) throw new Error("Markdown files must be at most 262144 UTF-8 bytes.");
+      if (!text.trim()) throw new Error("This file is empty. Choose a Markdown file with content.");
+      textarea.value = text;
+      source = "upload";
+      copyDrafts.set(article.id, { markdown: text, source });
+      message.hidden = true;
+      showStatus(`${selected.name} loaded · ${textBytes.toLocaleString()} UTF-8 bytes. Save when ready.`);
+    } catch (error) {
+      showError(`Couldn’t load this file. ${(error as Error).message} Choose another file or paste Markdown.`);
+    } finally {
+      file.value = "";
+    }
+  });
+  textarea.addEventListener("input", () => {
+    source = "paste";
+    copyDrafts.set(article.id, { markdown: textarea.value, source });
+    const bytes = new TextEncoder().encode(textarea.value).byteLength;
+    showStatus(`${bytes.toLocaleString()} UTF-8 bytes · Unsaved draft`);
+  });
+  save.addEventListener("click", async () => {
+    const markdown = textarea.value;
+    const bytes = new TextEncoder().encode(markdown).byteLength;
+    if (!markdown.trim()) {
+      showError("Paste or load Markdown before saving.");
+      return;
+    }
+    if (bytes > 262144) {
+      showError("Markdown copies must be at most 262144 UTF-8 bytes. Shorten the draft and try again.");
+      return;
+    }
+    if (saved && !confirm("Replace the saved Markdown copy with this draft?")) return;
+    save.disabled = true;
+    textarea.disabled = true;
+    file.disabled = true;
+    message.hidden = true;
+    try {
+      const result = await request<{ copy: ArticleCopy }>(
+        `/api/articles/${encodeURIComponent(article.id)}/copy`,
+        { method: "PUT", body: JSON.stringify({ markdown, source, expectedRevision: saved?.revision ?? null }) },
+      );
+      saved = result.copy;
+      copyDrafts.delete(article.id);
+      const storedBytes = new TextEncoder().encode(saved.markdown).byteLength;
+      showStatus(`Saved ${dateLabel(saved.capturedAt)} · ${saved.source === "upload" ? "uploaded file" : "pasted Markdown"} · ${storedBytes.toLocaleString()} UTF-8 bytes`);
+      showNotice("Markdown copy saved.");
+    } catch (error) {
+      showError(`Couldn’t save the Markdown copy. ${(error as Error).message} Your draft is still here; retry when ready.`);
+    } finally {
+      save.disabled = false;
+      textarea.disabled = false;
+      file.disabled = false;
+    }
+  });
+  section.append(status, label, fileLabel, save, message);
+  root.append(section);
+  const pendingDraft = copyDrafts.get(article.id);
+  if (pendingDraft) {
+    textarea.value = pendingDraft.markdown;
+    source = pendingDraft.source;
+    showStatus(`${new TextEncoder().encode(pendingDraft.markdown).byteLength.toLocaleString()} UTF-8 bytes · Unsaved draft`);
+  }
+  try {
+    const result = await request<{ copy: ArticleCopy | null }>(`/api/articles/${encodeURIComponent(article.id)}/copy`);
+    if (state.selected?.id !== article.id || !root.contains(section)) return;
+    saved = result.copy;
+    const pending = copyDrafts.get(article.id);
+    if (pending) {
+      textarea.value = pending.markdown;
+      source = pending.source;
+      showStatus(`${new TextEncoder().encode(pending.markdown).byteLength.toLocaleString()} UTF-8 bytes · Unsaved draft`);
+    } else if (saved) {
+      textarea.value = saved.markdown;
+      source = saved.source;
+      const bytes = new TextEncoder().encode(saved.markdown).byteLength;
+      showStatus(`Saved ${dateLabel(saved.capturedAt)} · ${saved.source === "upload" ? "uploaded file" : "pasted Markdown"} · ${bytes.toLocaleString()} UTF-8 bytes`);
+    } else {
+      showStatus("No Markdown copy saved yet.");
+    }
+    save.disabled = false;
+  } catch (error) {
+    showStatus("Couldn’t load Markdown copy status.");
+    showError(`Couldn’t load this copy. ${(error as Error).message} Retry by closing and reopening this article.`);
+    save.disabled = true;
+  }
 }
 function openDetail(article: Article) {
   renderDetail(article);
@@ -445,6 +580,7 @@ $("#more").addEventListener("click", () => load(false));
 $("#logout").addEventListener("click", async () => {
   try {
     await request("/auth/logout", { method: "POST" });
+    copyDrafts.clear();
     location.assign("/");
   } catch (e) {
     showNotice((e as Error).message, true);
