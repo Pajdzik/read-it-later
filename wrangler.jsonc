@@ -3,6 +3,13 @@
   "name": "read-it-later",
   "main": "src/worker.ts",
   "compatibility_date": "2026-08-01",
+  "vars": {
+    "APP_ORIGIN": "https://read-it-later-production.pajdzik.workers.dev",
+    "GITHUB_BACKUP_BRANCH": "main",
+    "GITHUB_BACKUP_PATH": "Articles",
+    "GITHUB_BACKUP_REPOSITORY": "Pajdzik/Kamilpedia",
+    "OWNER_GITHUB_ID": "1497744"
+  },
   "assets": {
     "directory": "./dist/web",
     "binding": "ASSETS",
