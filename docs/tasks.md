@@ -83,8 +83,9 @@ Check off a task only after its acceptance criteria pass. Each chunk should be o
 
 ## Optional migration
 
-- [ ] **X01 — Import the existing Obsidian library.** After M07 (and A02 for copies), create a read-only importer from prototype frontmatter to the versioned import format. Produce a dry-run report of valid records, duplicate URLs, invalid/missing source URLs, unrecognized read flags and dates. Preserve source files and do not infer read status for ambiguous records.
-  Acceptance: dry-run and import counts reconcile; original vault files are byte-identical afterward; existing service records remain intact; malformed source files are reported individually. Retire the old flow only after owner review of the reconciliation.
+- [ ] **X01 — Import the existing Obsidian library.** The offline converter is implemented in `scripts/obsidian-convert.mjs`, with temporary-vault coverage and a local Worker/D1 restore rehearsal in `pnpm test:obsidian`. It reports valid, duplicate, and excluded records and preserves source bytes in fixtures. Fixture import/export/reimport checks reconcile records and preserve an existing normalized-URL record with its copy and read state. The owner's actual vault has not been read; owner review, actual import, and retirement of the old flow remain pending.
+  Acceptance: dry-run and import counts reconcile; original vault files are byte-identical afterward; existing service records remain intact; malformed source files are reported individually. Retire the old flow only after owner review of the reconciliation. Fixture evidence alone does not complete X01.
+  Fixture evidence (October 2, 2026): ten converter unit tests pass. The temporary Worker/D1 rehearsal imports three eligible records with one existing-URL skip, exports and reconciles three records, then reimports with zero writes and three skips. The existing record's title, dates, read state, and Markdown copy remain unchanged. No actual-vault or production import was attempted.
 
 ## Parallel work and handoff
 
