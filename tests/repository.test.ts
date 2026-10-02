@@ -74,6 +74,73 @@ describe("D1 article repository", () => {
     });
   });
 
+  it("preserves an owner title edit interleaved with duplicate metadata enrichment", async () => {
+    const url = "https://example.com/article";
+    const first = await saveArticle(env.DB, {
+      url,
+      normalizedUrl: url,
+      title: "example.com/article",
+    });
+    let ownerEditApplied = false;
+    const applyOwnerEdit = async () => {
+      if (ownerEditApplied) return;
+      ownerEditApplied = true;
+      await updateArticle(env.DB, first.article.id, { title: "Owner edit" }, "2026-09-30T10:00:00.000Z");
+    };
+    const interleavedDb = new Proxy(env.DB, {
+      get(target, property) {
+        if (property !== "prepare") return Reflect.get(target, property, target);
+        return (sql: string) => {
+          const statement = target.prepare(sql);
+          const isDuplicateLookup = sql.startsWith("SELECT id,url,title,author,description,created_at,updated_at,read_at FROM articles WHERE normalized_url = ?");
+          const isConditionalEnrichment = sql.startsWith("UPDATE articles SET") && sql.includes("WHERE normalized_url = ?");
+          if (!isDuplicateLookup && !isConditionalEnrichment) return statement;
+          return new Proxy(statement, {
+            get(prepared, method) {
+              if (method !== "bind") return Reflect.get(prepared, method, prepared);
+              const bind = Reflect.get(prepared, "bind", prepared) as D1PreparedStatement["bind"];
+              return (...values: Parameters<D1PreparedStatement["bind"]>) => {
+                const bound = bind.apply(prepared, values);
+                return new Proxy(bound, {
+                  get(boundStatement, operation) {
+                    if (operation !== "first") return Reflect.get(boundStatement, operation, boundStatement);
+                    return async <T = Record<string, unknown>>(column?: string): Promise<T | null> => {
+                      if (isDuplicateLookup) {
+                        const snapshot = column === undefined
+                          ? await boundStatement.first<T>()
+                          : await boundStatement.first<T>(column);
+                        await applyOwnerEdit();
+                        return snapshot;
+                      }
+                      await applyOwnerEdit();
+                      return column === undefined ? boundStatement.first<T>() : boundStatement.first<T>(column);
+                    };
+                  },
+                });
+              };
+            },
+          });
+        };
+      },
+    });
+    const refreshed = await saveArticle(interleavedDb, {
+      url,
+      normalizedUrl: url,
+      title: "Page title",
+      fallbackTitle: "example.com/article",
+      author: "Alex Writer",
+      description: "A short lead.",
+    });
+    expect(ownerEditApplied).toBe(true);
+    expect(refreshed.article).toMatchObject({
+      id: first.article.id,
+      title: "Owner edit",
+      author: "Alex Writer",
+      description: "A short lead.",
+    });
+    expect(refreshed.metadataUpdated).toBe(true);
+  });
+
   it("keeps the first read timestamp, clears it on unread and updates only effective changes", async () => {
     const { article } = await saveArticle(env.DB, { url: "https://example.com/", normalizedUrl: "https://example.com/" });
     const firstRead = await updateArticle(env.DB, article.id, { read: true }, "2026-09-30T10:00:00.000Z");

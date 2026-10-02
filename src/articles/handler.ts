@@ -1,7 +1,7 @@
 import type { Article, ArticleCopy, Env } from '../contracts.js';
 import { errorResponse } from '../contracts.js';
 import { exceptionResponse, jsonResponse, logUnexpectedError, PRIVATE_HEADERS } from '../http.js';
-import { deleteArticle, getArticle, getArticleCopy, listArticles, listArticlesForExport, saveArticle, saveArticleCopy, updateArticle } from './repository.js';
+import { deleteArticle, getArticle, getArticleCopy, importArticles as saveImportedArticles, listArticles, listArticlesForExport, saveArticle, saveArticleCopy, updateArticle } from './repository.js';
 import {
   BodyTooLargeError, defaultTitle, MAX_IMPORT_BYTES, MAX_IMPORT_ITEMS, MAX_TITLE_LENGTH,
   normalizeArticleUrl, parseObject, readJson, ValidationError, validateTitle,
@@ -10,7 +10,6 @@ import { isResponse, requireSession, validateCaptureToken } from '../auth/core.j
 import { fetchArticleMetadata } from './metadata.js';
 
 const PRIVATE = PRIVATE_HEADERS;
-type ImportArticle = Article;
 const MAX_COPY_BYTES = 256 * 1024;
 const MAX_COPY_ENVELOPE_BYTES = 2 * 1024 * 1024;
 
@@ -180,7 +179,7 @@ async function importArticles(request: Request, env: Env): Promise<Response> {
   validTimestamp(input.exportedAt, 'exportedAt');
   if (!Array.isArray(input.articles) || input.articles.length > MAX_IMPORT_ITEMS) throw new ValidationError('articles must be an array with at most 1000 items');
   const seenIds = new Set<string>();
-  const normalized: Array<ImportArticle & { normalizedUrl: string; copy?: ArticleCopy }> = [];
+  const normalized: Array<Article & { normalizedUrl: string; copy?: ArticleCopy }> = [];
   for (const value of input.articles) {
     const item = parseObject(value, ['id', 'url', 'title', 'author', 'description', 'createdAt', 'updatedAt', 'readAt', ...(input.version === 2 ? ['copy'] : [])], ['id', 'url', 'title', 'createdAt', 'updatedAt', 'readAt']);
     if (typeof item.id !== 'string' || !item.id || item.id.length > 128) throw new ValidationError('article id is invalid');
@@ -206,46 +205,7 @@ async function importArticles(request: Request, env: Env): Promise<Response> {
     }
     normalized.push({ id: item.id, url: url.url, normalizedUrl: url.normalizedUrl, title: item.title.trim(), author, description, createdAt, updatedAt, readAt, ...(copy ? { copy } : {}) });
   }
-  const existingIds = new Map<string, string>();
-  for (const group of chunks(normalized, 80)) {
-    const idRows = await env.DB.prepare(`SELECT id, normalized_url FROM articles WHERE id IN (${group.map(() => '?').join(',')})`).bind(...group.map((x) => x.id)).all<{ id: string; normalized_url: string }>();
-    for (const row of idRows.results || []) existingIds.set(row.id, row.normalized_url);
-  }
-  const seenUrls = new Set<string>(); const toInsert: typeof normalized = [];
-  let skipped = 0;
-  for (const item of normalized) {
-    const idUrl = existingIds.get(item.id);
-    if (idUrl !== undefined && idUrl !== item.normalizedUrl) throw new ValidationError('an article ID already belongs to a different URL');
-    if (seenUrls.has(item.normalizedUrl) || idUrl !== undefined) { skipped++; seenUrls.add(item.normalizedUrl); continue; }
-    seenUrls.add(item.normalizedUrl);
-    toInsert.push(item);
-  }
-  let imported = 0;
-  if (toInsert.length) {
-    const statements: D1PreparedStatement[] = [];
-    for (const item of toInsert) {
-      statements.push(env.DB.prepare(`INSERT INTO articles (id,url,normalized_url,title,author,description,created_at,updated_at,read_at)
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?) ON CONFLICT(normalized_url) DO NOTHING`)
-        .bind(item.id, item.url, item.normalizedUrl, item.title, item.author, item.description, item.createdAt, item.updatedAt, item.readAt));
-      if (item.copy) statements.push(env.DB.prepare(`INSERT INTO article_copies (article_id,markdown,captured_at,source,revision)
-        SELECT ?,?,?,?,? WHERE changes() = 1 AND EXISTS (SELECT 1 FROM articles WHERE id = ?)
-        ON CONFLICT(article_id) DO NOTHING`)
-        .bind(item.id, item.copy.markdown, item.copy.capturedAt, item.copy.source, item.copy.revision, item.id));
-    }
-    const results = await env.DB.batch(statements);
-    // A copy insertion follows its article insertion in the same D1 batch and
-    // is gated by changes(), so a skipped duplicate can never receive a copy.
-    imported = 0;
-    let resultIndex = 0;
-    for (const item of toInsert) {
-      const articleResult = results[resultIndex++];
-      const inserted = articleResult?.meta.changes ?? 0;
-      imported += inserted;
-      if (item.copy) resultIndex++;
-      if (!inserted) skipped++;
-    }
-  }
-  return jsonResponse({ imported, skipped }, 200);
+  return jsonResponse(await saveImportedArticles(env.DB, normalized), 200);
 }
 
 function validTimestamp(value: unknown, field: string): string {
@@ -262,7 +222,4 @@ function optionalImportText(value: unknown, field: string, limit: number): strin
   if (value === undefined || value === null) return null;
   if (typeof value !== 'string' || value.length > limit || !value.trim()) throw new ValidationError(`article ${field} is invalid`);
   return value.trim();
-}
-function* chunks<T>(values: T[], size: number): Generator<T[]> {
-  for (let i = 0; i < values.length; i += size) yield values.slice(i, i + size);
 }
