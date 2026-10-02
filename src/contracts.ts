@@ -6,6 +6,10 @@ export interface Env {
   OWNER_GITHUB_ID?: string;
   APP_ORIGIN?: string;
   DEV_AUTH_BYPASS?: string;
+  GITHUB_BACKUP_REPOSITORY?: string;
+  GITHUB_BACKUP_BRANCH?: string;
+  GITHUB_BACKUP_PATH?: string;
+  GITHUB_BACKUP_TOKEN?: string;
 }
 
 export interface Article {
@@ -24,6 +28,17 @@ export interface ArticleCopy {
   capturedAt: string;
   source: "paste" | "upload";
   revision: string;
+}
+
+export interface GitHubBackupStatus {
+  configured: boolean;
+  message?: string;
+  repository?: string;
+  branch?: string;
+  path?: string;
+  url?: string;
+  state?: "not_saved" | "saved" | "outdated";
+  backedUpAt?: string;
 }
 
 export interface ApiError {

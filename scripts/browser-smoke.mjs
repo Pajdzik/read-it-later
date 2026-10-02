@@ -127,6 +127,10 @@ try {
   const detail = page.locator("#detail-content");
   const markdown = detail.getByRole("textbox", { name: "Markdown copy" });
   await detail.getByText("No Markdown copy saved yet.").waitFor();
+  const githubCheckbox = detail.getByRole("checkbox", { name: "Also save to GitHub" });
+  await detail.getByText(/GitHub saving is not configured/).waitFor();
+  assert.equal(await githubCheckbox.isChecked(), false, "GitHub saving must start unchecked.");
+  assert.equal(await githubCheckbox.isDisabled(), true, "GitHub saving needs a server-side credential.");
   await markdown.fill("# Browser copy\n\nPasted draft.");
   await page.route("**/api/articles/*/copy", async (route) => {
     if (route.request().method() === "PUT")
@@ -150,12 +154,62 @@ try {
   await detail.getByRole("button", { name: "Save Markdown copy" }).click();
   await detail.getByText(/uploaded file/).waitFor();
   await page.locator("#detail-dialog .dialog-close button").click();
+  let githubRequests = 0;
+  let githubFailure = true;
+  let githubState = "not_saved";
+  const githubDestination = {
+    configured: true, repository: "Pajdzik/Kamilpedia", branch: "main",
+    path: "Articles/browser-smoke.md", url: "https://github.com/Pajdzik/Kamilpedia/blob/main/Articles/browser-smoke.md",
+  };
+  await page.route("**/api/articles/*/github", async (route) => {
+    if (route.request().method() === "POST") {
+      githubRequests++;
+      const copyUrl = route.request().url().replace(/\/github$/, "/copy");
+      const currentCopy = (await (await fetch(copyUrl)).json()).copy;
+      assert.equal(route.request().postDataJSON().expectedRevision, currentCopy.revision, "GitHub must receive the persisted copy revision.");
+      assert.equal(currentCopy.markdown, "# GitHub checkbox copy\n\nStill saved if GitHub fails.");
+      if (githubFailure) {
+        await route.fulfill({ status: 503, contentType: "application/json", body: JSON.stringify({ error: { message: "Simulated GitHub outage" } }) });
+        return;
+      }
+      githubState = "saved";
+    }
+    await route.fulfill({ contentType: "application/json", body: JSON.stringify({ backup: {
+      ...githubDestination, state: githubState, ...(githubState === "saved" ? { backedUpAt: "2026-10-01T00:00:00.000Z" } : {}),
+    } }) });
+  });
   await page.reload();
   await page.locator("#logout").waitFor();
   await title.waitFor();
   await title.click();
   await page.locator("#detail-content .copy-status").getByText(/uploaded file/).waitFor();
   assert.equal(await page.locator("#detail-content").getByRole("textbox", { name: "Markdown copy" }).inputValue(), uploadedMarkdown, "Uploaded Markdown must survive reload.");
+  await detail.getByText(/Not saved to GitHub yet/).waitFor();
+  assert.equal(await githubCheckbox.isChecked(), false, "The GitHub checkbox must remain opt-in on reopen.");
+  assert.equal(githubRequests, 0, "Unchecked local saves must not trigger a GitHub write.");
+  await markdown.fill("# Unchecked GitHub save");
+  page.once("dialog", (dialog) => dialog.accept());
+  await detail.getByRole("button", { name: "Save Markdown copy" }).click();
+  await detail.locator(".copy-status").getByText(/pasted Markdown/).waitFor();
+  assert.equal(githubRequests, 0, "Saving with a configured, unchecked checkbox must only save to D1.");
+  await githubCheckbox.check();
+  await markdown.fill("# GitHub checkbox copy\n\nStill saved if GitHub fails.");
+  page.once("dialog", (dialog) => dialog.accept());
+  await detail.getByRole("button", { name: "Save Markdown copy" }).click();
+  await detail.getByText(/Simulated GitHub outage/).waitFor();
+  assert.equal(githubRequests, 1);
+  assert.equal(await markdown.inputValue(), "# GitHub checkbox copy\n\nStill saved if GitHub fails.", "GitHub failure must leave the local copy in the editor.");
+  githubFailure = false;
+  await detail.getByRole("button", { name: "Save saved copy to GitHub" }).click();
+  await detail.getByText(/Saved to GitHub/).waitFor();
+  assert.equal(githubRequests, 2, "GitHub retry must not require resaving or replacing the local copy.");
+  await page.locator("#detail-dialog .dialog-close button").click();
+  await page.reload();
+  await title.waitFor();
+  await title.click();
+  await detail.getByText(/Saved to GitHub/).waitFor();
+  assert.equal(await githubCheckbox.isChecked(), false);
+  assert.equal(await markdown.inputValue(), "# GitHub checkbox copy\n\nStill saved if GitHub fails.");
   await page.setViewportSize({ width: 390, height: 844 });
   assert.equal(await page.evaluate(() => document.documentElement.scrollWidth > innerWidth), false, "Markdown editor must fit a narrow viewport.");
   await page.setViewportSize({ width: 1440, height: 1000 });

@@ -43,7 +43,10 @@
       "name": "read-it-later-production",
       "vars": {
         "APP_ORIGIN": "https://read-it-later-production.pajdzik.workers.dev",
-        "OWNER_GITHUB_ID": "1497744"
+        "OWNER_GITHUB_ID": "1497744",
+        "GITHUB_BACKUP_REPOSITORY": "Pajdzik/Kamilpedia",
+        "GITHUB_BACKUP_BRANCH": "main",
+        "GITHUB_BACKUP_PATH": "Articles"
       },
       "d1_databases": [
         {

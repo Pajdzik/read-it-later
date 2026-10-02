@@ -92,6 +92,7 @@ All API payloads are JSON with camelCase fields. Errors use `{error: {code, mess
 | `PATCH /api/articles/:id` | Change title and/or read state |
 | `DELETE /api/articles/:id` | Delete an article |
 | `GET /api/articles/:id/copy`, `PUT /api/articles/:id/copy` | Read or save a private Markdown copy with revision checks |
+| `GET /api/articles/:id/github`, `POST /api/articles/:id/github` | Check the configured GitHub destination or save the persisted Markdown copy there |
 | `GET /api/export`, `POST /api/import` | Download or restore versioned library JSON |
 | `GET`, `POST /api/capture-tokens` | List token metadata or create a token |
 | `DELETE /api/capture-tokens/:id` | Revoke a token |
@@ -105,9 +106,11 @@ Import accepts up to 1 MiB and 1,000 articles. It validates the complete input a
 
 Article details let the owner paste Markdown or load a UTF-8 `.md`/`.markdown` file. Saving is explicit, replacements use revision checks, and each copy is limited to 256 KiB UTF-8. The editor shows capture time, source, and byte count; failed saves keep the draft. The original link and read state remain independent.
 
+Check **Also save to GitHub** to additionally commit the saved Markdown with source/capture frontmatter. Production targets `Pajdzik/Kamilpedia`, branch `main`, at `Articles/<article-id>.md`. Kamilpedia is public, so checked copies are public there. The checkbox starts unchecked and requires a separate server-side `GITHUB_BACKUP_TOKEN` secret with repository Contents write permission. D1 stays authoritative; GitHub failure leaves the D1 copy intact and offers a retry. Destination/status, conflict handling, configuration, and recovery are documented in the [GitHub Markdown guide](docs/github-markdown.md).
+
 Copies are editable Markdown text. Sanitized in-site reading and Markdown download are the next archive feature. External image references still depend on the source site and do not make a complete offline replica. R2 is deferred until measured storage needs justify it.
 
-The manual-only A01 decision is recorded in [markdown-preservation.md](docs/markdown-preservation.md). No deployed extraction benchmark was run. Automatic capture remains deferred until DNS/egress and redirect protections, runtime costs, and retries are proven; current metadata fetching does not establish those guarantees. See archive tasks A01–A05 in the [implementation tracker](docs/tasks.md).
+The manual-only A01 decision is recorded in [markdown-preservation.md](docs/markdown-preservation.md). No deployed extraction benchmark was run. Automatic capture remains deferred until DNS/egress and redirect protections, runtime costs, and retries are proven; current metadata fetching does not establish those guarantees. See archive tasks A01–A06 in the [implementation tracker](docs/tasks.md).
 
 ## Local development
 

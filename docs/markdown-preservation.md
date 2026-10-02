@@ -8,7 +8,7 @@ Owners can paste Markdown or load a UTF-8 `.md`/`.markdown` file in article deta
 
 ## Storage and API
 
-The selected implementation stores copies only in D1. GitHub Markdown backup is a deferred, optional task (A06 in the implementation tracker), with D1 remaining authoritative if backup is added later.
+The selected implementation stores authoritative copies in D1. The optional [GitHub Markdown saving integration](github-markdown.md) (A06) adds an unchecked **Also save to GitHub** checkbox. It writes the saved copy to the configured external repository after D1 succeeds. Production targets the public `Pajdzik/Kamilpedia` repository under `Articles`; only checked saves publish copies there. D1 remains authoritative.
 
 Add migration `0004_article_copies.sql`: one `article_copies` row per article, foreign key with `ON DELETE CASCADE`, Markdown text, `captured_at`, `source` (`paste` or `upload`), and an opaque revision. Keep copies out of ordinary list payloads. Copy writes never update article URL, title, timestamps, or read state. Saving a URL and saving a copy are separate operations so copy failures cannot undo a saved link.
 

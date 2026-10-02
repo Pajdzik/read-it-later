@@ -5,3 +5,11 @@ DEV_AUTH_BYPASS=true
 # GITHUB_CLIENT_ID=your-oauth-client-id
 # GITHUB_CLIENT_SECRET=your-oauth-client-secret
 # OWNER_GITHUB_ID=your-immutable-numeric-github-id
+
+# Optional Markdown saving to GitHub using the article editor checkbox.
+# Use a separate fine-grained token with Contents: read and write on that repo.
+# Files inherit the repository's visibility (Kamilpedia is public).
+# GITHUB_BACKUP_REPOSITORY=Pajdzik/Kamilpedia
+# GITHUB_BACKUP_BRANCH=main
+# GITHUB_BACKUP_PATH=Articles
+# GITHUB_BACKUP_TOKEN=github_pat_...
