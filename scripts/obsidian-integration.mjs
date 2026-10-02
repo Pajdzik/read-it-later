@@ -4,8 +4,8 @@ import { mkdtemp, mkdir, readFile, readdir, rm, writeFile } from "node:fs/promis
 import os from "node:os";
 import path from "node:path";
 import net from "node:net";
-import { convertVault } from "./obsidian-convert.mjs";
-import { validateBackupEnvelope } from "./archive-backup.mjs";
+import { convertVault } from "./obsidian-convert.ts";
+import { validateBackupEnvelope } from "./archive-backup.ts";
 
 const project = process.cwd();
 const wrangler = path.join(project, "node_modules/wrangler/bin/wrangler.js");
@@ -117,7 +117,7 @@ async function main() {
   const batchNames = (await readdir(output)).filter(name => name.startsWith("import-")).sort();
   const batches = [];
   for (const name of batchNames) batches.push(JSON.parse(await readFile(path.join(output, name), "utf8")));
-  await run(process.execPath, [path.join(project, "scripts/build-web.mjs")], project, env, true);
+  await run(process.execPath, ["--import", "tsx", path.join(project, "scripts/build-web.ts")], project, env, true);
   const listenPort = await port();
   const base = "http://127.0.0.1:" + listenPort;
   const wrapper = "import actual from " + JSON.stringify(path.join(project, "src/worker.ts")) + ";\nexport default { fetch(request, env, ctx) { return actual.fetch(request, env, ctx); } };\n";

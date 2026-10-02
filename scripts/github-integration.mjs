@@ -4,8 +4,8 @@ import { mkdtemp, mkdir, readFile, readdir, rm, writeFile } from "node:fs/promis
 import os from "node:os";
 import path from "node:path";
 import net from "node:net";
-import { convertGitHubMarkdown } from "./github-convert.mjs";
-import { validateBackupEnvelope } from "./archive-backup.mjs";
+import { convertGitHubMarkdown } from "./github-convert.ts";
+import { validateBackupEnvelope } from "./archive-backup.ts";
 
 const project = process.cwd();
 const wrangler = path.join(project, "node_modules/wrangler/bin/wrangler.js");
@@ -99,7 +99,7 @@ async function main() {
   assert.deepEqual([converted.report.eligible, converted.report.duplicates, converted.report.excluded], [3, 1, 0]);
   const batches = [];
   for (const name of (await readdir(output)).filter(name => name.startsWith("import-")).sort()) batches.push(JSON.parse(await readFile(path.join(output, name), "utf8")));
-  await run(process.execPath, [path.join(project, "scripts/build-web.mjs")], project, env);
+  await run(process.execPath, ["--import", "tsx", path.join(project, "scripts/build-web.ts")], project, env);
   const listenPort = await freePort(); const baseUrl = `http://127.0.0.1:${listenPort}`;
   await writeFile(entry, `import actual from ${JSON.stringify(path.join(project, "src/worker.ts"))};\nexport default { fetch(request, env, ctx) { return actual.fetch(request, env, ctx); } };\n`, { mode: 0o600 });
   await writeFile(configPath, JSON.stringify(config(storage, listenPort, entry)), { mode: 0o600 }); await mkdir(storage);

@@ -4,7 +4,7 @@ import { constants as fsConstants } from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { Alias, isAlias, isMap, parseDocument } from "yaml";
-import { MAX_BACKUP_BYTES, splitImportBatches, validateBackupEnvelope } from "./archive-backup.mjs";
+import { MAX_BACKUP_BYTES, splitImportBatches, validateBackupEnvelope, type BackupArticle, type BackupEnvelope } from "./archive-backup.ts";
 
 export const MAX_SOURCE_FILE_BYTES = 1024 * 1024;
 export const MAX_MARKDOWN_TOTAL_BYTES = 64 * 1024 * 1024;
@@ -15,20 +15,57 @@ export const MAX_TITLE_LENGTH = 500;
 export const MAX_AUTHOR_LENGTH = 200;
 export const MAX_DESCRIPTION_LENGTH = 500;
 
-function fail(message) { throw new Error(message); }
-function fatal(message) { const error = new Error(message); error.fatal = true; throw error; }
-function utf8Length(value) { return Buffer.byteLength(value, "utf8"); }
-function sha256(value) { return createHash("sha256").update(value).digest("hex"); }
-function isInside(parent, target) { const relative = path.relative(parent, target); return relative === "" || (!relative.startsWith(`..${path.sep}`) && relative !== ".." && !path.isAbsolute(relative)); }
-function safePathName(file) { return file.split(path.sep).join("/"); }
-function comparePath(a, b) { return a < b ? -1 : a > b ? 1 : 0; }
-function reportReason(error) { return /^[a-z][a-z0-9_]*$/.test(error?.message || "") ? error.message : "file_read_error"; }
+export type ObsidianOutcome = {
+  path: string;
+  outcome: "excluded" | "duplicate" | "eligible";
+  reasons: string[];
+  warnings: string[];
+  dateSource: string | null;
+  winner?: string;
+};
 
-export function normalizeSourceUrl(value) {
+export type ObsidianConversionReport = {
+  version: 1;
+  createdAt: string;
+  discovered: number;
+  eligible: number;
+  duplicates: number;
+  excluded: number;
+  read: number;
+  unread: number;
+  copied: number;
+  linkOnly: number;
+  batchCount: number;
+  skippedSymlinks: string[];
+  outcomes: ObsidianOutcome[];
+};
+
+export type ObsidianConversionResult = { report: ObsidianConversionReport; batches: BackupEnvelope[] };
+type SourceUrl = { url: string; normalizedUrl: string };
+type ParsedMarkdown = { item: BackupArticle; normalizedUrl: string; dateSource: string; warnings: string[] };
+type VaultCandidate = { absolute: string; relative: string };
+type VaultScan = { candidates: VaultCandidate[]; symlinks: string[]; aggregateBytes: number };
+type Frontmatter = { metadata: Record<string, unknown>; body: string };
+type FatalError = Error & { fatal: true };
+
+function isFatalError(error: unknown): error is FatalError {
+  return error instanceof Error && "fatal" in error && error.fatal === true;
+}
+
+function fail(message: string): never { throw new Error(message); }
+function fatal(message: string): never { const error = new Error(message) as FatalError; error.fatal = true; throw error; }
+function utf8Length(value: string): number { return Buffer.byteLength(value, "utf8"); }
+function sha256(value: string): string { return createHash("sha256").update(value).digest("hex"); }
+function isInside(parent: string, target: string): boolean { const relative = path.relative(parent, target); return relative === "" || (!relative.startsWith(`..${path.sep}`) && relative !== ".." && !path.isAbsolute(relative)); }
+function safePathName(file: string): string { return file.split(path.sep).join("/"); }
+function comparePath(a: string, b: string): number { return a < b ? -1 : a > b ? 1 : 0; }
+function reportReason(error: unknown): string { const message = error instanceof Error ? error.message : ""; return /^[a-z][a-z0-9_]*$/.test(message) ? message : "file_read_error"; }
+
+export function normalizeSourceUrl(value: unknown): SourceUrl {
   if (typeof value !== "string" || !value.trim()) fail("missing_or_invalid_source_url");
   const url = value.trim();
   if (utf8Length(url) > MAX_URL_BYTES) fail("invalid_source_url");
-  let parsed;
+  let parsed: URL;
   try { parsed = new URL(url); } catch { fail("invalid_source_url"); }
   if (!(["http:", "https:"].includes(parsed.protocol)) || !parsed.hostname || parsed.username || parsed.password) fail("invalid_source_url");
   parsed.hostname = parsed.hostname.toLowerCase();
@@ -45,14 +82,14 @@ export function normalizeSourceUrl(value) {
   return { url, normalizedUrl };
 }
 
-function validCalendarDate(year, month, day) {
+function validCalendarDate(year: number, month: number, day: number): boolean {
   const date = new Date(0);
   date.setUTCFullYear(year, month - 1, day);
   date.setUTCHours(0, 0, 0, 0);
   return date.getUTCFullYear() === year && date.getUTCMonth() === month - 1 && date.getUTCDate() === day;
 }
 
-export function parseExplicitDate(value, { dateOnly = true } = {}) {
+export function parseExplicitDate(value: unknown, { dateOnly = true }: { dateOnly?: boolean } = {}): string | null {
   if (typeof value !== "string") return null;
   const dateMatch = /^(\d{4})-(\d\d)-(\d\d)$/.exec(value);
   if (dateMatch && dateOnly) {
@@ -77,16 +114,21 @@ export function parseExplicitDate(value, { dateOnly = true } = {}) {
   try { return new Date(time).toISOString(); } catch { return null; }
 }
 
-function yamlHasUnsupportedNode(node) {
+function yamlHasUnsupportedNode(node: unknown): boolean {
   if (!node || typeof node !== "object") return false;
   if (isAlias(node) || node instanceof Alias) return true;
-  if (Object.hasOwn(node, "tag") && node.tag) return true;
-  if (isMap(node)) return node.items.some(pair => yamlHasUnsupportedNode(pair.key) || yamlHasUnsupportedNode(pair.value));
-  if (Array.isArray(node.items)) return node.items.some(yamlHasUnsupportedNode);
+  const candidate = node as { tag?: unknown; items?: unknown[] };
+  if (Object.hasOwn(candidate, "tag") && candidate.tag) return true;
+  if (isMap(node)) return candidate.items?.some(pair => {
+    if (!pair || typeof pair !== "object") return true;
+    const mapping = pair as { key?: unknown; value?: unknown };
+    return yamlHasUnsupportedNode(mapping.key) || yamlHasUnsupportedNode(mapping.value);
+  }) ?? false;
+  if (Array.isArray(candidate.items)) return candidate.items.some(yamlHasUnsupportedNode);
   return false;
 }
 
-function parseFrontmatter(text) {
+function parseFrontmatter(text: string): Frontmatter {
   let source = text.startsWith("\uFEFF") ? text.slice(1) : text;
   if (!source.startsWith("---\n") && !source.startsWith("---\r\n") && source !== "---") return { metadata: {}, body: text };
   let cursor = source.indexOf("\n");
@@ -110,24 +152,24 @@ function parseFrontmatter(text) {
   }
   if (yamlEnd < 0) fail("unterminated_frontmatter");
   const yamlText = source.slice(source.indexOf("\n") + 1, yamlEnd).replace(/\r$/, "");
-  let doc;
-  try { doc = parseDocument(yamlText, { version: "1.2", schema: "core", uniqueKeys: true, prettyErrors: false, strict: true, maxAliasCount: 0 }); }
+  let doc: ReturnType<typeof parseDocument>;
+  try { doc = parseDocument(yamlText, { version: "1.2", schema: "core", uniqueKeys: true, prettyErrors: false, strict: true }); }
   catch { fail("invalid_frontmatter_yaml"); }
   if (doc.errors.length || yamlHasUnsupportedNode(doc.contents)) fail("invalid_frontmatter_yaml");
   if (!doc.contents || !isMap(doc.contents)) fail("invalid_frontmatter_yaml");
-  let value;
+  let value: unknown;
   try { value = doc.toJS({ maxAliasCount: 0 }); } catch { fail("invalid_frontmatter_yaml"); }
   if (!value || typeof value !== "object" || Array.isArray(value)) fail("invalid_frontmatter_yaml");
-  return { metadata: value, body: source.slice(bodyStart) };
+  return { metadata: value as Record<string, unknown>, body: source.slice(bodyStart) };
 }
 
-function getScalarOrSingleSequence(value, reason) {
+function getScalarOrSingleSequence(value: unknown, reason: string): string {
   if (typeof value === "string") return value;
   if (Array.isArray(value) && value.length === 1 && typeof value[0] === "string") return value[0];
   fail(reason);
 }
 
-function optionalScalar(value, field, limit) {
+function optionalScalar(value: unknown, field: string, limit: number): string | null {
   if (value === undefined || value === null) return null;
   if (typeof value !== "string") fail(`invalid_${field}`);
   const result = value.trim();
@@ -136,21 +178,21 @@ function optionalScalar(value, field, limit) {
   return result;
 }
 
-function normalizeWikiLink(value) {
+function normalizeWikiLink(value: string): string {
   return value.replace(/^\[\[([^\]|]+)(?:\|([^\]]+))?\]\]$/, (_match, target, label) => (label || target).trim());
 }
 
-function optionalAuthors(value) {
+function optionalAuthors(value: unknown): string | null {
   if (value === undefined || value === null) return null;
-  const authors = Array.isArray(value) ? value : [value];
-  if (authors.some(author => typeof author !== "string")) fail("invalid_author");
+  const authors: unknown[] = Array.isArray(value) ? value : [value];
+  if (!authors.every((author): author is string => typeof author === "string")) fail("invalid_author");
   const result = authors.map(author => normalizeWikiLink(author.trim())).filter(Boolean).join(", ");
   if (!result) return null;
   if (result.length > MAX_AUTHOR_LENGTH) fail("author_too_long");
   return result;
 }
 
-function parseReadFlag(value) {
+function parseReadFlag(value: unknown): boolean | null {
   if (typeof value === "boolean") return value;
   if (value === 1) return true;
   if (value === 0) return false;
@@ -162,7 +204,7 @@ function parseReadFlag(value) {
   return null;
 }
 
-function dateSourceAndCreated(metadata, file, mtime) {
+function dateSourceAndCreated(metadata: Record<string, unknown>, file: string, mtime: number): { createdAt: string; dateSource: string } {
   if (Object.hasOwn(metadata, "created") && metadata.created !== null) {
     const parsed = parseExplicitDate(metadata.created);
     if (!parsed) fail("invalid_created_date");
@@ -179,9 +221,9 @@ function dateSourceAndCreated(metadata, file, mtime) {
   return { createdAt: new Date(mtime).toISOString(), dateSource: "filesystem_mtime" };
 }
 
-function stripTitleHash(title) { return title.replace(/^\s*#\s+/, "").trim(); }
+function stripTitleHash(title: string): string { return title.replace(/^\s*#\s+/, "").trim(); }
 
-function parseMarkdownFile(relativePath, bytes, mtime) {
+function parseMarkdownFile(relativePath: string, bytes: Uint8Array, mtime: number): ParsedMarkdown {
   if (bytes.byteLength > MAX_SOURCE_FILE_BYTES) fail("source_file_too_large");
   let text;
   try { text = new TextDecoder("utf-8", { fatal: true }).decode(bytes); } catch { fail("invalid_utf8"); }
@@ -189,7 +231,7 @@ function parseMarkdownFile(relativePath, bytes, mtime) {
   let urlInfo;
   if (!Object.hasOwn(metadata, "source") || metadata.source === null) fail("missing_source_url");
   try { urlInfo = normalizeSourceUrl(getScalarOrSingleSequence(metadata.source, "invalid_source_url")); }
-  catch (error) { if (error.message === "missing_or_invalid_source_url") fail("invalid_source_url"); throw error; }
+  catch (error) { if (error instanceof Error && error.message === "missing_or_invalid_source_url") fail("invalid_source_url"); throw error; }
   const relativeBase = path.basename(relativePath).replace(/\.(?:md|markdown)$/i, "");
   const fileFallback = relativeBase.replace(/^\d{4}-\d\d-\d\d\.\s*/, "").trim() || relativeBase;
   let title = fileFallback;
@@ -218,10 +260,10 @@ function parseMarkdownFile(relativePath, bytes, mtime) {
   const bodyBytes = utf8Length(body);
   if (bodyBytes > MAX_COPY_BYTES) fail("copy_body_too_large");
   const id = `obsidian-${sha256(urlInfo.normalizedUrl)}`;
-  const item = {
+  const item: BackupArticle = {
     id, url: urlInfo.url, title, author, description, createdAt, updatedAt, readAt,
   };
-  const warnings = [];
+  const warnings: string[] = [];
   if (body.trim()) {
     item.copy = { markdown: body, capturedAt: createdAt, source: "upload", revision: `sha256-${sha256(body)}` };
   } else {
@@ -230,11 +272,11 @@ function parseMarkdownFile(relativePath, bytes, mtime) {
   return { item, normalizedUrl: urlInfo.normalizedUrl, dateSource, warnings };
 }
 
-async function walkVault(root) {
-  const candidates = [];
-  const symlinks = [];
+async function walkVault(root: string): Promise<VaultScan> {
+  const candidates: VaultCandidate[] = [];
+  const symlinks: string[] = [];
   let aggregateBytes = 0;
-  async function visit(directory) {
+  async function visit(directory: string): Promise<void> {
     const info = await lstat(directory);
     if (info.isSymbolicLink()) { symlinks.push(safePathName(path.relative(root, directory))); return; }
     if (!info.isDirectory()) return;
@@ -272,22 +314,24 @@ async function walkVault(root) {
   return { candidates, symlinks, aggregateBytes };
 }
 
-export async function convertVault(sourcePath, outputPath, { now = new Date() } = {}) {
+export async function convertVault(sourcePath: string, outputPath: string, { now = new Date() }: { now?: Date } = {}): Promise<ObsidianConversionResult> {
   if (!path.isAbsolute(sourcePath) || !path.isAbsolute(outputPath)) fail("source_and_output_must_be_absolute");
   const source = await realpath(sourcePath);
   if (!(await stat(source)).isDirectory()) fail("source_must_be_directory");
-  let outputStat;
-  try { outputStat = await lstat(outputPath); } catch (error) { if (error.code !== "ENOENT") fail("unsafe_output_destination"); }
+  let outputStat: Awaited<ReturnType<typeof lstat>> | undefined;
+  try { outputStat = await lstat(outputPath); } catch (error) {
+    if (!error || typeof error !== "object" || !("code" in error) || error.code !== "ENOENT") fail("unsafe_output_destination");
+  }
   if (outputStat) fail("output_destination_exists");
   const parentInput = path.dirname(path.resolve(outputPath));
-  let outputParent;
+  let outputParent: string;
   try { outputParent = await realpath(parentInput); } catch { fail("output_parent_must_exist"); }
   if (!(await stat(outputParent)).isDirectory()) fail("output_parent_must_be_directory");
   const canonicalOutput = path.join(outputParent, path.basename(path.resolve(outputPath)));
   if (isInside(source, canonicalOutput) || isInside(canonicalOutput, source)) fail("output_must_be_outside_source_tree");
   const scan = await walkVault(source);
-  const outcomes = [];
-  const eligible = [];
+  const outcomes: ObsidianOutcome[] = [];
+  const eligible: BackupArticle[] = [];
   const winners = new Map();
   let readCount = 0;
   let unreadCount = 0;
@@ -295,7 +339,7 @@ export async function convertVault(sourcePath, outputPath, { now = new Date() } 
   let copyCount = 0;
   let consumedBytes = 0;
   for (const candidate of scan.candidates) {
-    let parsed;
+    let parsed: ParsedMarkdown;
     try {
       const relativeParts = path.relative(source, candidate.absolute).split(path.sep);
       let ancestor = source;
@@ -307,8 +351,8 @@ export async function convertVault(sourcePath, outputPath, { now = new Date() } 
       if (!isInside(source, resolvedCandidate)) fail("source_file_escaped_vault");
       if ((await lstat(candidate.absolute)).isSymbolicLink()) fail("source_file_symlink");
       const handle = await open(candidate.absolute, fsConstants.O_RDONLY | (fsConstants.O_NOFOLLOW || 0));
-      let bytes;
-      let info;
+      let bytes: Buffer;
+      let info: Awaited<ReturnType<typeof handle.stat>>;
       try {
         info = await handle.stat();
         if (!info.isFile()) fail("not_a_regular_file");
@@ -327,7 +371,7 @@ export async function convertVault(sourcePath, outputPath, { now = new Date() } 
       } finally { await handle.close(); }
       parsed = parseMarkdownFile(candidate.relative, bytes, info.mtimeMs);
     } catch (error) {
-      if (error.fatal) throw error;
+      if (isFatalError(error)) throw error;
       outcomes.push({ path: candidate.relative, outcome: "excluded", reasons: [reportReason(error)], warnings: [], dateSource: null });
       continue;
     }
@@ -347,12 +391,12 @@ export async function convertVault(sourcePath, outputPath, { now = new Date() } 
     if (parsed.item.copy) copyCount++; else linkOnlyCount++;
     outcomes.push({ path: candidate.relative, outcome: "eligible", reasons: [], warnings: parsed.warnings, dateSource: parsed.dateSource });
   }
-  const envelope = { version: 2, exportedAt: now.toISOString(), articles: eligible };
+  const envelope: BackupEnvelope = { version: 2, exportedAt: now.toISOString(), articles: eligible };
   validateBackupEnvelope(envelope);
   const portableBytes = utf8Length(JSON.stringify(envelope));
   if (portableBytes > MAX_BACKUP_BYTES) fail("portable_backup_size_limit_exceeded");
   const batches = splitImportBatches(envelope);
-  const report = {
+  const report: ObsidianConversionReport = {
     version: 1,
     createdAt: envelope.exportedAt,
     discovered: scan.candidates.length,
@@ -381,7 +425,7 @@ export async function convertVault(sourcePath, outputPath, { now = new Date() } 
   return { report, batches };
 }
 
-function parseArgs(args) {
+function parseArgs(args: string[]): { source: string; output: string } {
   if (args.length !== 4 || args[0] !== "--source" || args[2] !== "--output" || !path.isAbsolute(args[1]) || !path.isAbsolute(args[3])) fail("usage: pnpm obsidian:convert --source /absolute/vault --output /absolute/new-directory");
   return { source: args[1], output: args[3] };
 }
@@ -392,7 +436,7 @@ if (process.argv[1] && path.resolve(process.argv[1]) === fileURLToPath(import.me
     const { report } = await convertVault(source, output);
     process.stdout.write(`${JSON.stringify({ discovered: report.discovered, eligible: report.eligible, duplicates: report.duplicates, excluded: report.excluded, read: report.read, unread: report.unread, copied: report.copied, linkOnly: report.linkOnly, batchCount: report.batchCount })}\n`);
   } catch (error) {
-    process.stderr.write(`${error.message || "Conversion failed."}\n`);
+    process.stderr.write(`${error instanceof Error ? error.message : "Conversion failed."}\n`);
     process.exitCode = 1;
   }
 }

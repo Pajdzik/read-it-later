@@ -41,7 +41,7 @@ flowchart LR
     Worker -. Phase 2 bounded fetch .-> Original
 ```
 
-Use one deployment and same-origin APIs, without CORS in the MVP. Route `/api/*` and `/auth/*` through the Worker before assets; serve the public app shell via assets. The shell contains no private data. Authentication guards every library request. Keep domain validation and storage access separate from HTTP handlers, but avoid a generic multi-provider storage abstraction. D1 queries live in a small repository module; local development uses Wrangler's local D1 with the same migrations. The old `server.mjs` cannot be deployed unchanged as a Worker: it uses a listening HTTP server, filesystem storage, and process-local sessions.
+Use one deployment and same-origin APIs, without CORS in the MVP. Route `/api/*` and `/auth/*` through the Worker before assets; serve the public app shell via assets. The shell contains no private data. Authentication guards every library request. Keep domain validation and storage access separate from HTTP handlers, but avoid a generic multi-provider storage abstraction. D1 queries live in a small repository module; local development uses Wrangler's local D1 with the same migrations. The old `server.ts` cannot be deployed unchanged as a Worker: it uses a listening HTTP server, filesystem storage, and process-local sessions.
 
 Implementation layout:
 

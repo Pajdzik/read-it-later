@@ -14,10 +14,6 @@
     "types": []
   },
   "include": [
-    "app.ts",
-    "markdown.ts",
-    "capture.ts",
-    "browser-globals.d.ts",
-    "../scripts/defuddle-entry.ts"
+    "app.ts"
   ]
 }
