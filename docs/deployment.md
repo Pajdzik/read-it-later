@@ -5,7 +5,7 @@ This service targets Workers Free with Workers Static Assets and D1. Deployment 
 ## Before deployment
 
 1. Use Node 22.12+ and pnpm 12.4.1 and install the dependencies from the committed lockfile.
-2. Run the repository's Worker typecheck, tests and build commands. The prototype's `npm start` is a separate Node server; do not upload it as the Worker.
+2. Run the repository's Worker typecheck, tests and build commands. The legacy prototype is a separate Node server under `legacy/prototype/`; do not upload it as the Worker.
 3. Keep the Cloudflare account on Workers Free. Recheck [Worker limits](https://developers.cloudflare.com/workers/platform/limits/) and [D1 pricing](https://developers.cloudflare.com/d1/platform/pricing/). Static asset requests are [free and unlimited](https://developers.cloudflare.com/workers/static-assets/billing-and-limitations/); dynamic requests and D1 operations have shared account quotas.
 4. Create separate staging and production D1 databases with Wrangler. Replace the corresponding database IDs in the configuration; local development uses Wrangler's local storage rather than these remote databases. Never reuse production data for tests.
 5. Replace `<account-subdomain>` in each `APP_ORIGIN` in `wrangler.jsonc` with the Workers subdomain assigned to your Cloudflare account, or use the exact custom domain routed to that Worker. Do not assume the hostname from the Worker name alone. Register a separate GitHub OAuth app for each environment with callback `<origin>/auth/github/callback`. Set `OWNER_GITHUB_ID` to the owner's immutable numeric GitHub user ID rather than their changeable login.
@@ -24,7 +24,7 @@ pnpm dev
 The local-only bypass gives the loopback development UI a session without contacting GitHub. For real authentication, disable it and use a matching HTTPS origin and OAuth callback. `.dev.vars` must stay private.
 
 ```sh
-pnpm check
+pnpm prototype:check
 pnpm typecheck
 pnpm test
 pnpm build

@@ -120,10 +120,10 @@ pnpm db:migrate:local
 pnpm dev
 ```
 
-Open http://localhost:8787. The example enables loopback-only authentication bypass. `.dev.vars`, local database files, and build artifacts are ignored. Scripts disable loading the prototype's `.env` into Wrangler. Restart `pnpm dev` after frontend edits to rebuild assets.
+Open http://localhost:8787. The example enables loopback-only authentication bypass. `.dev.vars`, local database files, and build artifacts are ignored. Scripts disable loading the repository-root `.env` into Wrangler. Restart `pnpm dev` after frontend edits to rebuild assets.
 
 ```sh
-pnpm check
+pnpm prototype:check
 pnpm typecheck
 pnpm test
 pnpm build
@@ -165,7 +165,8 @@ Back up before destructive schema changes. Prefer additive migrations and roll b
 | `scripts/` | Asset build and isolated browser smoke |
 | `.github/workflows/` | Verification and production deployment |
 | `wrangler.jsonc` | Worker, assets and environment bindings |
-| `server.mjs`, `public/`, `Dockerfile` | Preserved Node.js Markdown-reader prototype |
+| `legacy/prototype/` | Standalone Node.js Markdown-reader package, assets, and Docker build context |
+| `server.mjs` | Root compatibility entry point for the preserved prototype |
 
 Supporting documents: [original design](docs/design.md), [implementation tracker](docs/tasks.md), [capture](docs/capture.md), [CI](docs/ci.md), [deployment and operations](docs/deployment.md), and [prototype](docs/prototype.md). The original design/tracker record the initial implementation scope; this README reflects the current code, including metadata enrichment and production CI deployment.
 
@@ -174,7 +175,7 @@ Supporting documents: [original design](docs/design.md), [implementation tracker
 ```sh
 mkdir -p articles
 # Add Markdown files, or set ARTICLES_DIR to an existing folder.
-pnpm start
+pnpm prototype:start
 ```
 
-Open http://localhost:3055. The prototype also runs directly with `node server.mjs` without installing dependencies. Its filesystem/GitHub storage, Markdown reader, and Docker deployment remain independent of the Worker. No vault files are automatically migrated or modified. A future vault importer should be read-only, report missing source URLs, preserve source files, and reconcile counts before retiring the old workflow.
+Open http://localhost:3055. The standalone package is under `legacy/prototype/` and also starts with `cd legacy/prototype && npm start`; root `pnpm start` remains a compatibility command. It uses Node.js built-ins only. Its local article folder and `.env` remain at the repository root by default. Its filesystem/GitHub storage, Markdown reader, and Docker deployment remain independent of the Worker. No vault files are automatically migrated or modified. A future vault importer should be read-only, report missing source URLs, preserve source files, and reconcile counts before retiring the old workflow.

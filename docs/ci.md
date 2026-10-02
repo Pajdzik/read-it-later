@@ -22,7 +22,7 @@ With Node.js 22 and pnpm 12.4.1 installed, run:
 
 ```sh
 pnpm install --frozen-lockfile
-pnpm check
+pnpm prototype:check
 pnpm typecheck
 pnpm test
 pnpm build

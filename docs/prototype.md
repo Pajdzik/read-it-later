@@ -6,11 +6,13 @@ The preserved Node.js prototype reads an existing Markdown article folder. It ca
 
 ## Start
 
-Create `articles/` and add Markdown files, or set `ARTICLES_DIR` to an existing folder. Relative paths are resolved from the working directory.
+Create the repository-root `articles/` folder and add Markdown files, or set `ARTICLES_DIR` to an existing folder. The prototype package lives under `legacy/prototype`; its default data folder and `.env` file remain at the repository root for compatibility.
 
 ```sh
-npm start
+pnpm prototype:start
 ```
+
+You can also run the standalone package with `cd legacy/prototype && npm start`. It uses only Node.js built-ins; no install step is needed. Root `pnpm start` remains a compatibility alias.
 
 Open the local URL printed by the server:
 
@@ -25,16 +27,16 @@ For phone access, keep the Mac and phone on the same Wi-Fi network and open the 
 The default article folder is:
 
 ```text
-./articles
+./articles (repository root)
 ```
 
 You can override it when starting the app:
 
 ```sh
-ARTICLES_DIR="/path/to/Articles" npm start
+ARTICLES_DIR="/path/to/Articles" pnpm prototype:start
 ```
 
-The server automatically loads a local `.env` file before reading configuration. Values already set in your shell take precedence.
+The server automatically loads the repository-root `.env` file before reading configuration. Values already set in your shell take precedence. Create it from the included template with `cp legacy/prototype/.env.example .env`. Start the prototype from the repository root to keep relative `ARTICLES_DIR` values relative to that directory.
 
 Read state is written directly to article frontmatter:
 
@@ -52,7 +54,7 @@ No package install is required; the app uses only Node built-ins.
 Build the image:
 
 ```sh
-docker build -t read-it-later .
+docker build -t read-it-later -f legacy/prototype/Dockerfile legacy/prototype
 ```
 
 Run with GitHub-backed storage:
@@ -86,8 +88,8 @@ For local file-backed storage, mount the article folder and point `ARTICLES_DIR`
 
 ```sh
 docker run --rm -p 3055:3055 \
-  -v "/path/to/Articles:/articles" \
-  -e ARTICLES_DIR="/articles" \
+  -v "/path/to/Articles:/app/articles" \
+  -e ARTICLES_DIR="/app/articles" \
   read-it-later
 ```
 
@@ -137,7 +139,7 @@ GITHUB_REPO="your-repo" \
 GITHUB_BRANCH="main" \
 GITHUB_ARTICLES_PATH="Articles" \
 GITHUB_TOKEN="github_pat_..." \
-npm start
+pnpm prototype:start
 ```
 
 The token must stay on the server as an environment variable. Use a fine-grained GitHub personal access token scoped to the target repository with `Contents: Read and write`.
