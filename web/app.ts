@@ -1014,23 +1014,17 @@ function applyTheme() {
         : "light"
       : state.theme;
   document.documentElement.dataset.theme = theme;
-  $("#theme-toggle").setAttribute(
-    "aria-label",
-    `Theme: ${state.theme}. Switch theme`,
-  );
+  $<HTMLSelectElement>("#theme-toggle").value = state.theme;
 }
-$("#theme-toggle").addEventListener("click", () => {
-  state.theme =
-    state.theme === "system"
-      ? "dark"
-      : state.theme === "dark"
-        ? "light"
-        : "system";
+$("#theme-toggle").addEventListener("change", (e) => {
+  state.theme = (e.target as HTMLSelectElement).value;
   localStorage.setItem("later-theme", state.theme);
   applyTheme();
 });
+matchMedia("(prefers-color-scheme: dark)").addEventListener("change", () => {
+  if (state.theme === "system") applyTheme();
+});
 $("#settings-open").addEventListener("click", openSettings);
-$("#footer-settings").addEventListener("click", openSettings);
 $("#settings-dialog").addEventListener("close", () => {
   const box = $("#new-token");
   box.replaceChildren();
@@ -1141,6 +1135,9 @@ $("#export").addEventListener("click", async () => {
   } catch (e) {
     showNotice((e as Error).message, true);
   }
+});
+$("#import-open").addEventListener("click", () => {
+  $<HTMLInputElement>("#import-file").click();
 });
 $<HTMLInputElement>("#import-file").addEventListener("change", async (e) => {
   const input = e.target as HTMLInputElement,

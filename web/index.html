@@ -19,16 +19,21 @@
         ><span class="brand-mark" aria-hidden="true">P</span
         ><span>potem<span class="brand-dot">.</span></span></a
       >
+      <label class="search">
+        <svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="10.5" cy="10.5" r="6.5" /><path d="m16 16 4 4" /></svg>
+        <span class="sr-only">Search title or URL</span>
+        <input id="search" type="search" placeholder="Search your list" autocomplete="off" />
+      </label>
       <div class="top-actions">
         <span id="account" class="account" hidden></span>
         <button
-          id="theme-toggle"
-          class="icon-button"
+          id="add-open"
+          class="icon-button add-open"
           type="button"
-          aria-label="Switch theme"
-          title="Switch theme"
+          aria-label="Add article"
+          title="Add article"
         >
-          ◐
+          <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 5v14M5 12h14" /></svg>
         </button>
         <button
           id="settings-open"
@@ -37,7 +42,7 @@
           aria-label="Settings"
           title="Settings"
         >
-          ⚙
+          <svg viewBox="0 0 24 24" aria-hidden="true"><path d="m9.5 3-.5 2a7.2 7.2 0 0 0-1.8 1l-2-.5-2.5 4.3 1.5 1.5a7.3 7.3 0 0 0 0 2l-1.5 1.5 2.5 4.3 2-.5a7.2 7.2 0 0 0 1.8 1l.5 2h5l.5-2a7.2 7.2 0 0 0 1.8-1l2 .5 2.5-4.3-1.5-1.5a7.3 7.3 0 0 0 0-2l1.5-1.5-2.5-4.3-2 .5a7.2 7.2 0 0 0-1.8-1l-.5-2Z" /><circle cx="12" cy="12.3" r="3" /></svg>
         </button>
         <button id="logout" class="text-button" type="button" hidden>
           Sign out
@@ -46,25 +51,6 @@
     </header>
     <main class="shell">
       <section class="library" aria-label="Your articles">
-        <div class="library-heading">
-          <div>
-            <h2>Reading list</h2>
-          </div>
-          <div class="library-actions">
-            <label class="search"
-              ><span aria-hidden="true">⌕</span
-              ><span class="sr-only">Search title or URL</span
-              ><input
-                id="search"
-                type="search"
-                placeholder="Search your list"
-                autocomplete="off"
-            /></label>
-            <button id="add-open" class="button primary add-open" type="button">
-              <span aria-hidden="true">＋</span> Add article
-            </button>
-          </div>
-        </div>
         <div class="list-controls">
           <div class="tabs" role="group" aria-label="Filter articles">
             <button type="button" data-status="unread" aria-pressed="true">
@@ -98,18 +84,6 @@
       </section>
       <footer class="footer">
         <span>Small steps, good reads.</span>
-        <div>
-          <button id="export" class="link-button" type="button">
-            Export library</button
-          ><label class="link-button import-label"
-            >Import JSON<input
-              id="import-file"
-              type="file"
-              accept="application/json,.json" /></label
-          ><button id="footer-settings" class="link-button" type="button">
-            Settings
-          </button>
-        </div>
       </footer>
     </main>
     <dialog id="add-dialog" class="dialog add-dialog" aria-labelledby="add-heading">
@@ -181,13 +155,31 @@
       <p class="reader-image-note">Image references are shown as text and still depend on their external source.</p>
       <article id="reader-body" class="reader-body"></article>
     </dialog>
-    <dialog id="settings-dialog" class="dialog settings-dialog">
+    <dialog id="settings-dialog" class="dialog settings-dialog" aria-labelledby="settings-heading">
       <form method="dialog" class="dialog-close">
         <button class="icon-button" aria-label="Close">×</button>
       </form>
       <p class="eyebrow">Your account</p>
-      <h2>Settings</h2>
+      <h2 id="settings-heading">Settings</h2>
       <p id="settings-status" class="muted"></p>
+      <section class="settings-section">
+        <div class="settings-row">
+          <label for="theme-toggle">Appearance</label>
+          <select id="theme-toggle">
+            <option value="system">System</option>
+            <option value="light">Light</option>
+            <option value="dark">Dark</option>
+          </select>
+        </div>
+      </section>
+      <section class="settings-section">
+        <h3>Library</h3>
+        <div class="settings-library-actions">
+          <button id="export" class="button secondary" type="button">Export library</button>
+          <button id="import-open" class="button secondary" type="button">Import JSON</button>
+          <input id="import-file" type="file" accept="application/json,.json" hidden />
+        </div>
+      </section>
       <section class="settings-section">
         <h3>Capture tokens</h3>
         <p>
