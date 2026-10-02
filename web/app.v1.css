@@ -281,11 +281,6 @@ button {
   align-items: center;
   gap: 15px;
 }
-.library-status {
-  margin: 5px 0 0;
-  color: var(--muted);
-  font-size: 12px;
-}
 .library-actions {
   display: flex;
   align-items: center;
@@ -295,9 +290,6 @@ button {
   display: inline-flex;
   align-items: center;
   gap: 6px;
-}
-.library-heading .eyebrow {
-  margin-bottom: 4px;
 }
 .library-heading h2 {
   margin: 0;
