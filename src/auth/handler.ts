@@ -1,19 +1,19 @@
 import type { Env } from '../contracts.js';
 import { errorResponse } from '../contracts.js';
-import { BodyTooLargeError, parseObject, readJson, ValidationError } from '../articles/validation.js';
+import { parseObject, readJson, ValidationError } from '../articles/validation.js';
+import { exceptionResponse, jsonResponse, logUnexpectedError, PRIVATE_HEADERS } from '../http.js';
 import {
   authConfigured, bindingCookie, clearBindingCookie, clearSessionCookie, cookie, digest,
   getSession, isLoopbackRequest, isResponse, randomToken, requireSession, sessionCookie, validateCaptureToken,
 } from './core.js';
 
-const PRIVATE = { 'Cache-Control': 'private, no-store', 'Pragma': 'no-cache' };
+const PRIVATE = PRIVATE_HEADERS;
 const BINDING_COOKIE = 'read_later_oauth_binding';
 const SESSION_SECONDS = 30 * 24 * 60 * 60;
 
 function fail(status: number, code: string, message: string): Response { return errorResponse(status, code, message); }
-function isKnownDbError(_error: unknown): Response { return fail(503, 'storage_unavailable', 'The service is temporarily unavailable. Please retry.'); }
 function respond(body: unknown, init: ResponseInit = {}): Response {
-  return Response.json(body, { ...init, headers: { ...PRIVATE, ...init.headers } });
+  return jsonResponse(body, init.status, init.headers);
 }
 
 export async function handleAuth(request: Request, env: Env): Promise<Response | null> {
@@ -56,9 +56,7 @@ export async function handleAuth(request: Request, env: Env): Promise<Response |
     }
     return null;
   } catch (error) {
-    if (error instanceof BodyTooLargeError) return fail(413, 'body_too_large', error.message);
-    if (error instanceof ValidationError) return fail(400, 'invalid_request', error.message);
-    return isKnownDbError(error);
+    return exceptionResponse(error, 'auth.request', { status: 503, code: 'storage_unavailable', message: 'The service is temporarily unavailable. Please retry.' });
   }
 }
 
@@ -76,7 +74,9 @@ async function beginOAuth(env: Env): Promise<Response> {
     authorize.searchParams.set('redirect_uri', `${env.APP_ORIGIN!.replace(/\/$/, '')}/auth/github/callback`);
     authorize.searchParams.set('scope', 'read:user'); authorize.searchParams.set('state', state);
     return new Response(null, { status: 302, headers: { ...PRIVATE, Location: authorize.toString(), 'Set-Cookie': bindingCookie(binding, env, 600) } });
-  } catch (error) { return isKnownDbError(error); }
+  } catch (error) {
+    return exceptionResponse(error, 'auth.oauth_start', { status: 503, code: 'storage_unavailable', message: 'The service is temporarily unavailable. Please retry.' });
+  }
 }
 
 async function finishOAuth(request: Request, env: Env): Promise<Response> {
@@ -110,7 +110,10 @@ async function finishOAuth(request: Request, env: Env): Promise<Response> {
     headers.append('Set-Cookie', sessionCookie(rawSession, env, SESSION_SECONDS));
     headers.append('Set-Cookie', clearBindingCookie(env));
     return new Response(null, { status: 302, headers });
-  } catch { return oauthFailure(env); }
+  } catch {
+    logUnexpectedError('auth.oauth_callback');
+    return oauthFailure(env);
+  }
 }
 
 function oauthFailure(env: Env): Response {

@@ -1,4 +1,4 @@
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
 import { env } from 'cloudflare:workers';
 import worker from '../src/worker';
 import type { Env } from '../src/contracts';
@@ -25,6 +25,7 @@ describe('integrated Worker routing', () => {
 
 describe('export storage failures', () => {
   it('returns a retryable error before starting an export when the first query fails', async () => {
+    const log = vi.spyOn(console, 'error').mockImplementation(() => {});
     const broken = {
       ...env, APP_ORIGIN: 'http://localhost:8787', DEV_AUTH_BYPASS: 'true',
       DB: { prepare() { throw new Error('simulated storage outage'); } },
@@ -32,5 +33,8 @@ describe('export storage failures', () => {
     const response = await worker.fetch(new Request('http://localhost:8787/api/export'), broken);
     expect(response.status).toBe(503);
     expect(await response.json()).toHaveProperty('error');
+    expect(log).toHaveBeenCalledTimes(1);
+    expect(JSON.parse(String(log.mock.calls[0][0]))).toEqual({ event: 'request_error', category: 'articles.request' });
+    log.mockRestore();
   });
 });

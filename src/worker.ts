@@ -1,7 +1,7 @@
 import type { Env } from "./contracts";
-import { errorResponse } from "./contracts";
 import { handleAuth } from "./auth/handler";
 import { handleArticles } from "./articles/handler";
+import { errorResponse, logUnexpectedError } from "./http";
 
 const securityHeaders = {
   "Cache-Control": "private, no-store",
@@ -28,6 +28,7 @@ export default {
         const response = await handleAuth(request, env) ?? await handleArticles(request, env);
         return withSecurityHeaders(response ?? errorResponse(404, "not_found", "Route not found"));
       } catch {
+        logUnexpectedError("worker.request");
         return withSecurityHeaders(errorResponse(503, "service_unavailable", "The service is temporarily unavailable. Please retry."));
       }
     }
