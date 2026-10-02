@@ -4,7 +4,7 @@ import type { Env } from '../src/contracts';
 import { handleArticles } from '../src/articles/handler';
 import { handleAuth } from '../src/auth/handler';
 import { normalizeArticleUrl, readJson, BodyTooLargeError } from '../src/articles/validation';
-import { digest } from '../src/auth/core';
+import { constantTimeEqual, digest, requireSession } from '../src/auth/core';
 import { MAX_COPY_BYTES, MAX_TITLE_LENGTH } from '../src/shared/contracts';
 
 const env = { DB: testEnv.DB, ASSETS: testEnv.ASSETS, APP_ORIGIN: 'http://localhost:8787', DEV_AUTH_BYPASS: 'true' } as Env;
@@ -29,6 +29,39 @@ beforeEach(async () => {
   await env.DB.prepare('DELETE FROM oauth_states').run();
   await env.DB.prepare('DELETE FROM capture_rate_buckets').run();
   await env.DB.prepare('DELETE FROM capture_tokens').run();
+});
+
+describe('CSRF token comparison', () => {
+  it('compares equal-size hashes and keeps authenticated write behavior', async () => {
+    await expect(constantTimeEqual('same-token', 'same-token')).resolves.toBe(true);
+    await expect(constantTimeEqual('same-token', 'other-token')).resolves.toBe(false);
+    await expect(constantTimeEqual('', '')).resolves.toBe(true);
+    await expect(constantTimeEqual('', 'x')).resolves.toBe(false);
+    await expect(constantTimeEqual('短い', '短い')).resolves.toBe(true);
+    await expect(constantTimeEqual('短い', '長い')).resolves.toBe(false);
+
+    const rawSession = 'csrf-test-session';
+    const csrf = 'csrf-test-token';
+    await env.DB.prepare('INSERT INTO sessions(token_hash,csrf_token,expires_at,created_at) VALUES(?,?,?,?)')
+      .bind(await digest(rawSession), csrf, '2099-01-01T00:00:00.000Z', new Date().toISOString()).run();
+    const write = (token: string) => new Request('https://service.example/api/articles', {
+      method: 'POST',
+      headers: {
+        Cookie: `read_later_session=${rawSession}`,
+        Origin: 'https://service.example',
+        'X-CSRF-Token': token,
+      },
+    });
+
+    const valid = await requireSession(write(csrf), ownerEnv, true);
+    expect(valid).not.toBeInstanceOf(Response);
+    const mismatched = await requireSession(write('wrong-length'), ownerEnv, true);
+    expect(mismatched).toBeInstanceOf(Response);
+    expect((mismatched as Response).status).toBe(403);
+    const empty = await requireSession(write(''), ownerEnv, true);
+    expect(empty).toBeInstanceOf(Response);
+    expect((empty as Response).status).toBe(403);
+  });
 });
 
 describe('article HTTP handlers', () => {
