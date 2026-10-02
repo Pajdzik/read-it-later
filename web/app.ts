@@ -1,20 +1,32 @@
-type Article = {
-  id: string;
-  url: string;
-  title: string;
-  author: string | null;
-  description: string | null;
-  createdAt: string;
-  updatedAt: string;
-  readAt: string | null;
-};
-type Session = { authenticated: boolean; csrfToken?: string };
-type Page = { items: Article[]; nextCursor: string | null };
-type ArticleCopy = { markdown: string; capturedAt: string; source: "paste" | "upload"; revision: string };
+import {
+  MAX_COPY_BYTES,
+  MAX_IMPORT_BYTES,
+  MAX_TITLE_LENGTH,
+  MAX_URL_LENGTH,
+} from "../src/shared/contracts.js";
+import type {
+  ApiError,
+  Article,
+  ArticleCopy,
+  ArticleCopyResponse,
+  ArticleListResponse,
+  ArticleResponse,
+  CaptureTokensResponse,
+  CreateArticleRequest,
+  CreateArticleResponse,
+  CreatedCaptureTokenResponse,
+  ImportResponse,
+  SaveArticleCopyRequest,
+  SavedArticleCopyResponse,
+  SessionResponse,
+  UpdateArticleRequest,
+} from "../src/shared/contracts.js";
 const $ = <T extends HTMLElement = HTMLElement>(selector: string): T =>
   document.querySelector<T>(selector)!;
+$<HTMLInputElement>("#add-url").maxLength = MAX_URL_LENGTH;
+$<HTMLInputElement>("#add-title").maxLength = MAX_TITLE_LENGTH;
 const state = {
-  session: null as Session | null,
+  session: null as SessionResponse | null,
   status: "unread",
   query: "",
   cursor: null as string | null,
@@ -77,7 +89,7 @@ async function request<T>(path: string, init: RequestInit = {}): Promise<T> {
   if (!response.ok) {
     let message = `Request failed (${response.status})`;
     try {
-      message = (await response.json()).error?.message || message;
+      message = ((await response.json()) as ApiError).error?.message || message;
     } catch {}
     throw new Error(message);
   }
@@ -196,7 +208,7 @@ async function load(reset = true) {
     const p = new URLSearchParams({ status: state.status, limit: "50" });
     if (state.query) p.set("q", state.query);
     if (state.cursor && !reset) p.set("cursor", state.cursor);
-    const page = await request<Page>(`/api/articles?${p}`);
+    const page = await request<ArticleListResponse>(`/api/articles?${p}`);
     if (generation !== loadGeneration) return;
     state.cursor = page.nextCursor;
     render(page.items, !reset);
@@ -218,9 +230,9 @@ async function load(reset = true) {
 async function mutateRead(article: Article, read: boolean) {
   invalidateLoads();
   try {
-    const result = await request<{ article: Article }>(
+    const result = await request<ArticleResponse>(
       `/api/articles/${encodeURIComponent(article.id)}`,
-      { method: "PATCH", body: JSON.stringify({ read }) },
+      { method: "PATCH", body: JSON.stringify({ read } satisfies UpdateArticleRequest) },
     );
     if (state.selected?.id === article.id) state.selected = result.article;
     await load();
@@ -257,9 +269,9 @@ function renderDetail(article: Article) {
     if (!title) return;
     try {
       invalidateLoads();
-      const result = await request<{ article: Article }>(
+      const result = await request<ArticleResponse>(
         `/api/articles/${encodeURIComponent(article.id)}`,
-        { method: "PATCH", body: JSON.stringify({ title }) },
+        { method: "PATCH", body: JSON.stringify({ title } satisfies UpdateArticleRequest) },
       );
       state.selected = result.article;
       showNotice("Title updated.");
@@ -272,7 +284,7 @@ function renderDetail(article: Article) {
   const label = el("label", "Title", "field-label");
   const input = el("input");
   input.value = article.title;
-  input.maxLength = 500;
+  input.maxLength = MAX_TITLE_LENGTH;
   label.append(input);
   const save = el("button", "Save title", "button primary");
   save.type = "submit";
@@ -335,7 +347,7 @@ async function renderCopyEditor(article: Article) {
   const label = el("label", "Paste Markdown", "field-label");
   const textarea = el("textarea");
   textarea.rows = 12;
-  textarea.maxLength = 262144;
+  textarea.maxLength = MAX_COPY_BYTES;
   textarea.setAttribute("aria-label", "Markdown copy");
   textarea.placeholder = "Paste a browser-clipped Markdown copy here…";
   label.append(textarea);
@@ -372,11 +384,11 @@ async function renderCopyEditor(article: Article) {
     if (!selected) return;
     try {
       if (!/\.(?:md|markdown)$/i.test(selected.name)) throw new Error("Choose a .md or .markdown file.");
-      if (selected.size > 262144) throw new Error("Markdown files must be at most 262144 bytes.");
+      if (selected.size > MAX_COPY_BYTES) throw new Error(`Markdown files must be at most ${MAX_COPY_BYTES} bytes.`);
       const bytes = new Uint8Array(await selected.arrayBuffer());
       const text = new TextDecoder("utf-8", { fatal: true }).decode(bytes);
       const textBytes = new TextEncoder().encode(text).byteLength;
-      if (textBytes > 262144) throw new Error("Markdown files must be at most 262144 UTF-8 bytes.");
+      if (textBytes > MAX_COPY_BYTES) throw new Error(`Markdown files must be at most ${MAX_COPY_BYTES} UTF-8 bytes.`);
       if (!text.trim()) throw new Error("This file is empty. Choose a Markdown file with content.");
       textarea.value = text;
       editorState = { ...editorState, markdown: text, source: "upload", dirty: true };
@@ -403,8 +415,8 @@ async function renderCopyEditor(article: Article) {
       showError("Paste or load Markdown before saving.");
       return;
     }
-    if (bytes > 262144) {
-      showError("Markdown copies must be at most 262144 UTF-8 bytes. Shorten the draft and try again.");
+    if (bytes > MAX_COPY_BYTES) {
+      showError(`Markdown copies must be at most ${MAX_COPY_BYTES} UTF-8 bytes. Shorten the draft and try again.`);
       return;
     }
     if (saved && !confirm("Replace the saved Markdown copy with this draft?")) return;
@@ -413,9 +425,9 @@ async function renderCopyEditor(article: Article) {
     file.disabled = true;
     message.hidden = true;
     try {
-      const result = await request<{ copy: ArticleCopy }>(
+      const result = await request<SavedArticleCopyResponse>(
         `/api/articles/${encodeURIComponent(article.id)}/copy`,
-        { method: "PUT", body: JSON.stringify({ markdown, source: editorState.source, expectedRevision: editorState.expectedRevision }) },
+        { method: "PUT", body: JSON.stringify({ markdown, source: editorState.source, expectedRevision: editorState.expectedRevision } satisfies SaveArticleCopyRequest) },
       );
       saved = result.copy;
       editorState = { markdown: saved.markdown, source: saved.source, expectedRevision: saved.revision, revisionKnown: true, dirty: false };
@@ -435,7 +447,7 @@ async function renderCopyEditor(article: Article) {
   root.append(section);
   textarea.value = editorState.markdown;
   try {
-    const result = await request<{ copy: ArticleCopy | null }>(`/api/articles/${encodeURIComponent(article.id)}/copy`);
+    const result = await request<ArticleCopyResponse>(`/api/articles/${encodeURIComponent(article.id)}/copy`);
     if (state.selected?.id !== article.id || !root.contains(section)) return;
     saved = result.copy;
     editorState = copyDrafts.get(article.id) ?? editorState;
@@ -480,7 +492,7 @@ $("#detail-dialog").addEventListener("close", () => {
 });
 async function initialize() {
   try {
-    state.session = await request<Session>("/api/session");
+    state.session = await request<SessionResponse>("/api/session");
   } catch (error) {
     showNotice(
       `Couldn’t check your session. ${(error as Error).message}`,
@@ -557,11 +569,11 @@ $("#add-form").addEventListener("submit", async (e) => {
   button.disabled = true;
   try {
     invalidateLoads();
-    const result = await request<{ article: Article; duplicate: boolean; metadataUpdated?: boolean }>(
+    const result = await request<CreateArticleResponse>(
       "/api/articles",
       {
         method: "POST",
-        body: JSON.stringify({ url, ...(title ? { title } : {}) }),
+        body: JSON.stringify({ url, ...(title ? { title } : {}) } satisfies CreateArticleRequest),
       },
     );
     $<HTMLInputElement>("#add-url").value = "";
@@ -660,14 +672,7 @@ async function openSettings() {
   $("#settings-status").textContent = "Signed in";
   $("#token-form").hidden = false;
   try {
-    const data = await request<{
-      items: Array<{
-        id: string;
-        label: string;
-        createdAt: string;
-        revokedAt: string | null;
-      }>;
-    }>("/api/capture-tokens");
+    const data = await request<CaptureTokensResponse>("/api/capture-tokens");
     const ul = $("#tokens");
     ul.replaceChildren();
     for (const token of data.items) {
@@ -712,12 +717,7 @@ async function openSettings() {
 $("#token-form").addEventListener("submit", async (e) => {
   e.preventDefault();
   try {
-    const data = await request<{
-      id: string;
-      token: string;
-      label: string;
-      createdAt: string;
-    }>("/api/capture-tokens", {
+    const data = await request<CreatedCaptureTokenResponse>("/api/capture-tokens", {
       method: "POST",
       body: JSON.stringify({
         label: $<HTMLInputElement>("#token-label").value.trim(),
@@ -758,7 +758,7 @@ $<HTMLInputElement>("#import-file").addEventListener("change", async (e) => {
   const input = e.target as HTMLInputElement,
     file = input.files?.[0];
   if (!file) return;
-  if (file.size > 1024 * 1024) {
+  if (file.size > MAX_IMPORT_BYTES) {
     showNotice("Import files must be 1 MB or smaller.", true);
     input.value = "";
     return;
@@ -772,7 +772,7 @@ $<HTMLInputElement>("#import-file").addEventListener("change", async (e) => {
     )
       return;
     invalidateLoads();
-    const result = await request<{ imported: number; skipped: number }>(
+    const result = await request<ImportResponse>(
       "/api/import",
       { method: "POST", body: JSON.stringify(data) },
     );

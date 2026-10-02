@@ -2,11 +2,14 @@ export class ValidationError extends Error {
   constructor(message: string) { super(message); this.name = 'ValidationError'; }
 }
 
-export const MAX_URL_LENGTH = 8 * 1024;
-export const MAX_TITLE_LENGTH = 500;
-export const MAX_BODY_BYTES = 16 * 1024;
-export const MAX_IMPORT_BYTES = 1024 * 1024;
-export const MAX_IMPORT_ITEMS = 1000;
+import {
+  MAX_BODY_BYTES, MAX_COPY_BYTES, MAX_IMPORT_BYTES, MAX_IMPORT_ITEMS,
+  MAX_TITLE_LENGTH, MAX_URL_LENGTH,
+} from '../shared/contracts';
+export {
+  MAX_BODY_BYTES, MAX_COPY_BYTES, MAX_IMPORT_BYTES, MAX_IMPORT_ITEMS,
+  MAX_TITLE_LENGTH, MAX_URL_LENGTH,
+} from '../shared/contracts';
 
 export function normalizeArticleUrl(input: unknown): { url: string; normalizedUrl: string } {
   if (typeof input !== 'string' || !input.trim()) throw new ValidationError('url must be a non-empty string');
@@ -32,11 +35,15 @@ export function normalizeArticleUrl(input: unknown): { url: string; normalizedUr
   return { url, normalizedUrl: `${base}${kept.length ? `?${kept.join('&')}` : ''}` };
 }
 
-export function validateTitle(input: unknown, fallback: string): string {
+export function validateTitle(
+  input: unknown,
+  fallback: string,
+  messages: { type?: string; invalid?: string } = {},
+): string {
   if (input === undefined) return fallback;
-  if (typeof input !== 'string') throw new ValidationError('title must be a string');
+  if (typeof input !== 'string') throw new ValidationError(messages.type ?? 'title must be a string');
   const title = input.trim();
-  if (!title || title.length > MAX_TITLE_LENGTH) throw new ValidationError('title must contain 1 to 500 characters');
+  if (!title || title.length > MAX_TITLE_LENGTH) throw new ValidationError(messages.invalid ?? `title must contain 1 to ${MAX_TITLE_LENGTH} characters`);
   return title;
 }
 
@@ -77,4 +84,28 @@ export async function readJson(request: Request, maxBytes = MAX_BODY_BYTES): Pro
 
 export class BodyTooLargeError extends Error {
   constructor(message = 'request body is too large') { super(message); this.name = 'BodyTooLargeError'; }
+}
+
+export function validateMarkdownCopy(input: unknown, context: 'put' | 'import'): string {
+  if (typeof input !== 'string') {
+    throw new ValidationError(context === 'put' ? 'markdown must be text' : 'article copy markdown is invalid');
+  }
+  if (!input.trim()) {
+    throw new ValidationError(context === 'put' ? 'Markdown copy must not be blank' : 'article copy markdown is invalid');
+  }
+  const encoded = new TextEncoder().encode(input);
+  const roundTrip = new TextDecoder('utf-8', { fatal: true }).decode(encoded);
+  if (roundTrip !== input) {
+    throw new ValidationError(context === 'put'
+      ? 'Markdown copy must contain valid Unicode text'
+      : 'article copy markdown must contain valid Unicode text');
+  }
+  if (encoded.byteLength > MAX_COPY_BYTES) {
+    const message = context === 'put'
+      ? `Markdown copy must be at most ${MAX_COPY_BYTES} UTF-8 bytes`
+      : `article copy exceeds ${MAX_COPY_BYTES} UTF-8 bytes`;
+    if (context === 'put') throw new BodyTooLargeError(message);
+    throw new ValidationError(message);
+  }
+  return input;
 }

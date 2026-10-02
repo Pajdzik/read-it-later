@@ -1,7 +1,5 @@
 const MAX_HTML_BYTES = 512 * 1024;
-const MAX_TITLE = 500;
-const MAX_AUTHOR = 200;
-const MAX_DESCRIPTION = 500;
+import { MAX_AUTHOR_LENGTH, MAX_DESCRIPTION_LENGTH, MAX_TITLE_LENGTH } from '../shared/contracts';
 
 export interface ArticleMetadata {
   title?: string;
@@ -38,7 +36,7 @@ export function parseArticleMetadata(html: string): ArticleMetadata {
   for (const match of html.matchAll(/<meta\b[^>]*>/gi)) {
     const attrs = parseAttributes(match[0]);
     const key = (attrs.property || attrs.name || "").toLowerCase();
-    const value = clean(attrs.content, MAX_DESCRIPTION);
+    const value = clean(attrs.content, MAX_DESCRIPTION_LENGTH);
     if (key && value && !meta.has(key)) meta.set(key, value);
   }
   const titleTag = /<title\b[^>]*>([\s\S]*?)<\/title\s*>/i.exec(html)?.[1];
@@ -48,9 +46,9 @@ export function parseArticleMetadata(html: string): ArticleMetadata {
     if (label && /author|written\s+by|byline/i.test(label)) socialAuthor = meta.get(`twitter:data${index}`);
   }
   return {
-    title: clean(meta.get("og:title") || meta.get("twitter:title") || titleTag, MAX_TITLE),
-    author: clean(meta.get("author") || meta.get("article:author") || socialAuthor, MAX_AUTHOR),
-    description: clean(meta.get("og:description") || meta.get("twitter:description") || meta.get("description"), MAX_DESCRIPTION),
+    title: clean(meta.get("og:title") || meta.get("twitter:title") || titleTag, MAX_TITLE_LENGTH),
+    author: clean(meta.get("author") || meta.get("article:author") || socialAuthor, MAX_AUTHOR_LENGTH),
+    description: clean(meta.get("og:description") || meta.get("twitter:description") || meta.get("description"), MAX_DESCRIPTION_LENGTH),
   };
 }
 

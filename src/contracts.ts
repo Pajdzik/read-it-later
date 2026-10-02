@@ -8,31 +8,13 @@ export interface Env {
   DEV_AUTH_BYPASS?: string;
 }
 
-export interface Article {
-  id: string;
-  url: string;
-  title: string;
-  author: string | null;
-  description: string | null;
-  createdAt: string;
-  updatedAt: string;
-  readAt: string | null;
-}
-
-export interface ArticleCopy {
-  markdown: string;
-  capturedAt: string;
-  source: "paste" | "upload";
-  revision: string;
-}
-
-export interface ApiError {
-  error: { code: string; message: string };
-}
-
-export interface ArticleCursor {
-  createdAt: string;
-  id: string;
-}
+export type {
+  ApiError, Article, ArticleCopy, ArticleCursor, ArticleStatus,
+  ArticleListResponse, ArticleResponse, ArticleCopyResponse,
+  SavedArticleCopyResponse, SessionResponse, CaptureToken, CaptureTokensResponse,
+  CreatedCaptureTokenResponse,
+  CreateArticleRequest, CreateArticleResponse, UpdateArticleRequest,
+  SaveArticleCopyRequest, ImportResponse,
+} from "./shared/contracts";
 
 export { errorResponse } from './http.js';

@@ -1,7 +1,7 @@
-import type { Article, ArticleCopy, ArticleCursor } from "../contracts";
+import type { Article, ArticleCopy, ArticleCursor, ArticleStatus } from "../contracts";
 import { ValidationError } from "./validation";
 
-export type ArticleStatus = "unread" | "read" | "all";
+export type { ArticleStatus } from "../shared/contracts";
 
 export interface SaveArticleInput {
   url: string;
@@ -23,8 +23,6 @@ export interface UpdateArticleInput {
   read?: boolean;
   title?: string;
 }
-
-export interface SaveArticleCopyInput extends ArticleCopy {}
 
 export interface ImportArticleInput extends Article {
   normalizedUrl: string;
@@ -82,7 +80,7 @@ export async function listArticlesForExport(
 export async function saveArticleCopy(
   db: D1Database,
   id: string,
-  copy: SaveArticleCopyInput,
+  copy: ArticleCopy,
   expectedRevision: string | null,
 ): Promise<"saved" | "conflict" | "missing"> {
   const now = copy.capturedAt;
