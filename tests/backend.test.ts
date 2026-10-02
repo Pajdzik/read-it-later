@@ -5,6 +5,7 @@ import { handleArticles } from '../src/articles/handler';
 import { handleAuth } from '../src/auth/handler';
 import { normalizeArticleUrl, readJson, BodyTooLargeError } from '../src/articles/validation';
 import { digest } from '../src/auth/core';
+import { MAX_COPY_BYTES, MAX_TITLE_LENGTH } from '../src/shared/contracts';
 
 const env = { DB: testEnv.DB, ASSETS: testEnv.ASSETS, APP_ORIGIN: 'http://localhost:8787', DEV_AUTH_BYPASS: 'true' } as Env;
 const origin = 'http://localhost:8787';
@@ -56,6 +57,26 @@ describe('article HTTP handlers', () => {
     expect((await route(hostile)).status).toBe(403);
   });
 
+  it('uses the shared title limit for create, patch, and import validation', async () => {
+    const tooLong = 'x'.repeat(MAX_TITLE_LENGTH + 1);
+    const create = await route(request('/api/articles', 'POST', { url: 'https://example.com/title', title: tooLong }));
+    expect(create.status).toBe(400);
+    expect(await create.json()).toMatchObject({ error: { message: `title must contain 1 to ${MAX_TITLE_LENGTH} characters` } });
+
+    await env.DB.prepare('INSERT INTO articles(id,url,normalized_url,title,created_at,updated_at,read_at) VALUES(?,?,?,?,?,?,NULL)')
+      .bind('title-validation', 'https://example.com/title-validation', 'https://example.com/title-validation', 'Valid title', '2026-01-01T00:00:00.000Z', '2026-01-01T00:00:00.000Z').run();
+    const patch = await route(request('/api/articles/title-validation', 'PATCH', { title: tooLong }));
+    expect(patch.status).toBe(400);
+    expect(await patch.json()).toMatchObject({ error: { message: `title must contain 1 to ${MAX_TITLE_LENGTH} characters` } });
+
+    const exportedAt = '2026-01-01T00:00:00.000Z';
+    const imported = await route(request('/api/import', 'POST', { version: 1, exportedAt, articles: [
+      { id: 'invalid-title', url: 'https://example.com/invalid-title', title: tooLong, createdAt: exportedAt, updatedAt: exportedAt, readAt: null },
+    ] }));
+    expect(imported.status).toBe(400);
+    expect(await imported.json()).toMatchObject({ error: { message: 'article title is invalid' } });
+  });
+
   it('stores private Markdown copies with atomic revisions and independent article state', async () => {
     await env.DB.prepare('INSERT INTO articles(id,url,normalized_url,title,created_at,updated_at,read_at) VALUES(?,?,?,?,?,?,?)')
       .bind('copy-article', 'https://example.com/copy', 'https://example.com/copy', 'Copy test', '2026-01-01T00:00:00.000Z', '2026-01-02T00:00:00.000Z', '2026-01-03T00:00:00.000Z').run();
@@ -90,6 +111,9 @@ describe('article HTTP handlers', () => {
     await env.DB.prepare('INSERT INTO articles(id,url,normalized_url,title,created_at,updated_at,read_at) VALUES(?,?,?,?,?,?,NULL)')
       .bind('private-copy', 'https://example.com/private', 'https://example.com/private', 'Private', '2026-01-01T00:00:00.000Z', '2026-01-01T00:00:00.000Z').run();
     expect((await route(request('/api/articles/private-copy/copy', 'PUT', { markdown: ' ', source: 'paste', expectedRevision: null }))).status).toBe(400);
+    const malformedUnicode = await route(request('/api/articles/private-copy/copy', 'PUT', { markdown: '\ud800', source: 'paste', expectedRevision: null }));
+    expect(malformedUnicode.status).toBe(400);
+    expect(await malformedUnicode.json()).toMatchObject({ error: { message: 'Markdown copy must contain valid Unicode text' } });
     const missing = await route(request('/api/articles/no-such-article/copy'));
     expect(missing.status).toBe(404);
     expect(missing.headers.get('Cache-Control')).toContain('no-store');
@@ -296,6 +320,10 @@ describe('article HTTP handlers', () => {
     const item = { id: 'copy-import', url: 'https://example.com/copy-import', title: 'Copy import', createdAt: exportedAt, updatedAt: exportedAt, readAt: null };
     const invalid = { version: 2, exportedAt, articles: [{ ...item, copy: { markdown: ' ', capturedAt: exportedAt, source: 'paste', revision: 'revision' } }] };
     expect((await route(request('/api/import', 'POST', invalid))).status).toBe(400);
+    const invalidUnicode = { version: 2, exportedAt, articles: [{ ...item, copy: { markdown: '\ud800', capturedAt: exportedAt, source: 'paste', revision: 'revision' } }] };
+    expect((await route(request('/api/import', 'POST', invalidUnicode))).status).toBe(400);
+    const oversized = { version: 2, exportedAt, articles: [{ ...item, copy: { markdown: 'x'.repeat(MAX_COPY_BYTES + 1), capturedAt: exportedAt, source: 'paste', revision: 'revision' } }] };
+    expect((await route(request('/api/import', 'POST', oversized))).status).toBe(400);
     await env.DB.prepare(`CREATE TRIGGER fail_copy_import BEFORE INSERT ON article_copies BEGIN SELECT RAISE(ABORT, 'forced copy failure'); END`).run();
     const document = { version: 2, exportedAt, articles: [{ ...item, copy: { markdown: '# Copy', capturedAt: exportedAt, source: 'paste', revision: 'revision' } }] };
     expect((await route(request('/api/import', 'POST', document))).status).toBe(503);

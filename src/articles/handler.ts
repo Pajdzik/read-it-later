@@ -1,17 +1,16 @@
 import type { Article, ArticleCopy, Env } from '../contracts.js';
 import { errorResponse } from '../contracts.js';
 import { exceptionResponse, jsonResponse, logUnexpectedError, PRIVATE_HEADERS } from '../http.js';
+import { MAX_AUTHOR_LENGTH, MAX_COPY_ENVELOPE_BYTES, MAX_DESCRIPTION_LENGTH, MAX_TITLE_LENGTH } from '../shared/contracts.js';
 import { deleteArticle, getArticle, getArticleCopy, importArticles as saveImportedArticles, listArticles, listArticlesForExport, saveArticle, saveArticleCopy, updateArticle } from './repository.js';
 import {
-  BodyTooLargeError, defaultTitle, MAX_IMPORT_BYTES, MAX_IMPORT_ITEMS, MAX_TITLE_LENGTH,
-  normalizeArticleUrl, parseObject, readJson, ValidationError, validateTitle,
+  BodyTooLargeError, defaultTitle, MAX_IMPORT_BYTES, MAX_IMPORT_ITEMS,
+  normalizeArticleUrl, parseObject, readJson, ValidationError, validateMarkdownCopy, validateTitle,
 } from './validation.js';
 import { isResponse, requireSession, validateCaptureToken } from '../auth/core.js';
 import { fetchArticleMetadata } from './metadata.js';
 
 const PRIVATE = PRIVATE_HEADERS;
-const MAX_COPY_BYTES = 256 * 1024;
-const MAX_COPY_ENVELOPE_BYTES = 2 * 1024 * 1024;
 
 function fail(status: number, code: string, message: string): Response { return errorResponse(status, code, message); }
 const storageError = { status: 503, code: 'storage_unavailable', message: 'The service is temporarily unavailable. Please retry.' };
@@ -61,12 +60,7 @@ export async function handleArticles(request: Request, env: Env): Promise<Respon
 
 async function putArticleCopy(request: Request, env: Env, id: string): Promise<Response> {
   const input = parseObject(await readJson(request, MAX_COPY_ENVELOPE_BYTES), ['markdown', 'source', 'expectedRevision'], ['markdown', 'source', 'expectedRevision']);
-  if (typeof input.markdown !== 'string') throw new ValidationError('markdown must be text');
-  const markdown = input.markdown;
-  if (!markdown.trim()) throw new ValidationError('Markdown copy must not be blank');
-  const encoded = new TextEncoder().encode(markdown);
-  if (new TextDecoder('utf-8', { fatal: true }).decode(encoded) !== markdown) throw new ValidationError('Markdown copy must contain valid Unicode text');
-  if (encoded.byteLength > MAX_COPY_BYTES) throw new BodyTooLargeError('Markdown copy must be at most 262144 UTF-8 bytes');
+  const markdown = validateMarkdownCopy(input.markdown, 'put');
   if (input.source !== 'paste' && input.source !== 'upload') throw new ValidationError('source must be paste or upload');
   const expectedRevision = input.expectedRevision;
   if (expectedRevision !== null && (typeof expectedRevision !== 'string' || !/^[A-Za-z0-9_-]{1,128}$/.test(expectedRevision))) {
@@ -128,10 +122,10 @@ async function patchArticle(request: Request, env: Env, id: string): Promise<Res
   const patch: { read?: boolean; title?: string } = {};
   if ('read' in input) patch.read = input.read as boolean;
   if ('title' in input) {
-    if (typeof input.title !== 'string') throw new ValidationError('title must be a string');
-    const title = input.title.trim();
-    if (!title || title.length > MAX_TITLE_LENGTH) throw new ValidationError('title must contain 1 to 500 characters');
-    patch.title = title;
+    patch.title = validateTitle(input.title, '', {
+      type: 'title must be a string',
+      invalid: `title must contain 1 to ${MAX_TITLE_LENGTH} characters`,
+    });
   }
   const article = await updateArticle(env.DB, id, patch);
   return article ? jsonResponse({ article }) : fail(404, 'not_found', 'Article not found.');
@@ -177,7 +171,7 @@ async function importArticles(request: Request, env: Env): Promise<Response> {
   const input = parseObject(await readJson(request, MAX_IMPORT_BYTES), ['version', 'exportedAt', 'articles'], ['version', 'exportedAt', 'articles']);
   if (input.version !== 1 && input.version !== 2) throw new ValidationError('unsupported import version');
   validTimestamp(input.exportedAt, 'exportedAt');
-  if (!Array.isArray(input.articles) || input.articles.length > MAX_IMPORT_ITEMS) throw new ValidationError('articles must be an array with at most 1000 items');
+  if (!Array.isArray(input.articles) || input.articles.length > MAX_IMPORT_ITEMS) throw new ValidationError(`articles must be an array with at most ${MAX_IMPORT_ITEMS} items`);
   const seenIds = new Set<string>();
   const normalized: Array<Article & { normalizedUrl: string; copy?: ArticleCopy }> = [];
   for (const value of input.articles) {
@@ -186,24 +180,21 @@ async function importArticles(request: Request, env: Env): Promise<Response> {
     if (seenIds.has(item.id)) throw new ValidationError('import contains duplicate article IDs');
     seenIds.add(item.id);
     const url = normalizeArticleUrl(item.url);
-    if (typeof item.title !== 'string' || !item.title.trim() || item.title.trim().length > MAX_TITLE_LENGTH) throw new ValidationError('article title is invalid');
+    const title = validateTitle(item.title, '', { type: 'article title is invalid', invalid: 'article title is invalid' });
     const createdAt = validTimestamp(item.createdAt, 'createdAt'); const updatedAt = validTimestamp(item.updatedAt, 'updatedAt');
     const readAt = item.readAt === null ? null : validTimestamp(item.readAt, 'readAt');
-    const author = optionalImportText(item.author, 'author', 200);
-    const description = optionalImportText(item.description, 'description', 500);
+    const author = optionalImportText(item.author, 'author', MAX_AUTHOR_LENGTH);
+    const description = optionalImportText(item.description, 'description', MAX_DESCRIPTION_LENGTH);
     let copy: ArticleCopy | undefined;
     if (item.copy !== undefined) {
       const value = parseObject(item.copy, ['markdown', 'capturedAt', 'source', 'revision'], ['markdown', 'capturedAt', 'source', 'revision']);
-      if (typeof value.markdown !== 'string' || !value.markdown.trim()) throw new ValidationError('article copy markdown is invalid');
-      const bytes = new TextEncoder().encode(value.markdown);
-      if (new TextDecoder('utf-8', { fatal: true }).decode(bytes) !== value.markdown) throw new ValidationError('article copy markdown must contain valid Unicode text');
-      if (bytes.byteLength > MAX_COPY_BYTES) throw new ValidationError('article copy exceeds 262144 UTF-8 bytes');
+      const markdown = validateMarkdownCopy(value.markdown, 'import');
       if (value.source !== 'paste' && value.source !== 'upload') throw new ValidationError('article copy source is invalid');
       const capturedAt = validTimestamp(value.capturedAt, 'copy capturedAt');
       if (typeof value.revision !== 'string' || !/^[A-Za-z0-9_-]{1,128}$/.test(value.revision)) throw new ValidationError('article copy revision is invalid');
-      copy = { markdown: value.markdown, capturedAt, source: value.source, revision: value.revision };
+      copy = { markdown, capturedAt, source: value.source, revision: value.revision };
     }
-    normalized.push({ id: item.id, url: url.url, normalizedUrl: url.normalizedUrl, title: item.title.trim(), author, description, createdAt, updatedAt, readAt, ...(copy ? { copy } : {}) });
+    normalized.push({ id: item.id, url: url.url, normalizedUrl: url.normalizedUrl, title, author, description, createdAt, updatedAt, readAt, ...(copy ? { copy } : {}) });
   }
   return jsonResponse(await saveImportedArticles(env.DB, normalized), 200);
 }
