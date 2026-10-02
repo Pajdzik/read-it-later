@@ -1,6 +1,6 @@
 # Implementation tracker
 
-Source of truth: [design.md](design.md). Status: MVP implemented and validated locally by Luna subagents and the integrating agent. Deployment and actual-device release checks remain pending. Archive preservation remains phase 2.
+Source of truth: [design.md](design.md). Status: MVP implemented and validated locally by Luna subagents and the integrating agent. Deployment and actual-device release checks remain pending. For A01, owner-provided Markdown was selected and recorded; no deployed extraction benchmark was run. Automatic extraction (A04) is deferred because safe-fetch protections and deployed cost remain unproven.
 
 Check off a task only after its acceptance criteria pass. Each chunk should be one reviewable change; split further if needed. The integrating agent owns shared contracts, migrations, dependencies, and release checks. A subagent receives the task ID, prerequisite commits, owned paths, relevant design sections, and required evidence. It returns changed files, checks/results, and unresolved issues. It must not deploy, modify secrets, or refactor another chunk's files without explicit assignment.
 
@@ -57,21 +57,27 @@ Check off a task only after its acceptance criteria pass. Each chunk should be o
 | A03 | In-site Markdown reader and download | A02 |
 | A04 | Durable automatic capture, if feasible | A01, A02 |
 | A05 | Archive release and backup validation | A03; A04 if enabled |
+| A06 | Optional GitHub Markdown backup | A02, M03 |
 
-- [ ] **A01 — Test archive feasibility before committing infrastructure.** Evaluate Readability/Markdown conversion in the deployed runtime against public static, large, dynamic, blocked and malformed HTML fixtures. Measure CPU/memory/output size. Prove DNS/redirect/rebinding protections for automatic fetching or select manual/browser-clipped Markdown only. Write a short decision record with package versions, measured limits and costs.
+- [ ] **A01 — Test archive feasibility before committing infrastructure.** Evaluate Readability/Markdown conversion in the deployed runtime against public static, large, dynamic, blocked and malformed HTML fixtures. Measure CPU/memory/output size. Prove DNS/redirect/rebinding protections for automatic fetching or select manual/browser-clipped Markdown only. Write a decision record with package versions, measured limits and costs.
   Acceptance: a concrete supported route is documented. Automatic extraction is explicitly gated if it exceeds free limits or safe-fetch enforcement is unresolved. No paid service is enabled to mask an unsuccessful spike.
+  Current evidence: the decision record selects manual/browser-clipped Markdown because safe-fetch protection is unresolved. No deployed extraction benchmark or package/runtime measurements were run, so A01 remains unchecked.
 
-- [ ] **A02 — Store and accept Markdown copies.** Add separate copy metadata/content tables, owner-only upload/paste, UTF-8 byte limit, replacement confirmation, and archive status. Keep original URL and read state independent. Only expand schema for automatic jobs when A04 is selected.
+- [x] **A02 — Store and accept Markdown copies.** Add a separate copy table, owner-only paste/upload, UTF-8 byte limit, revision-checked replacement confirmation, and copy status in article details. Keep original URL and read state independent. Only expand schema for automatic jobs when A04 is selected.
   Acceptance: manual browser-clipped Markdown survives reload, stays private, rejects oversized input, and does not change read state. URL saving continues to work when copy storage fails. Deleting an article deletes its copy. Backup format advances with backward-compatible import of version 1.
+  Evidence: local D1 covers Unicode byte boundaries, atomic concurrent/stale revision behavior, owner/CSRF/token checks, deletion cascade, v2 round-trip, v1 import, duplicate policy, and rollback. Browser smoke covers paste/upload, failed-save draft retention, replacement cancellation/confirmation, reload persistence, and narrow layout. Deployed release checks remain pending.
 
 - [ ] **A03 — Read preserved copies safely.** Add sanitized in-site rendering, Open original, capture metadata, readable narrow-screen layout, and Markdown download with frontmatter. Disable raw HTML and dangerous protocols. Explain external image dependency.
   Acceptance: XSS fixture links/HTML do not execute; code blocks, tables, headings and relative links render correctly. A saved text copy remains readable when the original is unavailable. Missing copies have a clear original-link fallback; images are not claimed to be offline.
 
 - [ ] **A04 — Implement automatic capture only after A01 passes.** Add leased D1 jobs, scheduled bounded processing, three-attempt backoff, manual retry, SSRF-safe streamed fetching, extraction and atomic completion. The normal save API commits the URL before scheduling preservation. Document schedule/quota impact.
-  Acceptance: worker crash recovery, duplicate job claims, exhausted retries, unsafe redirects/private destinations, oversized responses, and extraction errors are covered. Original-link saving works during extraction failures. Test representative extraction CPU against the selected plan. If A01 chooses manual-only, mark this task deferred with the reason, not completed.
+  Acceptance: worker crash recovery, duplicate job claims, exhausted retries, unsafe redirects/private destinations, oversized responses, and extraction errors are covered. Original-link saving works during extraction failures. Test representative extraction CPU against the selected plan. Current status: deferred because A01 selected manual-only pending safe-fetch and deployed cost evidence; no jobs or automatic fetching are implemented.
 
 - [ ] **A05 — Validate archive backup and release.** Export/import copy content and metadata without auth secrets; test restoring a preserved library. Run the archive behavior on the deployed origin and record supported source types, missing images and failed extraction behavior.
   Acceptance: a restored copy can be read/downloaded while its source is unavailable. No archive failures silently replace the last successful copy. Document measured storage headroom and when an R2 migration would become useful.
+
+- [ ] **A06 — Back up Markdown copies to a private GitHub repository.** Deferred; the current implementation stores copies only in D1. Add an optional one-way backup of saved copies as `articles/<id>.md`, with original URL, title, and capture metadata in frontmatter. Keep D1 authoritative for content and read state. Configure the target repository/branch and a server-side credential scoped to repository contents; keep backup credentials separate from GitHub login. Choose explicit backup or automatic mirroring when this task is started. Automatic mirroring requires durable retries, revision tracking, and visible backup status.
+  Acceptance: Unicode content and capture metadata round-trip from repository files; retries are idempotent; concurrent updates cannot silently replace a newer copy; GitHub outages never undo a D1 save; credentials and authentication records are excluded from files and client assets. Document deletion/history behavior and verify recovery into D1 from a backup. No GitHub backup integration or credentials are added in the current D1-only scope.
 
 ## Optional migration
 

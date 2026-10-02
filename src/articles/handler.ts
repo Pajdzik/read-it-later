@@ -1,6 +1,6 @@
-import type { Article, Env } from '../contracts.js';
+import type { Article, ArticleCopy, Env } from '../contracts.js';
 import { errorResponse } from '../contracts.js';
-import { deleteArticle, getArticle, listArticles, saveArticle, updateArticle } from './repository.js';
+import { deleteArticle, getArticle, getArticleCopy, listArticles, listArticlesForExport, saveArticle, saveArticleCopy, updateArticle } from './repository.js';
 import {
   BodyTooLargeError, defaultTitle, MAX_IMPORT_BYTES, MAX_IMPORT_ITEMS, MAX_TITLE_LENGTH,
   normalizeArticleUrl, parseObject, readJson, ValidationError, validateTitle,
@@ -10,6 +10,8 @@ import { fetchArticleMetadata } from './metadata.js';
 
 const PRIVATE = { 'Cache-Control': 'private, no-store', 'Pragma': 'no-cache' };
 type ImportArticle = Article;
+const MAX_COPY_BYTES = 256 * 1024;
+const MAX_COPY_ENVELOPE_BYTES = 2 * 1024 * 1024;
 
 function fail(status: number, code: string, message: string): Response { return errorResponse(status, code, message); }
 function json(value: unknown, status = 200, headers: HeadersInit = {}): Response {
@@ -20,7 +22,7 @@ function storageFailure(): Response { return fail(503, 'storage_unavailable', 'T
 export async function handleArticles(request: Request, env: Env): Promise<Response | null> {
   const url = new URL(request.url); const method = request.method.toUpperCase();
   if (url.pathname === '/api/capture' && method === 'POST') return capture(request, env);
-  const isArticlePath = url.pathname === '/api/articles' || /^\/api\/articles\/[^/]+$/.test(url.pathname);
+  const isArticlePath = url.pathname === '/api/articles' || /^\/api\/articles\/[^/]+(?:\/copy)?$/.test(url.pathname);
   if (!isArticlePath && url.pathname !== '/api/export' && url.pathname !== '/api/import') return null;
   const needsWrite = method !== 'GET';
   let session: Awaited<ReturnType<typeof requireSession>>;
@@ -43,12 +45,43 @@ export async function handleArticles(request: Request, env: Env): Promise<Respon
       if (method === 'PATCH') return await patchArticle(request, env, id);
       if (method === 'DELETE') { await deleteArticle(env.DB, id); return new Response(null, { status: 204, headers: PRIVATE }); }
     }
+    const copyRoute = /^\/api\/articles\/([^/]+)\/copy$/.exec(url.pathname);
+    if (copyRoute) {
+      let id: string;
+      try { id = decodeURIComponent(copyRoute[1]); } catch { return fail(400, 'invalid_request', 'Article ID is invalid.'); }
+      if (!id || id.length > 128) return fail(400, 'invalid_request', 'Article ID is invalid.');
+      if (method === 'GET') {
+        if (!(await getArticle(env.DB, id))) return fail(404, 'not_found', 'Article not found.');
+        return json({ copy: await getArticleCopy(env.DB, id) });
+      }
+      if (method === 'PUT') return await putArticleCopy(request, env, id);
+    }
     return null;
   } catch (error) {
     if (error instanceof BodyTooLargeError) return fail(413, 'body_too_large', error.message);
     if (error instanceof ValidationError) return fail(400, 'invalid_request', error.message);
     return storageFailure();
   }
+}
+
+async function putArticleCopy(request: Request, env: Env, id: string): Promise<Response> {
+  const input = parseObject(await readJson(request, MAX_COPY_ENVELOPE_BYTES), ['markdown', 'source', 'expectedRevision'], ['markdown', 'source', 'expectedRevision']);
+  if (typeof input.markdown !== 'string') throw new ValidationError('markdown must be text');
+  const markdown = input.markdown;
+  if (!markdown.trim()) throw new ValidationError('Markdown copy must not be blank');
+  const encoded = new TextEncoder().encode(markdown);
+  if (new TextDecoder('utf-8', { fatal: true }).decode(encoded) !== markdown) throw new ValidationError('Markdown copy must contain valid Unicode text');
+  if (encoded.byteLength > MAX_COPY_BYTES) throw new BodyTooLargeError('Markdown copy must be at most 262144 UTF-8 bytes');
+  if (input.source !== 'paste' && input.source !== 'upload') throw new ValidationError('source must be paste or upload');
+  const expectedRevision = input.expectedRevision;
+  if (expectedRevision !== null && (typeof expectedRevision !== 'string' || !/^[A-Za-z0-9_-]{1,128}$/.test(expectedRevision))) {
+    throw new ValidationError('expectedRevision must be null or a valid revision');
+  }
+  const copy: ArticleCopy = { markdown, capturedAt: new Date().toISOString(), source: input.source, revision: crypto.randomUUID() };
+  const result = await saveArticleCopy(env.DB, id, copy, expectedRevision as string | null);
+  if (result === 'missing') return fail(404, 'not_found', 'Article not found.');
+  if (result === 'conflict') return fail(409, 'revision_conflict', 'This copy changed since you opened it. Reload it before replacing.');
+  return json({ copy });
 }
 
 async function createArticle(request: Request, env: Env): Promise<Response> {
@@ -114,23 +147,27 @@ async function patchArticle(request: Request, env: Env, id: string): Promise<Res
 async function exportArticles(env: Env): Promise<Response> {
   const exportedAt = new Date().toISOString();
   // Read before committing HTTP 200 so an initial storage outage returns 503.
-  let page = await listArticles(env.DB, { status: 'all', limit: 100 });
-  let first = true;
+  let page = await listArticlesForExport(env.DB, 25);
+  let pageIndex = 0;
+  let emitted = 0;
   const encoder = new TextEncoder();
   const stream = new ReadableStream<Uint8Array>({
     start(controller) {
-      controller.enqueue(encoder.encode(`{"version":1,"exportedAt":${JSON.stringify(exportedAt)},"articles":[`));
+      controller.enqueue(encoder.encode(`{"version":2,"exportedAt":${JSON.stringify(exportedAt)},"articles":[`));
     },
     async pull(controller) {
       try {
-        if (!first && page.nextCursor) {
-          page = await listArticles(env.DB, { status: 'all', limit: 100, cursor: page.nextCursor });
+        if (pageIndex >= page.items.length && page.nextCursor) {
+          page = await listArticlesForExport(env.DB, 25, page.nextCursor);
+          pageIndex = 0;
         }
-        if (page.items.length) {
-          controller.enqueue(encoder.encode((first ? '' : ',') + page.items.map(article => JSON.stringify(article)).join(',')));
+        if (pageIndex < page.items.length) {
+          const { article, copy } = page.items[pageIndex++];
+          controller.enqueue(encoder.encode(`${emitted++ ? ',' : ''}${JSON.stringify({ ...article, ...(copy ? { copy } : {}) })}`));
+          return;
         }
-        first = false;
-        if (!page.nextCursor) { controller.enqueue(encoder.encode(']}')); controller.close(); }
+        controller.enqueue(encoder.encode(']}'));
+        controller.close();
       } catch { controller.error(new Error('Export could not be completed')); }
     },
   });
@@ -142,13 +179,13 @@ async function exportArticles(env: Env): Promise<Response> {
 
 async function importArticles(request: Request, env: Env): Promise<Response> {
   const input = parseObject(await readJson(request, MAX_IMPORT_BYTES), ['version', 'exportedAt', 'articles'], ['version', 'exportedAt', 'articles']);
-  if (input.version !== 1) throw new ValidationError('unsupported import version');
+  if (input.version !== 1 && input.version !== 2) throw new ValidationError('unsupported import version');
   validTimestamp(input.exportedAt, 'exportedAt');
   if (!Array.isArray(input.articles) || input.articles.length > MAX_IMPORT_ITEMS) throw new ValidationError('articles must be an array with at most 1000 items');
   const seenIds = new Set<string>();
-  const normalized: Array<ImportArticle & { normalizedUrl: string }> = [];
+  const normalized: Array<ImportArticle & { normalizedUrl: string; copy?: ArticleCopy }> = [];
   for (const value of input.articles) {
-    const item = parseObject(value, ['id', 'url', 'title', 'author', 'description', 'createdAt', 'updatedAt', 'readAt'], ['id', 'url', 'title', 'createdAt', 'updatedAt', 'readAt']);
+    const item = parseObject(value, ['id', 'url', 'title', 'author', 'description', 'createdAt', 'updatedAt', 'readAt', ...(input.version === 2 ? ['copy'] : [])], ['id', 'url', 'title', 'createdAt', 'updatedAt', 'readAt']);
     if (typeof item.id !== 'string' || !item.id || item.id.length > 128) throw new ValidationError('article id is invalid');
     if (seenIds.has(item.id)) throw new ValidationError('import contains duplicate article IDs');
     seenIds.add(item.id);
@@ -158,7 +195,19 @@ async function importArticles(request: Request, env: Env): Promise<Response> {
     const readAt = item.readAt === null ? null : validTimestamp(item.readAt, 'readAt');
     const author = optionalImportText(item.author, 'author', 200);
     const description = optionalImportText(item.description, 'description', 500);
-    normalized.push({ id: item.id, url: url.url, normalizedUrl: url.normalizedUrl, title: item.title.trim(), author, description, createdAt, updatedAt, readAt });
+    let copy: ArticleCopy | undefined;
+    if (item.copy !== undefined) {
+      const value = parseObject(item.copy, ['markdown', 'capturedAt', 'source', 'revision'], ['markdown', 'capturedAt', 'source', 'revision']);
+      if (typeof value.markdown !== 'string' || !value.markdown.trim()) throw new ValidationError('article copy markdown is invalid');
+      const bytes = new TextEncoder().encode(value.markdown);
+      if (new TextDecoder('utf-8', { fatal: true }).decode(bytes) !== value.markdown) throw new ValidationError('article copy markdown must contain valid Unicode text');
+      if (bytes.byteLength > MAX_COPY_BYTES) throw new ValidationError('article copy exceeds 262144 UTF-8 bytes');
+      if (value.source !== 'paste' && value.source !== 'upload') throw new ValidationError('article copy source is invalid');
+      const capturedAt = validTimestamp(value.capturedAt, 'copy capturedAt');
+      if (typeof value.revision !== 'string' || !/^[A-Za-z0-9_-]{1,128}$/.test(value.revision)) throw new ValidationError('article copy revision is invalid');
+      copy = { markdown: value.markdown, capturedAt, source: value.source, revision: value.revision };
+    }
+    normalized.push({ id: item.id, url: url.url, normalizedUrl: url.normalizedUrl, title: item.title.trim(), author, description, createdAt, updatedAt, readAt, ...(copy ? { copy } : {}) });
   }
   const existingIds = new Map<string, string>();
   for (const group of chunks(normalized, 80)) {
@@ -176,12 +225,28 @@ async function importArticles(request: Request, env: Env): Promise<Response> {
   }
   let imported = 0;
   if (toInsert.length) {
-    const statements = toInsert.map((item) => env.DB.prepare(`INSERT INTO articles (id,url,normalized_url,title,author,description,created_at,updated_at,read_at)
-      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?) ON CONFLICT(normalized_url) DO NOTHING`)
-      .bind(item.id, item.url, item.normalizedUrl, item.title, item.author, item.description, item.createdAt, item.updatedAt, item.readAt));
+    const statements: D1PreparedStatement[] = [];
+    for (const item of toInsert) {
+      statements.push(env.DB.prepare(`INSERT INTO articles (id,url,normalized_url,title,author,description,created_at,updated_at,read_at)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?) ON CONFLICT(normalized_url) DO NOTHING`)
+        .bind(item.id, item.url, item.normalizedUrl, item.title, item.author, item.description, item.createdAt, item.updatedAt, item.readAt));
+      if (item.copy) statements.push(env.DB.prepare(`INSERT INTO article_copies (article_id,markdown,captured_at,source,revision)
+        SELECT ?,?,?,?,? WHERE changes() = 1 AND EXISTS (SELECT 1 FROM articles WHERE id = ?)
+        ON CONFLICT(article_id) DO NOTHING`)
+        .bind(item.id, item.copy.markdown, item.copy.capturedAt, item.copy.source, item.copy.revision, item.id));
+    }
     const results = await env.DB.batch(statements);
-    skipped += results.reduce((count, result) => count + ((result.meta.changes ?? 0) === 0 ? 1 : 0), 0);
-    imported = results.reduce((count, result) => count + (result.meta.changes ?? 0), 0);
+    // A copy insertion follows its article insertion in the same D1 batch and
+    // is gated by changes(), so a skipped duplicate can never receive a copy.
+    imported = 0;
+    let resultIndex = 0;
+    for (const item of toInsert) {
+      const articleResult = results[resultIndex++];
+      const inserted = articleResult?.meta.changes ?? 0;
+      imported += inserted;
+      if (item.copy) resultIndex++;
+      if (!inserted) skipped++;
+    }
   }
   return json({ imported, skipped }, 200);
 }

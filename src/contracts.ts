@@ -19,6 +19,13 @@ export interface Article {
   readAt: string | null;
 }
 
+export interface ArticleCopy {
+  markdown: string;
+  capturedAt: string;
+  source: "paste" | "upload";
+  revision: string;
+}
+
 export interface ApiError {
   error: { code: string; message: string };
 }

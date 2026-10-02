@@ -2,7 +2,7 @@
 
 **Potem** means “later” in Polish. It is a private, single-owner article inbox: send a URL from your desktop or phone, open the original document when ready, and explicitly mark it read. The website uses the lowercase **potem.** wordmark.
 
-The current service stores links, article metadata, and read state. Preserving article bodies as Markdown is the next phase. The repository also retains the original Node.js Markdown-reader prototype.
+The current service stores links, article metadata, read state, and optional owner-provided Markdown copies. The repository also retains the original Node.js Markdown-reader prototype.
 
 ## Product decisions
 
@@ -91,22 +91,23 @@ All API payloads are JSON with camelCase fields. Errors use `{error: {code, mess
 | `GET /api/articles/:id` | Retrieve an article |
 | `PATCH /api/articles/:id` | Change title and/or read state |
 | `DELETE /api/articles/:id` | Delete an article |
+| `GET /api/articles/:id/copy`, `PUT /api/articles/:id/copy` | Read or save a private Markdown copy with revision checks |
 | `GET /api/export`, `POST /api/import` | Download or restore versioned library JSON |
 | `GET`, `POST /api/capture-tokens` | List token metadata or create a token |
 | `DELETE /api/capture-tokens/:id` | Revoke a token |
 | `GET /healthz` | Public liveness response; not a database readiness check |
 
-Export format is `{version: 1, exportedAt, articles: [...]}`. It includes metadata and read state, excludes authentication records, and streams articles in bounded pages. Concurrent edits can affect different pages, so avoid editing during a backup when consistent results matter.
+Export format is `{version: 2, exportedAt, articles: [...]}`; each article may include its Markdown copy and capture metadata. Import accepts versions 1 and 2. Exports exclude authentication records and stream articles in bounded pages. Concurrent edits can affect different pages, so avoid editing during a backup when consistent results matter.
 
-Import accepts up to 1 MiB and 1,000 articles. It validates the complete input and uses a transactional D1 batch. New records retain IDs/dates; existing normalized URLs are skipped; IDs already associated with different URLs are rejected. Older exports without author/description remain accepted. Import is a restore/merge operation, not an overwrite or rollback mechanism. Keep exports outside Cloudflare and test restores in a separate database.
+Import accepts up to 1 MiB and 1,000 articles. It validates the complete input and uses a transactional D1 batch. New records retain IDs/dates and copies; existing normalized URLs are skipped without attaching their incoming copies; IDs already associated with different URLs are rejected. Older exports without author/description remain accepted. A full export can exceed the import bound, as before; split large restores into valid files. Import is a restore/merge operation, not an overwrite or rollback mechanism. Keep exports outside Cloudflare and test restores in a separate database.
 
-## Future Markdown preservation
+## Markdown preservation
 
-The next phase keeps the original-link workflow and adds an optional private copy for source outages. The preferred first step is owner-provided Markdown from paste/upload or tools such as Obsidian Web Clipper. Browser clipping can capture pages the owner is already logged into without sending browser cookies to the backend.
+Article details let the owner paste Markdown or load a UTF-8 `.md`/`.markdown` file. Saving is explicit, replacements use revision checks, and each copy is limited to 256 KiB UTF-8. The editor shows capture time, source, and byte count; failed saves keep the draft. The original link and read state remain independent.
 
-Store copy content and capture metadata in a separate `article_copies` table; keep read state in `articles`. The planned initial bound is 256 KiB per copy, with D1 as storage. Add sanitized in-site reading and Markdown download, disable raw HTML/unsafe protocols, and advance the backup format with backward-compatible imports. External image references do not make a complete offline replica. R2 is deferred until measured storage needs justify it.
+Copies are editable Markdown text. Sanitized in-site reading and Markdown download are the next archive feature. External image references still depend on the source site and do not make a complete offline replica. R2 is deferred until measured storage needs justify it.
 
-Automatic full-article extraction is a separate feasibility gate. It needs tested DNS/egress and redirect protections, bounded fetch/output sizes, runtime/CPU measurements, and reliable retries. The current metadata fetch does not establish those guarantees. If automatic capture is selected, use leased durable D1 jobs, bounded scheduled processing, and capped retries; commit the URL independently of archive success. `waitUntil` alone is not a durable queue. Headless browsers, paywall bypass, PDF conversion, image mirroring, tags, recommendations, and collaboration are outside the current plan. See archive tasks A01–A05 in the [implementation tracker](docs/tasks.md).
+The manual-only A01 decision is recorded in [markdown-preservation.md](docs/markdown-preservation.md). No deployed extraction benchmark was run. Automatic capture remains deferred until DNS/egress and redirect protections, runtime costs, and retries are proven; current metadata fetching does not establish those guarantees. See archive tasks A01–A05 in the [implementation tracker](docs/tasks.md).
 
 ## Local development
 
@@ -156,8 +157,8 @@ Back up before destructive schema changes. Prefer additive migrations and roll b
 | --- | --- |
 | `src/worker.ts` | Routing, static assets, and response security policies |
 | `src/auth/` | GitHub OAuth, owner sessions, capture tokens and limiter |
-| `src/articles/` | Request validation, URL normalization, metadata extraction and SQL repository |
-| `src/contracts.ts` | Worker bindings and shared article/error types |
+| `src/articles/` | Request validation, URL normalization, metadata extraction, Markdown copies and SQL repository |
+| `src/contracts.ts` | Worker bindings and shared article/copy/error types |
 | `web/` | Responsive website, capture help, manifest, icons and service worker |
 | `migrations/` | Ordered article/auth/metadata SQL migrations |
 | `tests/` | Worker/D1 integration and regression tests |

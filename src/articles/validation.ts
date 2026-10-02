@@ -76,5 +76,5 @@ export async function readJson(request: Request, maxBytes = MAX_BODY_BYTES): Pro
 }
 
 export class BodyTooLargeError extends Error {
-  constructor() { super('request body is too large'); this.name = 'BodyTooLargeError'; }
+  constructor(message = 'request body is too large') { super(message); this.name = 'BodyTooLargeError'; }
 }
