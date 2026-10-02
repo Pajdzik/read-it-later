@@ -92,6 +92,7 @@ All API payloads are JSON with camelCase fields. Errors use `{error: {code, mess
 | `PATCH /api/articles/:id` | Change title and/or read state |
 | `DELETE /api/articles/:id` | Delete an article |
 | `GET /api/articles/:id/copy`, `PUT /api/articles/:id/copy` | Read or save a private Markdown copy with revision checks |
+| `GET /api/github` | Owner-only GitHub configuration for capture before an article exists; never returns credentials |
 | `GET /api/articles/:id/github`, `POST /api/articles/:id/github` | Check the configured GitHub destination or save the persisted Markdown copy there |
 | `GET /api/export`, `POST /api/import` | Download or restore versioned library JSON |
 | `GET`, `POST /api/capture-tokens` | List token metadata or create a token |
@@ -112,7 +113,7 @@ To recover GitHub Markdown backups offline, run `pnpm github:convert --source /a
 
 Article details let the owner paste Markdown or load a UTF-8 `.md`/`.markdown` file. Saving is explicit, replacements use revision checks, and each copy is limited to 256 KiB UTF-8. The editor shows capture time, source, and byte count; failed saves keep the draft. The original link and read state remain independent.
 
-Check **Also save to GitHub** to additionally commit the saved Markdown with source/capture frontmatter. Production targets `Pajdzik/Kamilpedia`, branch `main`, at `Articles/<article-id>.md`. Kamilpedia is public, so checked copies are public there. The checkbox starts unchecked and requires a separate server-side `GITHUB_BACKUP_TOKEN` secret with repository Contents write permission. D1 stays authoritative; GitHub failure leaves the D1 copy intact and offers a retry. Destination/status, conflict handling, configuration, and recovery are documented in the [GitHub Markdown guide](docs/github-markdown.md).
+Check **Also save to GitHub** in the browser capture dialog or article details to additionally commit the saved Markdown with source/capture frontmatter. Production targets `Pajdzik/Kamilpedia`, branch `main`, at `Articles/<article-id>.md`. Kamilpedia is public, so checked copies are public there. The checkbox starts unchecked and requires a separate server-side `GITHUB_BACKUP_TOKEN` secret with repository Contents write permission. Capture saves the URL, then the Markdown, then optionally the saved copy to GitHub. Link-only saves, changed URLs, and failed copy saves do not publish the captured content. D1 stays authoritative; GitHub failure leaves the D1 copy intact and offers a retry of the saved copy without rewriting it. Destination/status, conflict handling, configuration, and recovery are documented in the [GitHub Markdown guide](docs/github-markdown.md).
 
 Copies are editable Markdown text. Article details can open the last successfully saved revision in a sanitized reader or download it as a UTF-8 Markdown file with quoted YAML frontmatter. Raw HTML is shown as text, unsafe links are unlinked, and image references are shown as text because their external sources are not included. Reading and downloading do not change read state or include unsaved editor drafts. R2 is deferred until measured storage needs justify it.
 

@@ -62,6 +62,26 @@ beforeEach(async () => {
 afterEach(() => vi.unstubAllGlobals());
 
 describe('GitHub Markdown saving', () => {
+  it('returns only authenticated GitHub destination configuration before an article exists', async () => {
+    const configRequest = () => new Request(`${origin}/api/github`, { headers: { Origin: origin } });
+    const configured = await route(configRequest());
+    expect(configured.status).toBe(200);
+    const configuration = await configured.json();
+    expect(configuration).toEqual({ github: {
+      configured: true, repository: 'Pajdzik/Kamilpedia', branch: 'main', folder: 'Articles',
+    } });
+    expect(JSON.stringify(configuration)).not.toContain(env.GITHUB_BACKUP_TOKEN);
+    for (const settings of [
+      { ...env, GITHUB_BACKUP_TOKEN: undefined },
+      { ...env, GITHUB_BACKUP_REPOSITORY: '../unsafe' },
+    ]) {
+      expect(await (await route(configRequest(), settings)).json()).toMatchObject({ github: { configured: false, message: expect.any(String) } });
+    }
+    const privateEnv: Env = { ...env, DEV_AUTH_BYPASS: undefined, APP_ORIGIN: 'https://service.example', GITHUB_CLIENT_ID: 'client', GITHUB_CLIENT_SECRET: 'secret', OWNER_GITHUB_ID: '123456' };
+    const unauthorized = await handleArticles(new Request('https://service.example/api/github', { headers: { Authorization: 'Bearer capture-token' } }), privateEnv);
+    expect(unauthorized?.status).toBe(401);
+  });
+
   it('writes Unicode Markdown with safe frontmatter to the configured path, without changing D1 state', async () => {
     const remote = mockGitHub();
     const response = await route(saveRequest());

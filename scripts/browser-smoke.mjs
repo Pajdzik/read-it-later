@@ -70,6 +70,8 @@ try {
       `APP_ORIGIN:${base}`,
       "--var",
       "DEV_AUTH_BYPASS:true",
+      "--var",
+      "GITHUB_BACKUP_TOKEN:browser-smoke-only-token",
     ],
     { env: environment, stdio: "ignore" },
   );
@@ -140,9 +142,9 @@ try {
   assert.equal(await detail.getByRole("button", { name: "Read saved copy" }).isHidden(), true, "A missing copy must not show reader actions.");
   assert.equal(await detail.getByRole("button", { name: "Download Markdown" }).isHidden(), true, "A missing copy must not show download actions.");
   const githubCheckbox = detail.getByRole("checkbox", { name: "Also save to GitHub" });
-  await detail.getByText(/GitHub saving is not configured/).waitFor();
+  await detail.getByText(/Pajdzik\/Kamilpedia/).waitFor();
   assert.equal(await githubCheckbox.isChecked(), false, "GitHub saving must start unchecked.");
-  assert.equal(await githubCheckbox.isDisabled(), true, "GitHub saving needs a server-side credential.");
+  assert.equal(await githubCheckbox.isDisabled(), false, "Configured GitHub saving should be available as an opt-in.");
   await markdown.fill("# Browser copy\n\nPasted draft.");
   await page.route("**/api/articles/*/copy", async (route) => {
     if (route.request().method() === "PUT")
@@ -533,6 +535,17 @@ try {
   };
   const [successfulClip] = await Promise.all([captureFrom("/article")]);
   await successfulClip.popup.locator("#capture-copy").waitFor({ state: "visible" });
+  await successfulClip.popup.waitForFunction(() => {
+    const checkbox = document.querySelector("#capture-github-enabled");
+    return checkbox && !checkbox.disabled && document.querySelector("#capture-github-status").textContent.includes("Pajdzik/Kamilpedia");
+  });
+  assert.equal(await successfulClip.popup.locator("#capture-github-enabled").isChecked(), false, "GitHub publishing must start unchecked.");
+  assert.match(await successfulClip.popup.locator(".capture-copy .copy-explainer").textContent(), /production destination.*is public/i);
+  let defaultGithubPosts = 0;
+  await successfulClip.popup.route("**/api/articles/*/github", async (route) => {
+    if (route.request().method() === "POST") defaultGithubPosts++;
+    await route.continue();
+  });
   const capturedText = await successfulClip.popup.locator("#capture-markdown").inputValue();
   assert.match(capturedText, /important formatting/);
   assert.doesNotMatch(capturedText, /<p>|<article>/, "Defuddle must return Markdown text rather than source HTML.");
@@ -544,7 +557,8 @@ try {
   await successfulClip.popup.setViewportSize({ width: 1440, height: 1000 });
   assert.equal(await successfulClip.popup.evaluate(async (url) => (await (await fetch("/api/articles?status=all")).json()).items.some((item) => item.url === url), `${sourceBase}/article`), false, "Opening the handoff must not save before confirmation.");
   await successfulClip.popup.locator("#add-form button").click();
-  await successfulClip.popup.getByText("Saved for later.").waitFor();
+  await successfulClip.popup.getByText("Link and Markdown copy saved privately in Potem.").waitFor();
+  assert.equal(defaultGithubPosts, 0, "An unchecked capture must not publish to GitHub.");
   let captureArticles = await successfulClip.popup.evaluate(async () => (await (await fetch("/api/articles?status=all")).json()).items);
   let capturedArticle = captureArticles.find((item) => item.url === `${sourceBase}/article`);
   assert.ok(capturedArticle, "Confirmed browser capture must save the URL.");
@@ -553,6 +567,107 @@ try {
   assert.deepEqual(successfulClip.unexpectedRequests, [], "Browser extraction must not call third-party services.");
   await successfulClip.source.close();
   await successfulClip.popup.close();
+
+  const optedInClip = await captureFrom("/opted-in");
+  await optedInClip.popup.locator("#capture-copy").waitFor({ state: "visible" });
+  await optedInClip.popup.waitForFunction(() => {
+    const checkbox = document.querySelector("#capture-github-enabled");
+    return checkbox && !checkbox.disabled;
+  });
+  let optedInCopyWrites = 0;
+  let optedInRevision = "";
+  let optedInGithubPosts = 0;
+  await optedInClip.popup.route("**/api/articles/*/copy", async (route) => {
+    if (route.request().method() !== "PUT") return route.continue();
+    optedInCopyWrites++;
+    assert.equal(route.request().postDataJSON().expectedRevision, null);
+    const response = await route.fetch();
+    const body = await response.json();
+    optedInRevision = body.copy.revision;
+    await route.fulfill({ response, body: JSON.stringify(body) });
+  });
+  await optedInClip.popup.route("**/api/articles/*/github", async (route) => {
+    if (route.request().method() !== "POST") return route.continue();
+    optedInGithubPosts++;
+    assert.equal(route.request().postDataJSON().expectedRevision, optedInRevision, "GitHub must receive the revision returned by D1.");
+    await route.fulfill({ contentType: "application/json", body: JSON.stringify({ backup: {
+      configured: true, repository: "Pajdzik/Kamilpedia", branch: "main", path: "Articles/opted-in.md",
+      url: "https://github.com/Pajdzik/Kamilpedia/blob/main/Articles/opted-in.md", state: "saved", backedUpAt: "2026-10-02T00:00:00.000Z",
+    } }) });
+  });
+  await optedInClip.popup.locator("#capture-github-enabled").check();
+  await optedInClip.popup.locator("#add-form button").click();
+  await optedInClip.popup.getByText("Link and Markdown copy saved to Potem and GitHub.").waitFor();
+  assert.equal(optedInCopyWrites, 1);
+  assert.equal(optedInGithubPosts, 1);
+  await optedInClip.source.close();
+  await optedInClip.popup.close();
+
+  const githubRetryClip = await captureFrom("/github-retry");
+  await githubRetryClip.popup.locator("#capture-copy").waitFor({ state: "visible" });
+  await githubRetryClip.popup.waitForFunction(() => !document.querySelector("#capture-github-enabled").disabled);
+  let retryCopyWrites = 0;
+  let retryCopyRevision = "";
+  const retryRevisions = [];
+  let failFirstGitHubSave = true;
+  await githubRetryClip.popup.route("**/api/articles/*/copy", async (route) => {
+    if (route.request().method() !== "PUT") return route.continue();
+    retryCopyWrites++;
+    const response = await route.fetch();
+    const body = await response.json();
+    retryCopyRevision = body.copy.revision;
+    await route.fulfill({ response, body: JSON.stringify(body) });
+  });
+  await githubRetryClip.popup.route("**/api/articles/*/github", async (route) => {
+    if (route.request().method() !== "POST") return route.continue();
+    const expectedRevision = route.request().postDataJSON().expectedRevision;
+    retryRevisions.push(expectedRevision);
+    assert.equal(expectedRevision, retryCopyRevision);
+    if (failFirstGitHubSave) {
+      failFirstGitHubSave = false;
+      await route.fulfill({ status: 503, contentType: "application/json", body: JSON.stringify({ error: { message: "Simulated GitHub failure" } }) });
+    } else {
+      await route.fulfill({ contentType: "application/json", body: JSON.stringify({ backup: {
+        configured: true, repository: "Pajdzik/Kamilpedia", branch: "main", path: "Articles/github-retry.md",
+        url: "https://github.com/Pajdzik/Kamilpedia/blob/main/Articles/github-retry.md", state: "saved", backedUpAt: "2026-10-02T00:00:00.000Z",
+      } }) });
+    }
+  });
+  await githubRetryClip.popup.locator("#capture-github-enabled").check();
+  await githubRetryClip.popup.locator("#add-form button").click();
+  await githubRetryClip.popup.locator("#capture-github-retry").waitFor({ state: "visible" });
+  await githubRetryClip.popup.locator("#add-notice").getByText(/GitHub save failed/).waitFor();
+  assert.equal(retryCopyWrites, 1, "The Markdown copy must be saved before the GitHub attempt.");
+  await githubRetryClip.popup.reload();
+  await githubRetryClip.popup.locator("#capture-github-retry").waitFor({ state: "visible" });
+  assert.equal(await githubRetryClip.popup.locator("#capture-github-enabled").isChecked(), false, "A GitHub publishing choice must not be restored as checked.");
+  await githubRetryClip.popup.locator("#capture-github-retry").click();
+  await githubRetryClip.popup.getByText("Markdown copy saved to Potem and GitHub.").waitFor();
+  assert.equal(retryCopyWrites, 1, "GitHub retry must not PUT the Markdown copy again.");
+  assert.deepEqual(retryRevisions, [retryCopyRevision, retryCopyRevision], "Retry must reuse the same saved revision.");
+  await githubRetryClip.source.close();
+  await githubRetryClip.popup.close();
+
+  const githubDoneClip = await captureFrom("/github-done");
+  await githubDoneClip.popup.locator("#capture-copy").waitFor({ state: "visible" });
+  await githubDoneClip.popup.waitForFunction(() => !document.querySelector("#capture-github-enabled").disabled);
+  await githubDoneClip.popup.route("**/api/articles/*/github", async (route) => {
+    if (route.request().method() === "POST")
+      await route.fulfill({ status: 503, contentType: "application/json", body: JSON.stringify({ error: { message: "Simulated persistent GitHub failure" } }) });
+    else await route.continue();
+  });
+  await githubDoneClip.popup.locator("#capture-github-enabled").check();
+  await githubDoneClip.popup.locator("#add-form button").click();
+  await githubDoneClip.popup.locator("#capture-github-done").waitFor({ state: "visible" });
+  const doneArticleUrl = await githubDoneClip.popup.locator("#add-url").inputValue();
+  await githubDoneClip.popup.locator("#capture-github-done").click();
+  assert.equal(await githubDoneClip.popup.locator("#add-dialog").evaluate((dialog) => dialog.open), false);
+  captureArticles = await githubDoneClip.popup.evaluate(async () => (await (await fetch("/api/articles?status=all")).json()).items);
+  capturedArticle = captureArticles.find((item) => item.url === doneArticleUrl);
+  assert.ok(capturedArticle, "Done must keep the locally saved article.");
+  assert.ok((await githubDoneClip.popup.evaluate(async (id) => (await (await fetch(`/api/articles/${id}/copy`)).json()).copy, capturedArticle.id)), "Done must keep the locally saved Markdown copy.");
+  await githubDoneClip.source.close();
+  await githubDoneClip.popup.close();
 
   const existingUrl = `${sourceBase}/existing`;
   let protectedCopy = "# Owner's existing copy\n\nKeep these bytes.";
@@ -567,12 +682,20 @@ try {
   }, { url: existingUrl, markdown: protectedCopy });
   await page.goto(base + "/capture");
   const existingCapture = await captureFrom("/existing");
-  await existingCapture.popup.locator("#capture-markdown").waitFor();
+  await existingCapture.popup.locator("#capture-copy").waitFor({ state: "visible" });
+  await existingCapture.popup.waitForFunction(() => !document.querySelector("#capture-github-enabled").disabled);
+  await existingCapture.popup.locator("#capture-github-enabled").check();
+  let existingGithubPosts = 0;
+  await existingCapture.popup.route("**/api/articles/*/github", async (route) => {
+    if (route.request().method() === "POST") existingGithubPosts++;
+    await route.continue();
+  });
   await existingCapture.popup.locator("#add-form button").click();
   await existingCapture.popup.locator("#add-notice").getByText(/Link saved\. Markdown copy was not changed/).waitFor();
   assert.equal(await existingCapture.popup.locator("#add-dialog").evaluate((dialog) => dialog.open), true, "A copy conflict should keep the draft open for a choice.");
   let stillProtected = await existingCapture.popup.evaluate(async (id) => (await (await fetch(`/api/articles/${id}/copy`)).json()).copy, existingFixture);
   assert.equal(stillProtected.markdown, protectedCopy, "Capture must never replace an existing copy silently.");
+  assert.equal(existingGithubPosts, 0, "A failed local-copy create must not publish to GitHub.");
   await existingCapture.popup.locator("#capture-copy-enabled").uncheck();
   await existingCapture.popup.locator("#add-form button").click();
   await existingCapture.popup.locator("#add-dialog").waitFor({ state: "hidden" });

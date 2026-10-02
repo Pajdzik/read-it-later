@@ -97,6 +97,8 @@ Every handoff includes task ID, implementation summary, changed paths, commands/
 
 Browser capture evidence (October 2, 2026): 37 Worker/D1 tests, `pnpm typecheck`, `pnpm test:browser`, and `pnpm build` dry-run pass. The browser smoke uses a separate source origin and real temporary Worker/D1; it covers Markdown output, no third-party extraction requests, explicit-save behavior, existing-copy protection, copy-failure reload/retry, URL-change detachment, and blocked-script fallback. Inspected screenshots: `/tmp/potem-browser-capture-desktop.png` and `/tmp/potem-browser-capture-mobile.png` (390px). Deployment and real-device sharing remain pending.
 
+GitHub capture follow-up evidence (October 2, 2026): the capture dialog includes the default-unchecked **Also save to GitHub** option and owner-only destination configuration. Syntax checks, TypeScript checks, all 38 Worker/D1 tests, browser smoke, and the dry-run build pass. API coverage verifies configuration validation, absence of credentials, and rejection of save-only token access. Browser coverage verifies unchecked captures make no GitHub write, opted-in saves send the revision returned by D1, failed local saves block GitHub, and GitHub failure/reload/retry performs only one local copy write. **Done** preserves the saved copy. Desktop and 390px screenshots were inspected. Deployment and live GitHub commit verification remain pending.
+
 
 ## Implementation evidence
 

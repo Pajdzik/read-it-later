@@ -8,7 +8,7 @@ import {
 } from './validation.js';
 import { isResponse, requireSession, validateCaptureToken } from '../auth/core.js';
 import { fetchArticleMetadata } from './metadata.js';
-import { getGitHubBackupStatus, GitHubBackupError, saveGitHubBackup } from './github.js';
+import { getGitHubBackupConfiguration, getGitHubBackupStatus, GitHubBackupError, saveGitHubBackup } from './github.js';
 
 const PRIVATE = PRIVATE_HEADERS;
 type ImportArticle = Article;
@@ -22,12 +22,13 @@ export async function handleArticles(request: Request, env: Env): Promise<Respon
   const url = new URL(request.url); const method = request.method.toUpperCase();
   if (url.pathname === '/api/capture' && method === 'POST') return capture(request, env);
   const isArticlePath = url.pathname === '/api/articles' || /^\/api\/articles\/[^/]+(?:\/copy|\/github)?$/.test(url.pathname);
-  if (!isArticlePath && url.pathname !== '/api/export' && url.pathname !== '/api/import') return null;
+  if (!isArticlePath && url.pathname !== '/api/export' && url.pathname !== '/api/import' && url.pathname !== '/api/github') return null;
   const needsWrite = method !== 'GET';
   let session: Awaited<ReturnType<typeof requireSession>>;
   try { session = await requireSession(request, env, needsWrite); } catch (error) { return exceptionResponse(error, 'articles.auth', storageError); }
   if (isResponse(session)) return session;
   try {
+    if (url.pathname === '/api/github' && method === 'GET') return jsonResponse({ github: getGitHubBackupConfiguration(env) });
     if (url.pathname === '/api/articles' && method === 'POST') return await createArticle(request, env);
     if (url.pathname === '/api/articles' && method === 'GET') return await listRoute(url, env);
     if (url.pathname === '/api/export' && method === 'GET') return await exportArticles(env);
