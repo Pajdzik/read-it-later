@@ -80,6 +80,28 @@ try {
     await new Promise((resolve) => setTimeout(resolve, 100));
   }
   assert(ready, "Local Worker did not become ready.");
+  const seededAt = new Date().toISOString();
+  const imported = await fetch(`${base}/api/import`, {
+    method: "POST",
+    headers: {
+      Origin: base,
+      "Content-Type": "application/json",
+      "X-CSRF-Token": "dev-bypass",
+    },
+    body: JSON.stringify({
+      version: 2,
+      exportedAt: seededAt,
+      articles: [{
+        id: "editor-switch-smoke",
+        url: "https://example.com/editor-switch-smoke",
+        title: "Editor switch smoke article",
+        createdAt: seededAt,
+        updatedAt: seededAt,
+        readAt: null,
+      }],
+    }),
+  });
+  assert.equal(imported.status, 200, "The editor-switch article must be seeded through the import API.");
   browser = await chromium.launch({
     headless: true,
     ...(process.env.BROWSER_EXECUTABLE
@@ -155,16 +177,75 @@ try {
   await title.waitFor();
   await title.click();
   await page.locator("#detail-content .copy-status").getByText(/uploaded file/).waitFor();
-  assert.equal(await page.locator("#detail-content").getByRole("textbox", { name: "Markdown copy" }).inputValue(), uploadedMarkdown, "Uploaded Markdown must survive reload.");
+  const reopenedMarkdown = page.locator("#detail-content").getByRole("textbox", { name: "Markdown copy" });
+  assert.equal(await reopenedMarkdown.inputValue(), uploadedMarkdown, "Uploaded Markdown must survive reload.");
+  const articleId = await article.getAttribute("data-id");
+  const originalCopyResponse = await page.evaluate(async (id) => {
+    const response = await fetch(`/api/articles/${encodeURIComponent(id)}/copy`);
+    return response.json();
+  }, articleId);
+  const originalRevision = originalCopyResponse.copy.revision;
+  await reopenedMarkdown.fill("# Draft based on the original revision");
+  await page.locator("#detail-dialog .dialog-close button").click();
+  await page.getByRole("button", { name: "Editor switch smoke article", exact: true }).click();
+  const switchMarkdown = page.locator("#detail-content").getByRole("textbox", { name: "Markdown copy" });
+  await page.locator("#detail-content").getByText("No Markdown copy saved yet.").waitFor();
+  assert.equal(await switchMarkdown.inputValue(), "", "Opening another article must show its own copy editor.");
+  await switchMarkdown.fill("# Draft started before any copy existed");
+  await page.locator("#detail-dialog .dialog-close button").click();
+  const switchArticle = page
+    .locator(".article")
+    .filter({ hasText: "Editor switch smoke article" });
+  const switchArticleId = await switchArticle.getAttribute("data-id");
+  const externalFirstWrite = await page.evaluate(async (id) => {
+    const response = await fetch(`/api/articles/${encodeURIComponent(id)}/copy`, {
+      method: "PUT",
+      headers: { "Content-Type": "application/json", "X-CSRF-Token": "dev-bypass" },
+      body: JSON.stringify({ markdown: "# Copy created on another device", source: "paste", expectedRevision: null }),
+    });
+    return response.status;
+  }, switchArticleId);
+  assert.equal(externalFirstWrite, 200, "The simulated other device must create a copy from the empty state.");
+  await page.getByRole("button", { name: "Editor switch smoke article", exact: true }).click();
+  await page.locator("#detail-content").getByText(/Unsaved draft/).waitFor();
+  assert.equal(await switchMarkdown.inputValue(), "# Draft started before any copy existed", "A draft based on no copy must survive close and reopen.");
+  page.once("dialog", (dialog) => dialog.accept());
+  await page.locator("#detail-content").getByRole("button", { name: "Save Markdown copy" }).click();
+  await page.getByText(/changed since you opened it/).waitFor();
+  assert.equal(await switchMarkdown.inputValue(), "# Draft started before any copy existed", "A null-revision conflict must preserve its draft.");
+  await page.locator("#detail-dialog .dialog-close button").click();
+  await title.click();
+  await page.locator("#detail-content").getByText(/Unsaved draft/).waitFor();
+  assert.equal(await reopenedMarkdown.inputValue(), "# Draft based on the original revision", "Closing and reopening must preserve the pending draft.");
+  const externalWrite = await page.evaluate(async ({ id, expectedRevision }) => {
+    const response = await fetch(`/api/articles/${encodeURIComponent(id)}/copy`, {
+      method: "PUT",
+      headers: { "Content-Type": "application/json", "X-CSRF-Token": "dev-bypass" },
+      body: JSON.stringify({ markdown: "# Newer copy from another device", source: "paste", expectedRevision }),
+    });
+    return { status: response.status, body: await response.json() };
+  }, { id: articleId, expectedRevision: originalRevision });
+  assert.equal(externalWrite.status, 200, "The simulated other device must successfully update the copy.");
+  await page.locator("#detail-content").getByRole("button", { name: "Mark read" }).click();
+  await page.locator("#detail-content").getByRole("button", { name: "Mark unread" }).waitFor();
+  page.once("dialog", (dialog) => dialog.accept());
+  await page.locator("#detail-content").getByRole("button", { name: "Save Markdown copy" }).click();
+  await page.getByText(/changed since you opened it/).waitFor();
+  assert.equal(await reopenedMarkdown.inputValue(), "# Draft based on the original revision", "A conflict must keep the pending draft.");
+  await page.locator("#detail-dialog .dialog-close button").click();
+  await page.getByRole("button", { name: "Read", exact: true }).click();
+  await title.click();
+  await page.locator("#detail-content").getByText(/Unsaved draft/).waitFor();
+  assert.equal(await reopenedMarkdown.inputValue(), "# Draft based on the original revision", "Reopening after a conflict must keep the pending draft.");
+  page.once("dialog", (dialog) => dialog.accept());
+  await page.locator("#detail-content").getByRole("button", { name: "Save Markdown copy" }).click();
+  await page.getByText(/changed since you opened it/).waitFor();
   await page.setViewportSize({ width: 390, height: 844 });
   assert.equal(await page.evaluate(() => document.documentElement.scrollWidth > innerWidth), false, "Markdown editor must fit a narrow viewport.");
   await page.setViewportSize({ width: 1440, height: 1000 });
   await page.locator("#detail-dialog .dialog-close button").click();
   await page.getByRole("button", { name: "All", exact: true }).click();
-  await article.getByRole("button", { name: "Mark read", exact: true }).click();
-  await article
-    .getByRole("button", { name: "Mark unread", exact: true })
-    .waitFor();
+  await article.getByRole("button", { name: "Mark unread", exact: true }).waitFor();
   await page.reload();
   await page.getByRole("button", { name: "Read", exact: true }).click();
   await title.waitFor();

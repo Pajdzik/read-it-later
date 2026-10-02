@@ -22,7 +22,14 @@ const state = {
   theme: localStorage.getItem("later-theme") || "system",
   selected: null as Article | null,
 };
-const copyDrafts = new Map<string, { markdown: string; source: "paste" | "upload" }>();
+type CopyEditorState = {
+  markdown: string;
+  source: ArticleCopy["source"];
+  expectedRevision: string | null;
+  revisionKnown: boolean;
+  dirty: boolean;
+};
+const copyDrafts = new Map<string, CopyEditorState>();
 const list = $("#articles"),
   notice = $("#notice"),
   empty = $("#empty"),
@@ -238,6 +245,9 @@ function showDetailError(message: string) {
 function renderDetail(article: Article) {
   state.selected = article;
   const root = $("#detail-content");
+  const existingCopyEditor = root.querySelector<HTMLElement>(
+    `.copy-editor[data-article-id="${CSS.escape(article.id)}"]`,
+  );
   root.replaceChildren();
   const eyebrow = el("p", sourceHost(article.url), "eyebrow");
   const form = el("form", undefined, "edit-form");
@@ -309,12 +319,14 @@ function renderDetail(article: Article) {
     url,
     actions,
   );
-  void renderCopyEditor(article);
+  if (existingCopyEditor) root.append(existingCopyEditor);
+  else void renderCopyEditor(article);
 }
 
 async function renderCopyEditor(article: Article) {
   const root = $("#detail-content");
   const section = el("section", undefined, "copy-editor");
+  section.dataset.articleId = article.id;
   section.setAttribute("aria-label", "Markdown copy");
   section.append(el("h3", "Markdown copy"));
   section.append(el("p", "Stored as Markdown text. External image links still depend on the source site.", "muted copy-explainer"));
@@ -338,7 +350,14 @@ async function renderCopyEditor(article: Article) {
   const save = el("button", "Save Markdown copy", "button primary");
   save.type = "button";
   let saved: ArticleCopy | null = null;
-  let source: ArticleCopy["source"] = "paste";
+  let editorState: CopyEditorState = copyDrafts.get(article.id) ?? {
+      markdown: "",
+      source: "paste",
+      expectedRevision: null,
+      revisionKnown: false,
+      dirty: false,
+    };
+  copyDrafts.set(article.id, editorState);
   save.disabled = true;
   const showError = (text: string) => {
     message.textContent = text;
@@ -360,8 +379,8 @@ async function renderCopyEditor(article: Article) {
       if (textBytes > 262144) throw new Error("Markdown files must be at most 262144 UTF-8 bytes.");
       if (!text.trim()) throw new Error("This file is empty. Choose a Markdown file with content.");
       textarea.value = text;
-      source = "upload";
-      copyDrafts.set(article.id, { markdown: text, source });
+      editorState = { ...editorState, markdown: text, source: "upload", dirty: true };
+      copyDrafts.set(article.id, editorState);
       message.hidden = true;
       showStatus(`${selected.name} loaded · ${textBytes.toLocaleString()} UTF-8 bytes. Save when ready.`);
     } catch (error) {
@@ -371,13 +390,14 @@ async function renderCopyEditor(article: Article) {
     }
   });
   textarea.addEventListener("input", () => {
-    source = "paste";
-    copyDrafts.set(article.id, { markdown: textarea.value, source });
+    editorState = { ...editorState, markdown: textarea.value, source: "paste", dirty: true };
+    copyDrafts.set(article.id, editorState);
     const bytes = new TextEncoder().encode(textarea.value).byteLength;
     showStatus(`${bytes.toLocaleString()} UTF-8 bytes · Unsaved draft`);
   });
   save.addEventListener("click", async () => {
     const markdown = textarea.value;
+    editorState = copyDrafts.get(article.id) ?? editorState;
     const bytes = new TextEncoder().encode(markdown).byteLength;
     if (!markdown.trim()) {
       showError("Paste or load Markdown before saving.");
@@ -395,10 +415,11 @@ async function renderCopyEditor(article: Article) {
     try {
       const result = await request<{ copy: ArticleCopy }>(
         `/api/articles/${encodeURIComponent(article.id)}/copy`,
-        { method: "PUT", body: JSON.stringify({ markdown, source, expectedRevision: saved?.revision ?? null }) },
+        { method: "PUT", body: JSON.stringify({ markdown, source: editorState.source, expectedRevision: editorState.expectedRevision }) },
       );
       saved = result.copy;
-      copyDrafts.delete(article.id);
+      editorState = { markdown: saved.markdown, source: saved.source, expectedRevision: saved.revision, revisionKnown: true, dirty: false };
+      copyDrafts.set(article.id, editorState);
       const storedBytes = new TextEncoder().encode(saved.markdown).byteLength;
       showStatus(`Saved ${dateLabel(saved.capturedAt)} · ${saved.source === "upload" ? "uploaded file" : "pasted Markdown"} · ${storedBytes.toLocaleString()} UTF-8 bytes`);
       showNotice("Markdown copy saved.");
@@ -412,27 +433,35 @@ async function renderCopyEditor(article: Article) {
   });
   section.append(status, label, fileLabel, save, message);
   root.append(section);
-  const pendingDraft = copyDrafts.get(article.id);
-  if (pendingDraft) {
-    textarea.value = pendingDraft.markdown;
-    source = pendingDraft.source;
-    showStatus(`${new TextEncoder().encode(pendingDraft.markdown).byteLength.toLocaleString()} UTF-8 bytes · Unsaved draft`);
-  }
+  textarea.value = editorState.markdown;
   try {
     const result = await request<{ copy: ArticleCopy | null }>(`/api/articles/${encodeURIComponent(article.id)}/copy`);
     if (state.selected?.id !== article.id || !root.contains(section)) return;
     saved = result.copy;
-    const pending = copyDrafts.get(article.id);
-    if (pending) {
-      textarea.value = pending.markdown;
-      source = pending.source;
-      showStatus(`${new TextEncoder().encode(pending.markdown).byteLength.toLocaleString()} UTF-8 bytes · Unsaved draft`);
+    editorState = copyDrafts.get(article.id) ?? editorState;
+    if (!editorState.dirty) {
+      editorState = {
+        markdown: saved?.markdown ?? "",
+        source: saved?.source ?? "paste",
+        expectedRevision: saved?.revision ?? null,
+        revisionKnown: true,
+        dirty: false,
+      };
+      copyDrafts.set(article.id, editorState);
+    } else if (!editorState.revisionKnown) {
+      editorState = { ...editorState, expectedRevision: saved?.revision ?? null, revisionKnown: true };
+      copyDrafts.set(article.id, editorState);
+    }
+    if (editorState.dirty) {
+      textarea.value = editorState.markdown;
+      showStatus(`${new TextEncoder().encode(editorState.markdown).byteLength.toLocaleString()} UTF-8 bytes · Unsaved draft`);
     } else if (saved) {
       textarea.value = saved.markdown;
-      source = saved.source;
       const bytes = new TextEncoder().encode(saved.markdown).byteLength;
       showStatus(`Saved ${dateLabel(saved.capturedAt)} · ${saved.source === "upload" ? "uploaded file" : "pasted Markdown"} · ${bytes.toLocaleString()} UTF-8 bytes`);
     } else {
+      editorState = { markdown: "", source: "paste", expectedRevision: null, revisionKnown: true, dirty: false };
+      copyDrafts.set(article.id, editorState);
       showStatus("No Markdown copy saved yet.");
     }
     save.disabled = false;
@@ -446,6 +475,9 @@ function openDetail(article: Article) {
   renderDetail(article);
   $<HTMLDialogElement>("#detail-dialog").showModal();
 }
+$("#detail-dialog").addEventListener("close", () => {
+  $("#detail-content").querySelector(".copy-editor")?.remove();
+});
 async function initialize() {
   try {
     state.session = await request<Session>("/api/session");
