@@ -59,6 +59,9 @@ jobs:
       - name: Test Obsidian conversion and local restore
         run: pnpm test:obsidian
 
+      - name: Test GitHub Markdown recovery and local restore
+        run: pnpm test:github
+
   deploy-production:
     name: Deploy production
     needs: verify
