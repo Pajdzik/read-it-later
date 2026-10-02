@@ -17,7 +17,9 @@
     "db:migrate:local": "CLOUDFLARE_LOAD_DEV_VARS_FROM_DOT_ENV=false wrangler d1 migrations apply read-later --local",
     "db:migrate:remote": "CLOUDFLARE_LOAD_DEV_VARS_FROM_DOT_ENV=false wrangler d1 migrations apply read-later --remote",
     "build:web": "node scripts/build-web.mjs",
-    "test:browser": "node scripts/browser-smoke.mjs"
+    "test:browser": "node scripts/browser-smoke.mjs",
+    "archive:rehearse": "node scripts/archive-rehearsal.mjs",
+    "test:archive": "node --test scripts/archive-backup.test.mjs && node scripts/archive-rehearsal.mjs"
   },
   "devDependencies": {
     "@cloudflare/vitest-plugin": "1.3.4",

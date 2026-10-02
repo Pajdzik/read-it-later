@@ -30,6 +30,7 @@ pnpm test
 pnpm build
 pnpm exec playwright install chromium
 pnpm test:browser
+pnpm test:archive
 ```
 
 The staging and production `APP_ORIGIN` and `OWNER_GITHUB_ID` values are non-secret Worker vars in `wrangler.jsonc`; replace their placeholders before deployment. Set the matching `GITHUB_CLIENT_ID` and `GITHUB_CLIENT_SECRET` as Wrangler secrets for each environment. `DEV_AUTH_BYPASS` must not be set there. Use the Wrangler executable installed by pnpm:
@@ -69,6 +70,8 @@ Record the deployment URL, commit, migration version, date and checks in a relea
 Download versioned library JSON regularly through Settings. Exports contain articles and read state, never authentication records. Keep copies outside Cloudflare. Large exports may include concurrent edits across pages: for a consistent personal backup, avoid editing while exporting.
 
 Restore first into a separate staging database using Import, reconcile article counts and sample URLs/timestamps/read states, and repeat the import to verify duplicate skipping. Existing URL records are preserved by import; it is not an overwrite/rollback tool. If an export fails midstream, retry it; a partial JSON download is not a valid backup. The browser download waits for the full response body. Imports are limited to 1 MiB and 1,000 records each. Split larger libraries into valid versioned envelopes, retaining all fields and the format version. Never split an individual record.
+
+Run `pnpm archive:rehearse --backup /absolute/path/export.json --report /absolute/path/report.json` before relying on a backup. This uses separate temporary local databases, validates every restored field and repeated import, and checks restored copy reading/downloading while external requests are blocked. It reads the supplied backup without changing it; its optional report contains only counts, byte measurements, and check results. The helper handles the 1 MiB/1,000-record import bounds automatically during rehearsal and rejects a single record that cannot fit. It supports up to 64 MiB input. See the [rehearsal guide](archive-rehearsal.md). This is local evidence; deployed-origin archive restoration and production storage measurements remain release checks.
 
 For a complete database-level restore or schema migration, use [D1 export](https://developers.cloudflare.com/d1/reference/import-export/) and [Time Travel](https://developers.cloudflare.com/d1/reference/time-travel/). A complete database export also contains auth tables: keep it private and revoke sessions/capture tokens after recovery if exposure is suspected. Provider recovery retention differs by plan; recheck it instead of treating it as permanent backup.
 
