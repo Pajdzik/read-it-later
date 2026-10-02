@@ -45,7 +45,7 @@ readAt: "2026-05-24T22:33:00.000Z"
 
 Articles without frontmatter get a small frontmatter block the first time they are marked read or unread.
 
-No package install is required; the app uses only Node built-ins.
+Run `pnpm install --frozen-lockfile` first. `pnpm start` builds the TypeScript server and browser UI, then runs `dist/prototype/server.mjs`. The built server uses only Node built-ins; Docker compiles it in a separate build stage and runs without dependencies.
 
 ## Docker deployment
 

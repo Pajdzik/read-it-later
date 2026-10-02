@@ -5,8 +5,8 @@
     "moduleResolution": "Bundler",
     "lib": [
       "ES2022",
-      "DOM",
-      "DOM.Iterable"
+      "WebWorker",
+      "WebWorker.Iterable"
     ],
     "strict": true,
     "skipLibCheck": true,
@@ -14,10 +14,6 @@
     "types": []
   },
   "include": [
-    "app.ts",
-    "markdown.ts",
-    "capture.ts",
-    "browser-globals.d.ts",
-    "../scripts/defuddle-entry.ts"
+    "sw.ts"
   ]
 }

@@ -1,6 +1,11 @@
-const origin = location.origin;
-const link = document.querySelector("#bookmarklet");
-function capture(potemOrigin) {
+const captureOrigin = location.origin;
+const link = document.querySelector<HTMLAnchorElement>("#bookmarklet");
+if (!link) throw new Error("Missing bookmarklet link.");
+function capture(potemOrigin: string): void {
+  const isReadyMessage = (value: unknown): value is { type: "potem-ready"; channel: string } =>
+    typeof value === "object" && value !== null &&
+    "type" in value && value.type === "potem-ready" &&
+    "channel" in value && typeof value.channel === "string";
   const sourceUrl = location.href;
   const sourceTitle = document.title.slice(0, 500);
   const random = new Uint8Array(16);
@@ -14,17 +19,18 @@ function capture(potemOrigin) {
 
   let finished = false;
   let ready = false;
-  let scriptState = null;
+  let scriptState: boolean | null = null;
   let loadMessage = "";
-  const extract = () => {
+  const extract = (): void => {
     if (!ready || scriptState === null || finished) return;
     if (!scriptState) {
       finish("", loadMessage);
       return;
     }
     try {
-      if (!window.PotemDefuddle) throw new Error("The extractor did not load.");
-      const result = new window.PotemDefuddle(document, { url: sourceUrl, markdown: true, useAsync: false }).parse();
+      const Defuddle = window.PotemDefuddle;
+      if (!Defuddle) throw new Error("The extractor did not load.");
+      const result = new Defuddle(document, { url: sourceUrl, markdown: true, useAsync: false }).parse();
       const markdown = result.content || "";
       if (!markdown.trim()) throw new Error("No article text could be extracted.");
       finish(markdown);
@@ -32,15 +38,15 @@ function capture(potemOrigin) {
       finish("", error instanceof Error ? error.message : "Article extraction failed.");
     }
   };
-  const finish = (markdown, error) => {
+  const finish = (markdown: string, error?: string): void => {
     if (finished) return;
     finished = true;
     clearTimeout(timeout);
     removeEventListener("message", onMessage);
     app.postMessage({ type: "potem-capture", channel, sourceUrl, sourceTitle, markdown, error }, potemOrigin);
   };
-  const onMessage = (event) => {
-    if (event.source !== app || event.origin !== potemOrigin || event.data?.type !== "potem-ready" || event.data.channel !== channel || finished) return;
+  const onMessage = (event: MessageEvent<unknown>): void => {
+    if (event.source !== app || event.origin !== potemOrigin || !isReadyMessage(event.data) || event.data.channel !== channel || finished) return;
     ready = true;
     extract();
   };
@@ -56,5 +62,6 @@ function capture(potemOrigin) {
   };
   (document.head || document.documentElement).append(script);
 }
-link.href = `javascript:(${capture.toString()})(${JSON.stringify(origin)})`;
-document.querySelector("#api-url").textContent = `${origin}/api/capture`;
+link.href = `javascript:(${capture.toString()})(${JSON.stringify(captureOrigin)})`;
+const apiUrl = document.querySelector<HTMLElement>("#api-url");
+if (apiUrl) apiUrl.textContent = `${captureOrigin}/api/capture`;

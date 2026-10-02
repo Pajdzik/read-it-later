@@ -138,12 +138,13 @@ pnpm test
 pnpm build
 pnpm exec playwright install chromium
 pnpm test:browser
+pnpm test:prototype
 pnpm test:archive
 pnpm test:obsidian
 pnpm test:github
 ```
 
-`check` checks the preserved prototype's JavaScript syntax; `typecheck` checks Worker and browser TypeScript. Tests run against local Worker/D1 bindings and apply real migrations. `build` bundles assets and dry-runs deployment. Browser smoke uses temporary D1 storage and an ephemeral port to exercise persisted read state, capture drafts, errors, and desktop/mobile layouts. Archive rehearsal restores a representative export into a second fresh local D1 database, reconciles all fields, verifies idempotent imports, and reads/downloads restored copies with external requests blocked. Chromium must be installed, or supplied through `BROWSER_EXECUTABLE`.
+`check` aliases `typecheck`, which checks all TypeScript sources across the Worker, browser app, service worker, prototype, scripts, and tests. Tests run against local Worker/D1 bindings and apply real migrations. `build` bundles assets and dry-runs deployment. Browser smoke uses temporary D1 storage and an ephemeral port to exercise persisted read state, capture drafts, errors, and desktop/mobile layouts. Archive rehearsal restores a representative export into a second fresh local D1 database, reconciles all fields, verifies idempotent imports, and reads/downloads restored copies with external requests blocked. Chromium must be installed, or supplied through `BROWSER_EXECUTABLE`.
 
 `test:obsidian` exercises the offline converter against temporary vaults, then imports converted fixtures through a temporary real Worker/D1 API, exports and reconciles them, repeats the import, and verifies a preexisting normalized-URL record and its copy/read state remain intact.
 
@@ -163,7 +164,7 @@ pnpm exec wrangler d1 migrations apply read-later-production --remote --env prod
 pnpm exec wrangler deploy --env production
 ```
 
-GitHub Actions runs syntax checks, typechecks, Worker/D1 tests, a dry-run build, and browser smoke on pushes and PRs. A push to `main` additionally applies production migrations and deploys after verification passes. The `production` Actions environment needs `CLOUDFLARE_API_TOKEN` and `CLOUDFLARE_ACCOUNT_ID`; OAuth secrets are configured on the Worker separately. PR checks do not deploy production. See [CI](docs/ci.md) and [deployment instructions](docs/deployment.md).
+GitHub Actions runs strict TypeScript checks, Worker/D1 tests, a dry-run build, and browser smoke on pushes and PRs. A push to `main` additionally applies production migrations and deploys after verification passes. The `production` Actions environment needs `CLOUDFLARE_API_TOKEN` and `CLOUDFLARE_ACCOUNT_ID`; OAuth secrets are configured on the Worker separately. PR checks do not deploy production. See [CI](docs/ci.md) and [deployment instructions](docs/deployment.md).
 
 Back up before destructive schema changes. Prefer additive migrations and roll back only to code compatible with the current database; deployment does not automatically reverse migrations. Monitor request errors, CPU, D1 storage, and row usage without logging private URLs, content, tokens, or OAuth codes. Free quota exhaustion must produce recoverable errors rather than silently enabling paid services. Confirm live OAuth, anonymous-access restrictions, device capture, and backup restoration on the deployed origin; local tests cannot replace those checks.
 
@@ -181,9 +182,9 @@ Back up before destructive schema changes. Prefer additive migrations and roll b
 | `scripts/` | Asset build and isolated browser smoke |
 | `.github/workflows/` | Verification and production deployment |
 | `wrangler.jsonc` | Worker, assets and environment bindings |
-| `server.mjs`, `public/`, `Dockerfile` | Preserved Node.js Markdown-reader prototype |
+| `server.ts`, `public/`, `Dockerfile` | Preserved Node.js Markdown-reader prototype |
 
-Supporting documents: [original design](docs/design.md), [implementation tracker](docs/tasks.md), [capture](docs/capture.md), [CI](docs/ci.md), [deployment and operations](docs/deployment.md), and [prototype](docs/prototype.md). The original design/tracker record the initial implementation scope; this README reflects the current code, including metadata enrichment and production CI deployment.
+Supporting documents: [TypeScript migration](docs/typescript-migration.md), [original design](docs/design.md), [implementation tracker](docs/tasks.md), [capture](docs/capture.md), [CI](docs/ci.md), [deployment and operations](docs/deployment.md), and [prototype](docs/prototype.md). The original design/tracker record the initial implementation scope; this README reflects the current code, including metadata enrichment and production CI deployment.
 
 ### Preserved prototype
 
@@ -193,4 +194,4 @@ mkdir -p articles
 pnpm start
 ```
 
-Open http://localhost:3055. The prototype also runs directly with `node server.mjs` without installing dependencies. Its filesystem/GitHub storage, Markdown reader, and Docker deployment remain independent of the Worker. No vault files are automatically migrated or modified. A future vault importer should be read-only, report missing source URLs, preserve source files, and reconcile counts before retiring the old workflow.
+Open http://localhost:3055. Install dependencies first; `pnpm start` builds the TypeScript prototype and launches `dist/prototype/server.mjs`. You can also run `pnpm build:prototype` once and launch that bundle directly with Node. Its filesystem/GitHub storage, Markdown reader, and Docker deployment remain independent of the Worker. No vault files are automatically migrated or modified. A future vault importer should be read-only, report missing source URLs, preserve source files, and reconcile counts before retiring the old workflow.

@@ -3,8 +3,8 @@ import assert from "node:assert/strict";
 import { mkdtemp, mkdir, readFile, readdir, rm, symlink, writeFile } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
-import { convertVault, MAX_COPY_BYTES, MAX_MARKDOWN_TOTAL_BYTES, MAX_SOURCE_FILE_BYTES, parseExplicitDate } from "./obsidian-convert.mjs";
-import { MAX_BACKUP_BYTES, MAX_IMPORT_BYTES, MAX_IMPORT_ITEMS, validateBackupEnvelope } from "./archive-backup.mjs";
+import { convertVault, MAX_COPY_BYTES, MAX_MARKDOWN_TOTAL_BYTES, MAX_SOURCE_FILE_BYTES, parseExplicitDate } from "./obsidian-convert.ts";
+import { MAX_BACKUP_BYTES, MAX_IMPORT_BYTES, MAX_IMPORT_ITEMS, validateBackupEnvelope } from "./archive-backup.ts";
 
 const fixedNow = new Date("2026-10-02T09:00:00.000Z");
 async function setup(t) {

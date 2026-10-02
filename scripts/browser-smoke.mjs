@@ -46,7 +46,7 @@ const run = (args) =>
   });
 let server, browser;
 try {
-  await run(["scripts/build-web.mjs"]);
+  await run(["--import", "tsx", "scripts/build-web.ts"]);
   await run([
     wrangler,
     "d1",

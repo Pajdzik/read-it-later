@@ -6,8 +6,8 @@ import { mkdtemp, mkdir, readFile, readdir, rm, stat, symlink, writeFile } from 
 import os from "node:os";
 import path from "node:path";
 import { pathToFileURL } from "node:url";
-import { parseGitHubMarkdown, convertGitHubMarkdown, MAX_SOURCE_FILE_BYTES } from "./github-convert.mjs";
-import { splitImportBatches, validateBackupEnvelope } from "./archive-backup.mjs";
+import { parseGitHubMarkdown, convertGitHubMarkdown, MAX_SOURCE_FILE_BYTES } from "./github-convert.ts";
+import { splitImportBatches, validateBackupEnvelope } from "./archive-backup.ts";
 
 const temporaryDirs = [];
 async function temp() { const dir = await mkdtemp(path.join(os.tmpdir(), "potem-github-convert-")); temporaryDirs.push(dir); return dir; }
@@ -24,7 +24,7 @@ function paths(root, name = "a.md") { return path.join(root, name); }
 async function put(root, name, value) { const file = paths(root, name); await mkdir(path.dirname(file), { recursive: true }); await writeFile(file, value); return file; }
 function cli(args) {
   return new Promise((resolve, reject) => {
-    const child = spawn(process.execPath, [path.resolve("scripts/github-convert.mjs"), ...args], { cwd: process.cwd(), env: { PATH: process.env.PATH, HOME: process.env.HOME, TMPDIR: process.env.TMPDIR } });
+    const child = spawn(process.execPath, ["--import", "tsx", path.resolve("scripts/github-convert.ts"), ...args], { cwd: process.cwd(), env: { PATH: process.env.PATH, HOME: process.env.HOME, TMPDIR: process.env.TMPDIR } });
     let stdout = ""; let stderr = "";
     child.stdout.on("data", chunk => { stdout += chunk; }); child.stderr.on("data", chunk => { stderr += chunk; });
     child.on("error", reject); child.on("exit", code => resolve({ code, stdout, stderr }));

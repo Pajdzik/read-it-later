@@ -7,19 +7,22 @@ import {
   writeFile,
 } from "node:fs/promises";
 import crypto from "node:crypto";
-import { createServer } from "node:http";
+import { createServer, type IncomingMessage, type ServerResponse } from "node:http";
 import os from "node:os";
 import path from "node:path";
+import { TLSSocket } from "node:tls";
 import { fileURLToPath } from "node:url";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
+const IS_BUNDLED = path.basename(__dirname) === "prototype" && path.basename(path.dirname(__dirname)) === "dist";
+const APP_ROOT = IS_BUNDLED ? path.resolve(__dirname, "../..") : __dirname;
 
-loadDotEnv(path.join(__dirname, ".env"));
+loadDotEnv(path.join(APP_ROOT, ".env"));
 
-const DEFAULT_ARTICLES_DIR = path.join(__dirname, "articles");
+const DEFAULT_ARTICLES_DIR = path.join(APP_ROOT, "articles");
 
 const ARTICLES_DIR = path.resolve(process.env.ARTICLES_DIR || DEFAULT_ARTICLES_DIR);
-const PUBLIC_DIR = path.join(__dirname, "public");
+const PUBLIC_DIR = path.join(IS_BUNDLED ? __dirname : path.join(APP_ROOT, "dist", "prototype"), "public");
 const PORT = Number(process.env.PORT || 3055);
 const HOST = process.env.HOST || "0.0.0.0";
 const IS_PRODUCTION = process.env.NODE_ENV === "production";
@@ -49,8 +52,6 @@ const GITHUB_OAUTH_AUTH_ENDPOINT = "https://github.com/login/oauth/authorize";
 const GITHUB_OAUTH_TOKEN_ENDPOINT = "https://github.com/login/oauth/access_token";
 const GITHUB_OAUTH_API = "https://api.github.com";
 const OAUTH_STATE_TTL_MS = 10 * 60 * 1000;
-const sessions = new Map();
-const oauthStates = new Map();
 const CONTENT_SECURITY_POLICY = [
   "default-src 'self'",
   "base-uri 'self'",
@@ -70,7 +71,53 @@ const SECURITY_HEADERS = {
   "X-Frame-Options": "DENY",
 };
 
-function unquoteEnvValue(value) {
+type AuthUser = {
+  email: string;
+  emailDomain: string;
+  id: string;
+  login: string;
+  loginLower: string;
+  name: string;
+  picture: string;
+  url: string;
+};
+type AuthSession = { id: string; createdAt: string; expiresAt: number; user: AuthUser };
+type OAuthState = { codeVerifier: string; expiresAt: number; next: string };
+type AuthenticatedRequest = IncomingMessage & { authSession?: AuthSession };
+type JsonRecord = Record<string, unknown>;
+type FrontmatterValue = string | string[];
+type Frontmatter = Record<string, FrontmatterValue>;
+type ArticleSummary = {
+  added: string; addedTimestamp: number; author: string | string[]; category: string; created: string | null;
+  excerpt: string; id: string; modifiedAt: string | null; published: string | null; publishedTimestamp: number;
+  read: boolean; readAt: string | null; relativePath: string; source: string; title: string;
+  readingMinutes: number; wordCount: number;
+};
+type ArticleReadState = { read: boolean; readAt: string | null };
+type FileInfo = { addedTimestamp?: number; modifiedAt?: string };
+type GitHubFileContent = { type: string; content?: string; sha: string };
+type GitHubTreeEntry = { type: string; path: string };
+type GitHubTree = { truncated: boolean; tree: GitHubTreeEntry[] };
+type GitHubEmail = { email: string; primary: boolean; verified: boolean };
+type GitHubErrorData = JsonRecord | string | null;
+function errorMessage(error: unknown): string {
+  return error instanceof Error ? error.message : String(error);
+}
+
+function isMissingFileError(error: unknown): boolean {
+  return error instanceof Error && "code" in error && error.code === "ENOENT";
+}
+
+function asRecord(value: unknown): JsonRecord | null {
+  return typeof value === "object" && value !== null && !Array.isArray(value)
+    ? value as JsonRecord
+    : null;
+}
+
+const sessions = new Map<string, Omit<AuthSession, "id">>();
+const oauthStates = new Map<string, OAuthState>();
+
+function unquoteEnvValue(value: string): string {
   const trimmed = value.trim();
   if (!trimmed) return "";
 
@@ -83,7 +130,7 @@ function unquoteEnvValue(value) {
   return trimmed.replace(/\s+#.*$/, "").trim();
 }
 
-function loadDotEnv(filePath) {
+function loadDotEnv(filePath: string): void {
   if (!existsSync(filePath)) return;
 
   const contents = readFileSync(filePath, "utf8");
@@ -95,6 +142,7 @@ function loadDotEnv(filePath) {
     if (!match) continue;
 
     const [, key, rawValue] = match;
+    if (key === undefined || rawValue === undefined) continue;
     if (process.env[key] == null) {
       process.env[key] = unquoteEnvValue(rawValue);
     }
@@ -150,20 +198,21 @@ if (STORAGE_MODE === "github") {
 }
 
 class HttpError extends Error {
-  constructor(status, message) {
+  readonly status: number;
+  constructor(status: number, message: string) {
     super(message);
     this.name = "HttpError";
     this.status = status;
   }
 }
 
-function applySecurityHeaders(res) {
+function applySecurityHeaders(res: ServerResponse): void {
   for (const [name, value] of Object.entries(SECURITY_HEADERS)) {
     if (!res.hasHeader(name)) res.setHeader(name, value);
   }
 }
 
-function sendJson(res, status, payload) {
+function sendJson(res: ServerResponse, status: number, payload: unknown): void {
   const body = JSON.stringify(payload);
   res.writeHead(status, {
     "Cache-Control": "no-store",
@@ -173,7 +222,7 @@ function sendJson(res, status, payload) {
   res.end(body);
 }
 
-function sendText(res, status, text) {
+function sendText(res: ServerResponse, status: number, text: string): void {
   res.writeHead(status, {
     "Content-Length": Buffer.byteLength(text),
     "Content-Type": "text/plain; charset=utf-8",
@@ -181,7 +230,7 @@ function sendText(res, status, text) {
   res.end(text);
 }
 
-function sendRedirect(res, status, location) {
+function sendRedirect(res: ServerResponse, status: number, location: string): void {
   res.writeHead(status, {
     "Cache-Control": "no-store",
     Location: location,
@@ -189,50 +238,50 @@ function sendRedirect(res, status, location) {
   res.end();
 }
 
-function parseList(value) {
+function parseList(value: unknown): string[] {
   return String(value || "")
     .split(",")
     .map((item) => item.trim())
     .filter(Boolean);
 }
 
-function cleanOrigin(value) {
+function cleanOrigin(value: string): string {
   return String(value || "").replace(/\/+$/g, "");
 }
 
-function positiveNumber(value, fallback) {
+function positiveNumber(value: string | number | undefined, fallback: number): number {
   const number = Number(value);
   return Number.isFinite(number) && number > 0 ? number : fallback;
 }
 
-function booleanFromEnv(value) {
+function booleanFromEnv(value: string | undefined): boolean {
   return ["1", "true", "yes", "on"].includes(String(value || "").toLowerCase());
 }
 
-function firstHeader(value) {
+function firstHeader(value: string | string[] | undefined): string | undefined {
   return Array.isArray(value) ? value[0] : value;
 }
 
-function requestOrigin(req) {
+function requestOrigin(req: IncomingMessage): string {
   if (AUTH_BASE_URL) return AUTH_BASE_URL;
 
   const forwardedProto = firstHeader(req.headers["x-forwarded-proto"]);
   const forwardedHost = firstHeader(req.headers["x-forwarded-host"]);
-  const protocol = forwardedProto?.split(",")[0]?.trim() || (req.socket.encrypted ? "https" : "http");
+  const protocol = forwardedProto?.split(",")[0]?.trim() || (req.socket instanceof TLSSocket ? "https" : "http");
   const host = forwardedHost?.split(",")[0]?.trim() || req.headers.host || `localhost:${PORT}`;
   return `${protocol}://${host}`;
 }
 
-function oauthRedirectUri(req) {
+function oauthRedirectUri(req: IncomingMessage): string {
   return `${requestOrigin(req)}/auth/github/callback`;
 }
 
-function randomToken(bytes = 32) {
+function randomToken(bytes = 32): string {
   return crypto.randomBytes(bytes).toString("base64url");
 }
 
-function parseCookies(req) {
-  const cookies = {};
+function parseCookies(req: IncomingMessage): Record<string, string> {
+  const cookies: Record<string, string> = {};
   const cookieHeader = req.headers.cookie || "";
 
   for (const part of cookieHeader.split(";")) {
@@ -253,35 +302,35 @@ function parseCookies(req) {
   return cookies;
 }
 
-function appendSetCookie(res, cookie) {
+function appendSetCookie(res: ServerResponse, cookie: string): void {
   const current = res.getHeader("Set-Cookie");
   if (!current) {
     res.setHeader("Set-Cookie", cookie);
   } else if (Array.isArray(current)) {
     res.setHeader("Set-Cookie", [...current, cookie]);
   } else {
-    res.setHeader("Set-Cookie", [current, cookie]);
+    res.setHeader("Set-Cookie", [String(current), cookie]);
   }
 }
 
-function secureCookie(req) {
+function secureCookie(req: IncomingMessage): boolean {
   if (AUTH_COOKIE_SECURE != null) return booleanFromEnv(AUTH_COOKIE_SECURE);
   return requestOrigin(req).startsWith("https://");
 }
 
-function sessionCookie(sessionId, req) {
+function sessionCookie(sessionId: string, req: IncomingMessage): string {
   const secure = secureCookie(req) ? "; Secure" : "";
   return `${AUTH_COOKIE_NAME}=${encodeURIComponent(
     sessionId,
   )}; Path=/; HttpOnly; SameSite=Lax; Max-Age=${AUTH_SESSION_MAX_AGE_SECONDS}${secure}`;
 }
 
-function clearSessionCookie(req) {
+function clearSessionCookie(req: IncomingMessage): string {
   const secure = secureCookie(req) ? "; Secure" : "";
   return `${AUTH_COOKIE_NAME}=; Path=/; HttpOnly; SameSite=Lax; Max-Age=0${secure}`;
 }
 
-function safeNextPath(value) {
+function safeNextPath(value: string | null | undefined): string {
   if (!value) return "/";
 
   try {
@@ -294,13 +343,13 @@ function safeNextPath(value) {
   }
 }
 
-function loginPathFor(url) {
+function loginPathFor(url: URL): string {
   const loginUrl = new URL("/auth/github", "http://read-later.local");
   loginUrl.searchParams.set("next", safeNextPath(`${url.pathname}${url.search}`));
   return `${loginUrl.pathname}${loginUrl.search}`;
 }
 
-function pruneExpiredAuthRecords() {
+function pruneExpiredAuthRecords(): void {
   const now = Date.now();
 
   for (const [sessionId, session] of sessions) {
@@ -312,7 +361,7 @@ function pruneExpiredAuthRecords() {
   }
 }
 
-function getSession(req) {
+function getSession(req: IncomingMessage): AuthSession | null {
   if (!AUTH_ENABLED) return null;
 
   const sessionId = parseCookies(req)[AUTH_COOKIE_NAME];
@@ -327,7 +376,7 @@ function getSession(req) {
   return { id: sessionId, ...session };
 }
 
-function createSession(user) {
+function createSession(user: AuthUser): string {
   const sessionId = randomToken();
   sessions.set(sessionId, {
     createdAt: new Date().toISOString(),
@@ -337,7 +386,7 @@ function createSession(user) {
   return sessionId;
 }
 
-function consumeOAuthState(state) {
+function consumeOAuthState(state: string | null): OAuthState | null {
   if (!state) return null;
 
   const pending = oauthStates.get(state);
@@ -346,11 +395,11 @@ function consumeOAuthState(state) {
   return pending;
 }
 
-function pkceChallenge(verifier) {
+function pkceChallenge(verifier: string): string {
   return crypto.createHash("sha256").update(verifier).digest("base64url");
 }
 
-function githubAuthHeaders(accessToken) {
+function githubAuthHeaders(accessToken: string): Record<string, string> {
   return {
     Accept: "application/vnd.github+json",
     Authorization: `Bearer ${accessToken}`,
@@ -359,32 +408,37 @@ function githubAuthHeaders(accessToken) {
   };
 }
 
-async function githubOAuthRequest(apiPath, accessToken) {
+async function githubOAuthRequest(apiPath: string, accessToken: string): Promise<unknown> {
   const response = await fetch(`${GITHUB_OAUTH_API}${apiPath}`, {
     headers: githubAuthHeaders(accessToken),
   });
-  const data = await response.json().catch(() => ({}));
+  const data: unknown = await response.json().catch(() => ({}));
 
   if (!response.ok) {
-    const message = data?.message || response.statusText;
+    const message = asRecord(data)?.message || response.statusText;
     throw new Error(`GitHub API ${response.status}: ${message}`);
   }
 
   return data;
 }
 
-function verifiedPrimaryEmail(emails) {
+function verifiedPrimaryEmail(emails: unknown): string {
   if (!Array.isArray(emails)) return "";
 
-  const primary = emails.find((email) => email.primary && email.verified);
-  const verified = emails.find((email) => email.verified);
+  const isGitHubEmail = (value: unknown): value is GitHubEmail => {
+    const record = asRecord(value);
+    return record !== null && typeof record.email === "string" && typeof record.primary === "boolean" && typeof record.verified === "boolean";
+  };
+  const validEmails = emails.filter(isGitHubEmail);
+  const primary = validEmails.find((email) => email.primary && email.verified);
+  const verified = validEmails.find((email) => email.verified);
   return String(primary?.email || verified?.email || "").toLowerCase();
 }
 
-function githubProfileFromOAuth(profile, emails) {
+function githubProfileFromOAuth(profile: JsonRecord, emails: unknown): AuthUser {
   const publicEmail = String(profile.email || "").toLowerCase();
   const email = publicEmail || verifiedPrimaryEmail(emails);
-  const emailDomain = email.includes("@") ? email.split("@").pop() : "";
+  const emailDomain = email.includes("@") ? email.split("@").pop() || "" : "";
   const login = String(profile.login || "");
 
   return {
@@ -399,28 +453,28 @@ function githubProfileFromOAuth(profile, emails) {
   };
 }
 
-function canDecideAccessWithoutPrivateEmails(profile) {
+function canDecideAccessWithoutPrivateEmails(profile: JsonRecord): boolean {
   const loginLower = String(profile.login || "").toLowerCase();
   const publicEmail = String(profile.email || "").toLowerCase();
-  const publicEmailDomain = publicEmail.includes("@") ? publicEmail.split("@").pop() : "";
+  const publicEmailDomain = publicEmail.includes("@") ? publicEmail.split("@").pop() || "" : "";
   const hasEmailAllowlist = AUTH_ALLOWED_EMAILS.length || AUTH_ALLOWED_DOMAINS.length;
 
   return (
     !hasEmailAllowlist ||
     AUTH_ALLOWED_GITHUB_USERS.includes(loginLower) ||
     AUTH_ALLOWED_EMAILS.includes(publicEmail) ||
-    (publicEmailDomain && AUTH_ALLOWED_DOMAINS.includes(publicEmailDomain))
+    (Boolean(publicEmailDomain) && AUTH_ALLOWED_DOMAINS.includes(publicEmailDomain))
   );
 }
 
-function userIsAllowed(user) {
+function userIsAllowed(user: AuthUser): boolean {
   if (!hasAuthAllowlist()) return true;
   if (AUTH_ALLOWED_GITHUB_USERS.includes(user.loginLower)) return true;
   if (user.email && AUTH_ALLOWED_EMAILS.includes(user.email)) return true;
-  return user.emailDomain && AUTH_ALLOWED_DOMAINS.includes(user.emailDomain);
+  return Boolean(user.emailDomain && AUTH_ALLOWED_DOMAINS.includes(user.emailDomain));
 }
 
-function authorizeRequest(req, res, url) {
+function authorizeRequest(req: AuthenticatedRequest, res: ServerResponse, url: URL): boolean {
   if (!AUTH_ENABLED) return true;
 
   const session = getSession(req);
@@ -446,7 +500,7 @@ function authorizeRequest(req, res, url) {
   return false;
 }
 
-async function startGitHubOAuth(req, res, url) {
+async function startGitHubOAuth(req: IncomingMessage, res: ServerResponse, url: URL): Promise<void> {
   if (!AUTH_ENABLED) {
     sendRedirect(res, 303, "/");
     return;
@@ -474,7 +528,7 @@ async function startGitHubOAuth(req, res, url) {
   sendRedirect(res, 302, authUrl.href);
 }
 
-async function exchangeGitHubCode(req, code, codeVerifier) {
+async function exchangeGitHubCode(req: IncomingMessage, code: string, codeVerifier: string): Promise<{ access_token: string }> {
   const body = new URLSearchParams({
     client_id: GITHUB_OAUTH_CLIENT_ID,
     client_secret: GITHUB_OAUTH_CLIENT_SECRET,
@@ -491,21 +545,22 @@ async function exchangeGitHubCode(req, code, codeVerifier) {
     },
     method: "POST",
   });
-  const data = await response.json().catch(() => ({}));
+  const data: unknown = await response.json().catch(() => ({}));
+  const tokenData = asRecord(data) ?? {};
 
-  if (!response.ok || data.error) {
-    const message = data.error_description || data.error || response.statusText;
+  if (!response.ok || tokenData.error) {
+    const message = tokenData.error_description || tokenData.error || response.statusText;
     throw new Error(`GitHub token exchange failed: ${message}`);
   }
 
-  if (!data.access_token) {
+  if (typeof tokenData.access_token !== "string" || !tokenData.access_token) {
     throw new Error("GitHub token exchange did not return an access token");
   }
 
-  return data;
+  return { access_token: tokenData.access_token };
 }
 
-async function finishGitHubOAuth(req, res, url) {
+async function finishGitHubOAuth(req: IncomingMessage, res: ServerResponse, url: URL): Promise<void> {
   if (!AUTH_ENABLED) {
     sendRedirect(res, 303, "/");
     return;
@@ -531,14 +586,15 @@ async function finishGitHubOAuth(req, res, url) {
 
   try {
     const tokens = await exchangeGitHubCode(req, code, pending.codeVerifier);
-    const profile = await githubOAuthRequest("/user", tokens.access_token);
-    let emails = [];
+    const profile = asRecord(await githubOAuthRequest("/user", tokens.access_token));
+    if (!profile) throw new Error("GitHub did not return a usable user profile.");
+    let emails: unknown = [];
 
     try {
       emails = await githubOAuthRequest("/user/emails?per_page=100", tokens.access_token);
     } catch (error) {
       if (!canDecideAccessWithoutPrivateEmails(profile)) throw error;
-      console.warn(`GitHub email lookup skipped: ${error.message || error}`);
+      console.warn(`GitHub email lookup skipped: ${errorMessage(error)}`);
     }
 
     const user = githubProfileFromOAuth(profile, emails);
@@ -556,11 +612,11 @@ async function finishGitHubOAuth(req, res, url) {
     sendRedirect(res, 303, pending.next);
   } catch (error) {
     console.error(error);
-    sendText(res, 401, error.message || "GitHub sign-in failed.");
+    sendText(res, 401, errorMessage(error) || "GitHub sign-in failed.");
   }
 }
 
-function signOut(req, res) {
+function signOut(req: IncomingMessage, res: ServerResponse): void {
   const session = getSession(req);
   if (session) sessions.delete(session.id);
 
@@ -568,19 +624,19 @@ function signOut(req, res) {
   sendJson(res, 200, { ok: true });
 }
 
-function isInside(parent, child) {
+function isInside(parent: string, child: string): boolean {
   const relative = path.relative(parent, child);
-  return relative === "" || (relative && !relative.startsWith("..") && !path.isAbsolute(relative));
+  return relative === "" || Boolean(relative && !relative.startsWith("..") && !path.isAbsolute(relative));
 }
 
-function cleanRepoPath(value) {
+function cleanRepoPath(value: string): string {
   const cleaned = String(value || "")
     .replace(/\\/g, "/")
     .replace(/^\/+|\/+$/g, "");
   return cleaned === "." ? "" : cleaned;
 }
 
-function normalizeRelativePath(value) {
+function normalizeRelativePath(value: string): string {
   if (String(value || "").includes("\0")) {
     throw new Error("Invalid article path");
   }
@@ -592,20 +648,20 @@ function normalizeRelativePath(value) {
   return normalized;
 }
 
-function encodeRepoPath(value) {
+function encodeRepoPath(value: string): string {
   return value.split("/").map(encodeURIComponent).join("/");
 }
 
-function articleId(relativePath) {
+function articleId(relativePath: string): string {
   return Buffer.from(normalizeRelativePath(relativePath), "utf8").toString("base64url");
 }
 
-function relativePathFromId(id) {
+function relativePathFromId(id: string): string {
   const decoded = Buffer.from(id, "base64url").toString("utf8");
   return normalizeRelativePath(decoded);
 }
 
-function articleRelativePathFromId(id) {
+function articleRelativePathFromId(id: string): string {
   try {
     if (!/^[A-Za-z0-9_-]+$/.test(String(id || ""))) {
       throw new Error("Article id is not base64url");
@@ -621,7 +677,7 @@ function articleRelativePathFromId(id) {
   }
 }
 
-function articlePathFromId(id) {
+function articlePathFromId(id: string): { fullPath: string; relativePath: string } {
   const relativePath = articleRelativePathFromId(id);
   const fullPath = path.resolve(ARTICLES_DIR, ...relativePath.split("/"));
   if (!isInside(ARTICLES_DIR, fullPath)) {
@@ -630,12 +686,12 @@ function articlePathFromId(id) {
   return { fullPath, relativePath };
 }
 
-function repoPathFromRelative(relativePath) {
+function repoPathFromRelative(relativePath: string): string {
   const normalized = normalizeRelativePath(relativePath);
   return GITHUB_ARTICLES_PATH ? `${GITHUB_ARTICLES_PATH}/${normalized}` : normalized;
 }
 
-function relativePathFromRepoPath(repoPath) {
+function relativePathFromRepoPath(repoPath: string): string {
   const normalized = normalizeRelativePath(repoPath);
   if (!GITHUB_ARTICLES_PATH) return normalized;
 
@@ -646,7 +702,7 @@ function relativePathFromRepoPath(repoPath) {
   throw new Error("Repository path is outside the articles folder");
 }
 
-async function walkMarkdownFiles(dir) {
+async function walkMarkdownFiles(dir: string): Promise<string[]> {
   const entries = await readdir(dir, { withFileTypes: true });
   const files = [];
 
@@ -664,7 +720,7 @@ async function walkMarkdownFiles(dir) {
   return files;
 }
 
-function splitFrontmatter(raw) {
+function splitFrontmatter(raw: string): { content: string; frontmatter: string; hasFrontmatter: boolean } {
   const normalized = raw.replace(/\r\n/g, "\n");
   const lines = normalized.split("\n");
 
@@ -684,7 +740,7 @@ function splitFrontmatter(raw) {
   };
 }
 
-function cleanScalar(value) {
+function cleanScalar(value: unknown): string {
   let result = String(value || "").trim();
   if (
     (result.startsWith('"') && result.endsWith('"')) ||
@@ -695,9 +751,9 @@ function cleanScalar(value) {
   return result.replace(/\\"/g, '"').replace(/\\'/g, "'");
 }
 
-function parseFrontmatter(frontmatter) {
-  const result = {};
-  let currentKey = null;
+function parseFrontmatter(frontmatter: string): Frontmatter {
+  const result: Frontmatter = {};
+  let currentKey: string | null = null;
 
   for (const line of frontmatter.split("\n")) {
     const keyValue = line.match(/^([A-Za-z0-9_-]+):\s*(.*)$/);
@@ -710,40 +766,41 @@ function parseFrontmatter(frontmatter) {
 
     const listItem = line.match(/^\s*-\s*(.*)$/);
     if (currentKey && listItem) {
-      if (!Array.isArray(result[currentKey])) result[currentKey] = [];
-      result[currentKey].push(cleanScalar(listItem[1]));
+      const current = result[currentKey];
+      if (!Array.isArray(current)) result[currentKey] = [];
+      (result[currentKey] as string[]).push(cleanScalar(listItem[1]));
     }
   }
 
   return result;
 }
 
-function firstValue(value) {
+function firstValue<T>(value: T | T[] | undefined): T | undefined {
   return Array.isArray(value) ? value[0] : value;
 }
 
-function booleanFromYaml(value) {
+function booleanFromYaml(value: FrontmatterValue | boolean | null | undefined): boolean {
   if (value === true) return true;
   if (value === false || value == null) return false;
   return ["true", "yes", "1"].includes(cleanScalar(value).toLowerCase());
 }
 
-function nullableScalar(value) {
+function nullableScalar(value: FrontmatterValue | undefined): string | null {
   const scalar = cleanScalar(firstValue(value));
   if (!scalar || scalar.toLowerCase() === "null") return null;
   return scalar;
 }
 
-function normalizeWikiLink(value) {
+function normalizeWikiLink(value: unknown): string {
   return String(value || "")
     .replace(/^\[\[/, "")
     .replace(/\]\]$/, "")
     .split("|")
-    .pop()
+    .pop() || ""
     .trim();
 }
 
-function dateFromString(value) {
+function dateFromString(value: unknown): string | null {
   if (!value) return null;
   const text = String(value);
   const isoDate = text.match(/\d{4}-\d{2}-\d{2}/)?.[0];
@@ -754,26 +811,26 @@ function dateFromString(value) {
   return new Date(parsed).toISOString().slice(0, 10);
 }
 
-function dateFromFilename(filename) {
+function dateFromFilename(filename: string): string | null {
   return filename.match(/^(\d{4}-\d{2}-\d{2})\./)?.[1] || null;
 }
 
-function titleFromContent(content) {
+function titleFromContent(content: string): string | null {
   return content.match(/^#\s+(.+)$/m)?.[1]?.trim() || null;
 }
 
-function titleFromFilename(filename) {
+function titleFromFilename(filename: string): string {
   return path
     .posix.basename(filename, path.posix.extname(filename))
     .replace(/^\d{4}-\d{2}-\d{2}\.\s*/, "")
     .trim();
 }
 
-function sourceFromContent(content) {
+function sourceFromContent(content: string): string | null {
   return content.match(/https?:\/\/[^\s)<>\]]+/)?.[0] || null;
 }
 
-function stripMarkdown(markdown) {
+function stripMarkdown(markdown: string): string {
   return markdown
     .replace(/```[\s\S]*?```/g, " ")
     .replace(/!\[([^\]]*)\]\([^)]+\)/g, "$1")
@@ -785,14 +842,14 @@ function stripMarkdown(markdown) {
     .trim();
 }
 
-function summarize(markdown, description) {
+function summarize(markdown: string, description: unknown): string {
   const preferred = cleanScalar(description || "");
   const text = preferred || stripMarkdown(markdown);
   if (text.length <= 260) return text;
   return `${text.slice(0, 257).trim()}...`;
 }
 
-function readingStats(markdown) {
+function readingStats(markdown: string): { readingMinutes: number; wordCount: number } {
   const text = stripMarkdown(markdown);
   const words = text ? text.split(/\s+/).filter(Boolean).length : 0;
   return {
@@ -801,7 +858,7 @@ function readingStats(markdown) {
   };
 }
 
-function articleSummaryFromRaw(raw, relativePath, fileInfo = {}) {
+function articleSummaryFromRaw(raw: string, relativePath: string, fileInfo: FileInfo = {}): ArticleSummary {
   const id = articleId(relativePath);
   const { content, frontmatter } = splitFrontmatter(raw);
   const metadata = parseFrontmatter(frontmatter);
@@ -828,7 +885,7 @@ function articleSummaryFromRaw(raw, relativePath, fileInfo = {}) {
     id,
     modifiedAt: fileInfo.modifiedAt || null,
     published,
-    publishedTimestamp: Date.parse(published) || 0,
+    publishedTimestamp: published ? Date.parse(published) || 0 : 0,
     read: booleanFromYaml(metadata.read),
     readAt: nullableScalar(metadata.readAt),
     relativePath,
@@ -838,7 +895,7 @@ function articleSummaryFromRaw(raw, relativePath, fileInfo = {}) {
   };
 }
 
-async function localArticleSummary(filePath) {
+async function localArticleSummary(filePath: string): Promise<ArticleSummary> {
   const raw = await readFile(filePath, "utf8");
   const fileStat = await stat(filePath);
   const relativePath = cleanRepoPath(path.relative(ARTICLES_DIR, filePath));
@@ -849,7 +906,9 @@ async function localArticleSummary(filePath) {
 }
 
 class GitHubRequestError extends Error {
-  constructor(message, status, data) {
+  readonly status: number;
+  readonly data: GitHubErrorData;
+  constructor(message: string, status: number, data: GitHubErrorData = null) {
     super(message);
     this.name = "GitHubRequestError";
     this.status = status;
@@ -857,7 +916,7 @@ class GitHubRequestError extends Error {
   }
 }
 
-function githubHeaders(extra = {}) {
+function githubHeaders(extra: Record<string, string> = {}): Record<string, string> {
   return {
     Accept: "application/vnd.github+json",
     Authorization: `Bearer ${GITHUB_TOKEN}`,
@@ -867,10 +926,10 @@ function githubHeaders(extra = {}) {
   };
 }
 
-async function githubRequest(apiPath, options = {}) {
+async function githubRequest(apiPath: string, options: RequestInit = {}): Promise<unknown> {
   const response = await fetch(`${GITHUB_API}${apiPath}`, {
     ...options,
-    headers: githubHeaders(options.headers),
+    headers: githubHeaders(Object.fromEntries(new Headers(options.headers).entries())),
   });
   const contentType = response.headers.get("content-type") || "";
   const data = contentType.includes("application/json") ? await response.json() : await response.text();
@@ -883,7 +942,7 @@ async function githubRequest(apiPath, options = {}) {
   return data;
 }
 
-async function githubRawRequest(apiPath) {
+async function githubRawRequest(apiPath: string): Promise<Buffer> {
   const response = await fetch(`${GITHUB_API}${apiPath}`, {
     headers: githubHeaders({ Accept: "application/vnd.github.raw" }),
   });
@@ -902,16 +961,19 @@ async function githubRawRequest(apiPath) {
   return Buffer.from(await response.arrayBuffer());
 }
 
-function githubContentsPath(repoPath) {
+function githubContentsPath(repoPath: string): string {
   const encodedPath = encodeRepoPath(repoPath);
   return `/repos/${encodeURIComponent(GITHUB_OWNER)}/${encodeURIComponent(GITHUB_REPO)}/contents/${encodedPath}`;
 }
 
-async function getGitHubFile(repoPath) {
+async function getGitHubFile(repoPath: string): Promise<{ raw: string; sha: string }> {
   const pathWithRef = `${githubContentsPath(repoPath)}?ref=${encodeURIComponent(GITHUB_BRANCH)}`;
-  const file = await githubRequest(pathWithRef);
+  const fileRecord = asRecord(await githubRequest(pathWithRef));
+  const file: GitHubFileContent | null = fileRecord && typeof fileRecord.type === "string" && typeof fileRecord.sha === "string"
+    ? { type: fileRecord.type, content: typeof fileRecord.content === "string" ? fileRecord.content : undefined, sha: fileRecord.sha }
+    : null;
 
-  if (file.type !== "file" || !file.content) {
+  if (!file || file.type !== "file" || typeof file.content !== "string" || !file.content) {
     throw new Error(`GitHub file content is unavailable for ${repoPath}`);
   }
 
@@ -921,19 +983,31 @@ async function getGitHubFile(repoPath) {
   };
 }
 
-function isMarkdownArticlePath(relativePath) {
+function isMarkdownArticlePath(relativePath: string): boolean {
   return (
     relativePath.toLowerCase().endsWith(".md") &&
     !relativePath.split("/").some((segment) => segment.startsWith("."))
   );
 }
 
-async function listGitHubArticles() {
-  const tree = await githubRequest(
+async function listGitHubArticles(): Promise<ArticleSummary[]> {
+  const treeData = asRecord(await githubRequest(
     `/repos/${encodeURIComponent(GITHUB_OWNER)}/${encodeURIComponent(GITHUB_REPO)}/git/trees/${encodeURIComponent(
       GITHUB_BRANCH,
     )}?recursive=1`,
-  );
+  ));
+  const treeEntries = treeData?.tree;
+  const tree: GitHubTree | null = treeData && typeof treeData.truncated === "boolean" && Array.isArray(treeEntries)
+    ? {
+        truncated: treeData.truncated,
+        tree: treeEntries.filter((entry): entry is GitHubTreeEntry => {
+          const record = asRecord(entry);
+          return record !== null && typeof record.type === "string" && typeof record.path === "string";
+        }).map((entry) => ({ type: entry.type, path: entry.path })),
+      }
+    : null;
+
+  if (!tree || !Array.isArray(tree.tree)) throw new Error("GitHub repository tree response is invalid");
 
   if (tree.truncated) {
     throw new Error("GitHub repository tree is truncated; narrow GITHUB_ARTICLES_PATH before listing articles");
@@ -957,7 +1031,7 @@ async function listGitHubArticles() {
   return articles;
 }
 
-async function getGitHubArticle(id) {
+async function getGitHubArticle(id: string): Promise<ArticleSummary & { content: string }> {
   const relativePath = articleRelativePathFromId(id);
   const { raw } = await getGitHubFile(repoPathFromRelative(relativePath));
   const summary = articleSummaryFromRaw(raw, relativePath, { addedTimestamp: 0 });
@@ -965,7 +1039,7 @@ async function getGitHubArticle(id) {
   return { ...summary, content };
 }
 
-async function listArticles() {
+async function listArticles(): Promise<ArticleSummary[]> {
   if (STORAGE_MODE === "github") return listGitHubArticles();
 
   if (!existsSync(ARTICLES_DIR)) {
@@ -979,7 +1053,7 @@ async function listArticles() {
   return articles;
 }
 
-async function getArticle(id) {
+async function getArticle(id: string): Promise<ArticleSummary & { content: string }> {
   if (STORAGE_MODE === "github") return getGitHubArticle(id);
 
   const { fullPath } = articlePathFromId(id);
@@ -989,7 +1063,7 @@ async function getArticle(id) {
   return { ...summary, content };
 }
 
-async function readJsonBody(req, maxBytes) {
+async function readJsonBody(req: IncomingMessage, maxBytes: number): Promise<unknown> {
   const contentLength = Number(req.headers["content-length"]);
   if (Number.isFinite(contentLength) && contentLength > maxBytes) {
     throw new HttpError(413, "Request body too large");
@@ -1015,9 +1089,9 @@ async function readJsonBody(req, maxBytes) {
   }
 }
 
-function contentTypeFor(filePath) {
+function contentTypeFor(filePath: string): string {
   const extension = path.extname(filePath).toLowerCase();
-  const types = {
+  const types: Record<string, string> = {
     ".avif": "image/avif",
     ".css": "text/css; charset=utf-8",
     ".gif": "image/gif",
@@ -1035,7 +1109,7 @@ function contentTypeFor(filePath) {
   return types[extension] || "application/octet-stream";
 }
 
-async function serveStatic(req, res, url) {
+async function serveStatic(req: IncomingMessage, res: ServerResponse, url: URL): Promise<void> {
   const pathname = decodeURIComponent(url.pathname);
   const requestedPath = pathname === "/" ? "/index.html" : pathname;
   const filePath = path.resolve(PUBLIC_DIR, `.${requestedPath}`);
@@ -1059,7 +1133,7 @@ async function serveStatic(req, res, url) {
     });
     createReadStream(filePath).pipe(res);
   } catch (error) {
-    if (error.code === "ENOENT") {
+    if (isMissingFileError(error)) {
       sendText(res, 404, "Not found");
       return;
     }
@@ -1067,7 +1141,7 @@ async function serveStatic(req, res, url) {
   }
 }
 
-async function serveArticleAsset(res, articleIdParam, assetPath) {
+async function serveArticleAsset(res: ServerResponse, articleIdParam: string, assetPath: string | null): Promise<void> {
   if (!assetPath) {
     sendText(res, 400, "Missing asset path");
     return;
@@ -1107,7 +1181,7 @@ async function serveArticleAsset(res, articleIdParam, assetPath) {
     });
     createReadStream(resolvedAssetPath).pipe(res);
   } catch (error) {
-    if (error.code === "ENOENT") {
+    if (isMissingFileError(error)) {
       sendText(res, 404, "Not found");
       return;
     }
@@ -1115,7 +1189,7 @@ async function serveArticleAsset(res, articleIdParam, assetPath) {
   }
 }
 
-async function serveGitHubArticleAsset(res, articleIdParam, assetPath) {
+async function serveGitHubArticleAsset(res: ServerResponse, articleIdParam: string, assetPath: string): Promise<void> {
   const articleRelativePath = articleRelativePathFromId(articleIdParam);
   const encodedAssetPath = assetPath.split(/[?#]/)[0];
   let cleanAssetPath = encodedAssetPath;
@@ -1146,13 +1220,13 @@ async function serveGitHubArticleAsset(res, articleIdParam, assetPath) {
   res.end(buffer);
 }
 
-function yamlValue(value) {
+function yamlValue(value: unknown): string {
   if (typeof value === "boolean") return value ? "true" : "false";
   if (value == null) return "null";
   return JSON.stringify(String(value));
 }
 
-function updateFrontmatter(frontmatter, updates) {
+function updateFrontmatter(frontmatter: string, updates: ArticleReadState): string {
   const fields = new Set(Object.keys(updates));
   const lines = frontmatter ? frontmatter.split("\n") : [];
   const keptLines = [];
@@ -1182,7 +1256,7 @@ function updateFrontmatter(frontmatter, updates) {
   return keptLines.join("\n");
 }
 
-function articleContentWithReadState(raw, read) {
+function articleContentWithReadState(raw: string, read: boolean): { nextContent: string; nextReadState: ArticleReadState } {
   const { content, frontmatter } = splitFrontmatter(raw);
   const nextReadState = {
     read,
@@ -1193,7 +1267,7 @@ function articleContentWithReadState(raw, read) {
   return { nextContent, nextReadState };
 }
 
-async function setLocalArticleRead(id, read) {
+async function setLocalArticleRead(id: string, read: boolean): Promise<ArticleReadState> {
   const { fullPath } = articlePathFromId(id);
   const raw = await readFile(fullPath, "utf8");
   const { nextContent, nextReadState } = articleContentWithReadState(raw, read);
@@ -1204,7 +1278,7 @@ async function setLocalArticleRead(id, read) {
   return nextReadState;
 }
 
-async function putGitHubFile(repoPath, content, sha, message) {
+async function putGitHubFile(repoPath: string, content: string, sha: string, message: string): Promise<void> {
   await githubRequest(githubContentsPath(repoPath), {
     body: JSON.stringify({
       branch: GITHUB_BRANCH,
@@ -1217,7 +1291,7 @@ async function putGitHubFile(repoPath, content, sha, message) {
   });
 }
 
-async function setGitHubArticleRead(id, read) {
+async function setGitHubArticleRead(id: string, read: boolean): Promise<ArticleReadState> {
   const relativePath = articleRelativePathFromId(id);
   const repoPath = repoPathFromRelative(relativePath);
   const message = `${read ? "Mark read" : "Mark unread"}: ${relativePath}`;
@@ -1240,7 +1314,7 @@ async function setGitHubArticleRead(id, read) {
   throw new Error("Could not update GitHub file after retrying conflict");
 }
 
-async function setArticleRead(id, read) {
+async function setArticleRead(id: string, read: boolean): Promise<ArticleReadState> {
   if (STORAGE_MODE === "github") return setGitHubArticleRead(id, read);
   return setLocalArticleRead(id, read);
 }
@@ -1323,11 +1397,13 @@ const server = createServer(async (req, res) => {
     const readMatch = url.pathname.match(/^\/api\/articles\/([^/]+)\/read$/);
     if (req.method === "PATCH" && readMatch) {
       const body = await readJsonBody(req, PATCH_READ_BODY_LIMIT_BYTES);
-      if (typeof body.read !== "boolean") {
+      if (body === null) throw new TypeError("Cannot read properties of null (reading 'read')");
+      const readValue = asRecord(body)?.read;
+      if (typeof readValue !== "boolean") {
         sendJson(res, 400, { error: "Expected boolean read value" });
         return;
       }
-      sendJson(res, 200, { state: await setArticleRead(readMatch[1], body.read) });
+      sendJson(res, 200, { state: await setArticleRead(readMatch[1], readValue) });
       return;
     }
 
@@ -1354,8 +1430,8 @@ const server = createServer(async (req, res) => {
   }
 });
 
-function lanUrls(port) {
-  const urls = [];
+function lanUrls(port: number): string[] {
+  const urls: string[] = [];
   for (const entries of Object.values(os.networkInterfaces())) {
     for (const entry of entries || []) {
       if (entry.family === "IPv4" && !entry.internal) {

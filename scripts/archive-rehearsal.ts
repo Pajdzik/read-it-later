@@ -1,25 +1,55 @@
 import assert from "node:assert/strict";
 import { spawn } from "node:child_process";
+import type { ChildProcess } from "node:child_process";
 import { mkdir, mkdtemp, open, readFile, rm, stat, writeFile } from "node:fs/promises";
+import type { FileHandle } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 import net from "node:net";
 import { chromium } from "playwright";
-import { MAX_BACKUP_BYTES, splitImportBatches, summarizeBackup, validateBackupEnvelope } from "./archive-backup.mjs";
+import { MAX_BACKUP_BYTES, splitImportBatches, summarizeBackup, validateBackupEnvelope, type BackupArticle, type BackupCopy, type BackupEnvelope } from "./archive-backup.ts";
 
 const project = process.cwd();
 const wrangler = path.join(project, "node_modules/wrangler/bin/wrangler.js");
 const fixedTime = "2026-09-30T12:00:00.000Z";
-const activeWorkers = new Set();
-let activeTemp;
+const activeWorkers = new Set<ChildProcess>();
+let activeTemp: string | undefined;
 let diagnosticStage = "input validation";
 
-function fixture() {
-  const articles = [];
+export type ArchiveRehearsalReport = {
+  result: "passed";
+  articleCount: number;
+  readCount: number;
+  unreadCount: number;
+  copyCount: number;
+  pasteCopyCount: number;
+  uploadCopyCount: number;
+  actualInputBytes: number;
+  compactInputJsonBytes: number;
+  canonicalJsonBytes: number;
+  markdownBytes: number;
+  maximumMarkdownBytes: number;
+  inputBatchCount: number;
+  canonicalBatchCount: number;
+  readerSampleCount: number;
+  importedArticleCount: number;
+  repeatImportCount: number;
+  restoredLocalD1SizeAfterBytes: number;
+  measurement: string;
+  checks: {
+    importsComplete: true;
+    canonicalFieldsMatch: true;
+    repeatImportIdempotent: true;
+    readerDownload: "passed" | "skipped-no-copies";
+  };
+};
+
+function fixture(): BackupEnvelope {
+  const articles: BackupArticle[] = [];
   const paragraph = "Preserved archive rehearsal — naïve café 雪 Ω. Quotes: \\\"quoted text\\\"; line break follows.\n".repeat(440);
   for (let i = 0; i < 30; i++) {
     const n = String(i).padStart(3, "0");
-    const item = {
+    const item: BackupArticle = {
       id: `archive-fixture-${n}`,
       url: `https://archive-fixture.invalid/articles/${n}`,
       title: `Restore rehearsal ${n} — Ω`,
@@ -30,7 +60,7 @@ function fixture() {
       readAt: i % 3 === 0 ? fixedTime : null,
     };
     if (i < 28) {
-      const source = i % 2 === 0 ? "paste" : "upload";
+      const source: BackupCopy["source"] = i % 2 === 0 ? "paste" : "upload";
       item.copy = {
         markdown: `# Preserved Unicode Ω — ${n}\n\n${paragraph}\n| Item | Value |\n| --- | --- |\n| ${n} | 雪 |\n`,
         capturedAt: fixedTime,
@@ -43,11 +73,13 @@ function fixture() {
   return { version: 2, exportedAt: fixedTime, articles };
 }
 
-function parseArgs(args) {
-  const values = {};
+type RehearsalOptions = { "--backup"?: string; "--report"?: string };
+
+function parseArgs(args: string[]): RehearsalOptions {
+  const values: RehearsalOptions = {};
   for (let i = 0; i < args.length; i++) {
     const key = args[i];
-    if (!["--backup", "--report"].includes(key) || values[key]) throw new Error("Invalid command options.");
+    if ((key !== "--backup" && key !== "--report") || values[key]) throw new Error("Invalid command options.");
     const value = args[++i];
     if (!value || value.startsWith("--") || !path.isAbsolute(value)) throw new Error("Invalid command options.");
     values[key] = value;
@@ -55,8 +87,8 @@ function parseArgs(args) {
   return values;
 }
 
-function cleanEnvironment() {
-  const env = { ...process.env, CLOUDFLARE_LOAD_DEV_VARS_FROM_DOT_ENV: "false", WRANGLER_SEND_METRICS: "false" };
+function cleanEnvironment(): NodeJS.ProcessEnv {
+  const env: NodeJS.ProcessEnv = { ...process.env, CLOUDFLARE_LOAD_DEV_VARS_FROM_DOT_ENV: "false", WRANGLER_SEND_METRICS: "false" };
   for (const key of Object.keys(env)) {
     if (/^(?:GITHUB_|CLOUDFLARE_|CF_|AWS_|AZURE_|GOOGLE_|OAUTH_|OWNER_GITHUB_ID$)/i.test(key)) delete env[key];
   }
@@ -65,7 +97,7 @@ function cleanEnvironment() {
   return env;
 }
 
-function command(args, cwd, env, { quiet = false } = {}) {
+function command(args: string[], cwd: string, env: NodeJS.ProcessEnv, { quiet = false }: { quiet?: boolean } = {}): Promise<string | undefined> {
   return new Promise((resolve, reject) => {
     const child = spawn(process.execPath, [wrangler, ...args], { cwd, env, stdio: ["ignore", "pipe", "pipe"], detached: true });
     activeWorkers.add(child);
@@ -77,7 +109,7 @@ function command(args, cwd, env, { quiet = false } = {}) {
   });
 }
 
-function makeFixtureConfig(storage, port, wrapperPath) {
+function makeFixtureConfig(storage: string, port: number, wrapperPath: string): Record<string, unknown> {
   return {
     $schema: path.join(project, "node_modules/wrangler/config-schema.json"),
     name: "archive-restore-rehearsal",
@@ -93,15 +125,20 @@ function makeFixtureConfig(storage, port, wrapperPath) {
   };
 }
 
-async function getPort() {
+async function getPort(): Promise<number> {
   const server = net.createServer();
-  await new Promise((resolve, reject) => server.listen(0, "127.0.0.1", error => error ? reject(error) : resolve()));
-  const port = server.address().port;
-  await new Promise((resolve, reject) => server.close(error => error ? reject(error) : resolve()));
+  await new Promise<void>((resolve, reject) => {
+    server.once("error", reject);
+    server.listen({ port: 0, host: "127.0.0.1" }, resolve);
+  });
+  const address = server.address();
+  if (!address || typeof address === "string") throw new Error("Could not reserve a local port.");
+  const port = address.port;
+  await new Promise<void>((resolve, reject) => server.close(error => error ? reject(error) : resolve()));
   return port;
 }
 
-async function waitForWorker(base, child) {
+async function waitForWorker(base: string, child: ChildProcess): Promise<void> {
   for (let i = 0; i < 120; i++) {
     if (child.exitCode !== null) throw new Error("Local Worker failed to start.");
     try {
@@ -113,16 +150,16 @@ async function waitForWorker(base, child) {
   throw new Error("Local Worker did not become ready.");
 }
 
-function runNodeScript(script, cwd, env) {
+function runNodeScript(args: string[], cwd: string, env: NodeJS.ProcessEnv): Promise<void> {
   return new Promise((resolve, reject) => {
-    const child = spawn(process.execPath, [path.join(project, script)], { cwd, env, stdio: "ignore", detached: true });
+    const child = spawn(process.execPath, args, { cwd, env, stdio: "ignore", detached: true });
     activeWorkers.add(child);
     child.on("error", () => { activeWorkers.delete(child); reject(new Error("Local rehearsal setup failed.")); });
     child.on("exit", code => { activeWorkers.delete(child); code === 0 ? resolve() : reject(new Error("Local rehearsal setup failed.")); });
   });
 }
 
-function startWorker(configPath, storage, port, cwd, env) {
+function startWorker(configPath: string, storage: string, port: number, cwd: string, env: NodeJS.ProcessEnv): ChildProcess {
   const child = spawn(process.execPath, [wrangler, "dev", "--local", "--config", configPath, "--ip", "127.0.0.1", "--port", String(port), "--persist-to", storage], {
     cwd, env, stdio: "ignore", detached: true,
   });
@@ -130,20 +167,20 @@ function startWorker(configPath, storage, port, cwd, env) {
   return child;
 }
 
-async function stopWorker(child) {
+async function stopWorker(child: ChildProcess | undefined): Promise<void> {
   if (!child || child.exitCode !== null || child.signalCode !== null) { if (child) activeWorkers.delete(child); return; }
-  await new Promise(resolve => {
+  await new Promise<void>(resolve => {
     const timer = setTimeout(() => {
-      try { process.kill(-child.pid, "SIGKILL"); } catch { child.kill("SIGKILL"); }
+      try { if (child.pid !== undefined) process.kill(-child.pid, "SIGKILL"); else child.kill("SIGKILL"); } catch { child.kill("SIGKILL"); }
       resolve();
     }, 5000);
     child.once("exit", () => { clearTimeout(timer); resolve(); });
-    try { process.kill(-child.pid, "SIGTERM"); } catch { child.kill("SIGTERM"); }
+    try { if (child.pid !== undefined) process.kill(-child.pid, "SIGTERM"); else child.kill("SIGTERM"); } catch { child.kill("SIGTERM"); }
   });
   activeWorkers.delete(child);
 }
 
-async function handleSignal(code) {
+async function handleSignal(code: number): Promise<void> {
   await Promise.all([...activeWorkers].map(stopWorker));
   if (activeTemp) await rm(activeTemp, { recursive: true, force: true }).catch(() => {});
   process.exit(code);
@@ -151,14 +188,17 @@ async function handleSignal(code) {
 process.once("SIGINT", () => { void handleSignal(130); });
 process.once("SIGTERM", () => { void handleSignal(143); });
 
-async function migrate(configPath, storage, cwd, env) {
+async function migrate(configPath: string, storage: string, cwd: string, env: NodeJS.ProcessEnv): Promise<void> {
   await command(["d1", "migrations", "apply", "read-later", "--local", "--persist-to", storage, "--config", configPath], cwd, env, { quiet: true });
 }
 
-async function api(base, route, init = {}) {
+async function api(base: string, route: string, init: RequestInit = {}): Promise<Response> {
+  const headers = new Headers(init.headers);
+  headers.set("Origin", base);
+  headers.set("X-CSRF-Token", "dev-bypass");
   const response = await fetch(`${base}${route}`, {
     ...init,
-    headers: { Origin: base, "X-CSRF-Token": "dev-bypass", ...(init.headers || {}) },
+    headers,
     cache: "no-store",
     signal: AbortSignal.timeout(10000),
   });
@@ -166,61 +206,67 @@ async function api(base, route, init = {}) {
   return response;
 }
 
-async function importAll(base, input, batches) {
+async function importAll(base: string, input: BackupEnvelope, batches: BackupEnvelope[]): Promise<{ imported: number; skipped: number }> {
   let imported = 0;
   let skipped = 0;
   for (const batch of batches) {
     const response = await api(base, "/api/import", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(batch) });
-    const result = await response.json();
-    if (!Number.isSafeInteger(result.imported) || !Number.isSafeInteger(result.skipped)) throw new Error("Local archive import failed.");
-    imported += result.imported;
-    skipped += result.skipped;
+    const result: unknown = await response.json();
+    if (!result || typeof result !== "object") throw new Error("Local archive import failed.");
+    const importedCount = (result as Record<string, unknown>).imported;
+    const skippedCount = (result as Record<string, unknown>).skipped;
+    if (typeof importedCount !== "number" || !Number.isSafeInteger(importedCount) || typeof skippedCount !== "number" || !Number.isSafeInteger(skippedCount)) throw new Error("Local archive import failed.");
+    const counts = { imported: importedCount, skipped: skippedCount };
+    imported += counts.imported;
+    skipped += counts.skipped;
   }
   if (imported + skipped !== input.articles.length || skipped !== 0) throw new Error("Archive import was incomplete.");
   return { imported, skipped };
 }
 
-async function exportLibrary(base) {
+async function exportLibrary(base: string): Promise<{ bytes: Buffer; envelope: BackupEnvelope }> {
   const response = await api(base, "/api/export");
   const bytes = Buffer.from(await response.arrayBuffer());
   if (bytes.byteLength > MAX_BACKUP_BYTES) throw new Error("Canonical export exceeds the supported backup size.");
-  let parsed;
+  let parsed: unknown;
   try { parsed = JSON.parse(new TextDecoder("utf-8", { fatal: true }).decode(bytes)); }
   catch { throw new Error("Canonical export could not be read."); }
   return { bytes, envelope: validateBackupEnvelope(parsed) };
 }
 
-function sortedLibrary(envelope) {
+function sortedLibrary(envelope: BackupEnvelope): BackupArticle[] {
   return envelope.articles.slice().sort((a, b) => a.id.localeCompare(b.id));
 }
 
-async function measuredDatabaseBytes(base) {
+async function measuredDatabaseBytes(base: string): Promise<number> {
   const response = await fetch(`${base}/_local/archive-rehearsal-size`, { cache: "no-store", signal: AbortSignal.timeout(3000) });
   if (!response.ok) throw new Error("Local D1 did not return storage measurement metadata.");
-  const result = await response.json();
-  const size = result.sizeAfter;
-  if (!Number.isSafeInteger(size) || size < 0) throw new Error("Local D1 did not return storage measurement metadata.");
+  const result: unknown = await response.json();
+  const size = result && typeof result === "object" ? (result as Record<string, unknown>).sizeAfter : undefined;
+  if (typeof size !== "number" || !Number.isSafeInteger(size) || size < 0) throw new Error("Local D1 did not return storage measurement metadata.");
   return size;
 }
 
-async function verifyReader(base, envelope, temporary) {
-  const copies = [];
+type ArticleWithCopy = BackupArticle & { copy: BackupCopy };
+
+async function verifyReader(base: string, envelope: BackupEnvelope, temporary: string): Promise<number> {
+  const copies: ArticleWithCopy[] = [];
   for (const source of ["paste", "upload"]) {
-    const sample = envelope.articles.find(item => item.copy?.source === source);
+    const sample = envelope.articles.find((item): item is ArticleWithCopy => item.copy?.source === source);
     if (sample) copies.push(sample);
   }
   if (!copies.length) return 0;
   const browser = await chromium.launch({ headless: true, ...(process.env.BROWSER_EXECUTABLE ? { executablePath: process.env.BROWSER_EXECUTABLE } : {}) });
   try {
     const context = await browser.newContext({ viewport: { width: 390, height: 844 }, acceptDownloads: true });
-    const blocked = [];
+    const blocked: string[] = [];
     await context.route("**/*", async route => {
       if (new URL(route.request().url()).origin === base) return route.continue();
       blocked.push(route.request().url());
       return route.abort();
     });
     const page = await context.newPage();
-    const errors = [];
+    const errors: string[] = [];
     page.on("pageerror", error => errors.push(error.message));
     await page.goto(base);
     await page.locator("#logout").waitFor();
@@ -302,8 +348,8 @@ async function verifyReader(base, envelope, temporary) {
 
 async function run() {
   const options = parseArgs(process.argv.slice(2));
-  let input;
-  let inputBytes;
+  let input: BackupEnvelope;
+  let inputBytes = 0;
   if (options["--backup"]) {
     const backupPath = options["--backup"];
     const info = await stat(backupPath);
@@ -311,21 +357,22 @@ async function run() {
     const bytes = await readFile(backupPath);
     if (bytes.byteLength > MAX_BACKUP_BYTES) throw new Error("Invalid backup file.");
     inputBytes = bytes.byteLength;
-    try { input = JSON.parse(new TextDecoder("utf-8", { fatal: true }).decode(bytes)); }
+    let parsed: unknown;
+    try { parsed = JSON.parse(new TextDecoder("utf-8", { fatal: true }).decode(bytes)); }
     catch { throw new Error("Invalid backup file."); }
-    validateBackupEnvelope(input);
+    input = validateBackupEnvelope(parsed);
   } else {
     input = fixture();
     inputBytes = Buffer.byteLength(JSON.stringify(input), "utf8");
-    validateBackupEnvelope(input);
+    input = validateBackupEnvelope(input);
   }
   const inputSummary = summarizeBackup(input);
   const sourceBatches = splitImportBatches(input);
   const temp = await mkdtemp(path.join(os.tmpdir(), "read-later-archive-rehearsal-"));
   activeTemp = temp;
   const env = cleanEnvironment();
-  let sourceWorker;
-  let reportHandle;
+  let sourceWorker: ChildProcess | undefined;
+  let reportHandle: FileHandle | undefined;
   try {
     const sourceStorage = path.join(temp, "source");
     const restoreStorage = path.join(temp, "restore");
@@ -333,7 +380,7 @@ async function run() {
     const restoreConfig = path.join(temp, "restore.wrangler.jsonc");
     const sourceWorkerEntry = path.join(temp, "source-worker.mjs");
     const restoreWorkerEntry = path.join(temp, "restore-worker.mjs");
-    await runNodeScript("scripts/build-web.mjs", project, env);
+    await runNodeScript(["--import", "tsx", "scripts/build-web.ts"], project, env);
     diagnosticStage = "temporary Worker and D1 setup";
     const sourcePort = await getPort();
     const restorePort = await getPort();
@@ -374,7 +421,7 @@ async function run() {
       const readerSamples = await verifyReader(restoreBase, restored.envelope, temp);
       const restoredDatabaseBytes = await measuredDatabaseBytes(restoreBase);
       diagnosticStage = "report";
-      const output = {
+      const output: ArchiveRehearsalReport = {
         result: "passed",
         articleCount: inputSummary.articleCount,
         readCount: inputSummary.readCount,

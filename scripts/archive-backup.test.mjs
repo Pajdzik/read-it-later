@@ -1,6 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { MAX_IMPORT_BYTES, splitImportBatches, summarizeBackup, validateBackupEnvelope } from "./archive-backup.mjs";
+import { MAX_IMPORT_BYTES, splitImportBatches, summarizeBackup, validateBackupEnvelope } from "./archive-backup.ts";
 
 const stamp = "2026-01-02T03:04:05.000Z";
 function article(id, markdown = "") {

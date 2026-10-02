@@ -35,11 +35,8 @@ jobs:
       - name: Install dependencies
         run: pnpm install --frozen-lockfile
 
-      - name: Check JavaScript syntax
+      - name: Check TypeScript across all runtimes
         run: pnpm check
-
-      - name: Typecheck
-        run: pnpm typecheck
 
       - name: Run Worker and D1 tests
         run: pnpm test
@@ -49,6 +46,9 @@ jobs:
 
       - name: Install Playwright Chromium
         run: pnpm exec playwright install --with-deps chromium
+
+      - name: Run prototype smoke test
+        run: pnpm test:prototype
 
       - name: Run browser smoke test
         run: pnpm test:browser
