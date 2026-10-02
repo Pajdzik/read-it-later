@@ -580,6 +580,21 @@ button {
   font: 13px/1.5 ui-monospace, SFMono-Regular, Menlo, monospace;
   resize: vertical;
 }
+#capture-markdown {
+  display: block;
+  width: 100%;
+  min-height: 190px;
+  margin: 6px 0 14px;
+  padding: 11px;
+  border: 1px solid var(--line);
+  border-radius: 9px;
+  background: var(--white);
+  color: var(--ink);
+  font: 13px/1.5 ui-monospace, SFMono-Regular, Menlo, monospace;
+  resize: vertical;
+}
+.capture-copy-toggle { display: flex; align-items: center; gap: 8px; width: fit-content; margin: 10px 0; color: var(--ink); }
+.capture-copy-toggle input { width: auto; }
 .copy-editor input[type="file"] {
   display: block;
   width: 100%;

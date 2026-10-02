@@ -71,11 +71,11 @@ An explicit local authentication bypass works only on the configured loopback or
 | Method | Behavior |
 | --- | --- |
 | Website | Open Add, paste a URL and optional title, then save using the owner session |
-| Desktop bookmarklet | Opens `/add` with the page URL/title; review and confirm in the website |
+| Desktop bookmarklet | Extracts the open page into an editable Markdown draft in `/add`; review and confirm in the website |
 | iOS Shortcut | POSTs one URL and optional title to `/api/capture` with a save-only bearer token |
 | Installed PWA | Supported browsers open `/add` from shared URL/title/text; review and confirm |
 
-`GET /add` never writes data. Drafts survive the login redirect and reload in same-origin session storage until saved. Shared query parameters are removed from the address bar. Ambiguous shared text does not silently choose a link. A paste fallback is always available; PWA share-target support varies, and native iOS/Android sharing requires actual-device validation. See the [capture guide](docs/capture.md) and website Capture help.
+`GET /add` never writes data. The desktop bookmarklet injects the pinned Defuddle browser bundle into the currently viewed page, extracts Markdown locally with third-party async extraction disabled, and sends it to the Potem tab through a one-use `postMessage` channel. Markdown never appears in a URL or is sent to Defuddle. Potem checks the source origin, opener, channel, source URL, and 256 KiB UTF-8 bound. The draft is editable and stays in same-origin session storage until saved. The normal Save action first saves the URL, then attempts to create a copy with `expectedRevision: null`; an existing copy is never silently replaced. If copy saving fails, the link remains saved and the draft stays available for retry or link-only saving. A changed URL cannot receive the original page’s clip. Page CSP or opener isolation can block extraction/handoff; the original URL/title prefill remains and paste remains available. Drafts survive login redirects and reloads. Shared query parameters are removed from the address bar. Ambiguous shared text does not silently choose a link. PWA share-target support varies, and native iOS/Android sharing requires actual-device validation. See the [capture guide](docs/capture.md) and website Capture help.
 
 ## API and backups
 
@@ -116,7 +116,7 @@ Check **Also save to GitHub** to additionally commit the saved Markdown with sou
 
 Copies are editable Markdown text. Article details can open the last successfully saved revision in a sanitized reader or download it as a UTF-8 Markdown file with quoted YAML frontmatter. Raw HTML is shown as text, unsafe links are unlinked, and image references are shown as text because their external sources are not included. Reading and downloading do not change read state or include unsaved editor drafts. R2 is deferred until measured storage needs justify it.
 
-The manual-only A01 decision is recorded in [markdown-preservation.md](docs/markdown-preservation.md). No deployed extraction benchmark was run. Automatic capture remains deferred until DNS/egress and redirect protections, runtime costs, and retries are proven; current metadata fetching does not establish those guarantees. See archive tasks A01–A06 in the [implementation tracker](docs/tasks.md).
+The A01 decision and browser-capture boundary are recorded in [markdown-preservation.md](docs/markdown-preservation.md). No deployed server extraction benchmark was run. Background server capture remains deferred until DNS/egress and redirect protections, runtime costs, and retries are proven; current metadata fetching does not establish those guarantees. See archive tasks A01–A06 in the [implementation tracker](docs/tasks.md).
 
 ## Local development
 
