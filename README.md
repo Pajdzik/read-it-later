@@ -134,7 +134,17 @@ pnpm test:browser
 
 ## Deployment and operations
 
-One Worker deployment contains API code and static assets. Configure the exact `APP_ORIGIN`, owner ID, D1 binding, and GitHub OAuth callback `<origin>/auth/github/callback` for each environment. OAuth client credentials belong in Wrangler secrets, not source or browser code. Local, staging, and production data are separate; staging configuration still has placeholders. The committed production configuration identifies the production origin/database; configuration alone is not evidence of a successful deployment.
+One Worker deployment contains API code and static assets. Production is live at <https://read-it-later-production.pajdzik.workers.dev> as Worker `read-it-later-production`, backed by D1 database `read-later-production`; its migrations are applied. Production sign-in is restricted to the configured GitHub owner. The OAuth app homepage is `https://read-it-later-production.pajdzik.workers.dev` and its callback is `https://read-it-later-production.pajdzik.workers.dev/auth/github/callback`.
+
+Store `GITHUB_CLIENT_ID` and `GITHUB_CLIENT_SECRET` as **Production secrets** in Cloudflare under **Workers & Pages → read-it-later-production → Settings → Variables and Secrets**. Never put OAuth credentials in `wrangler.jsonc`, source code, or logs. Local, staging, and production data are separate; staging configuration still has placeholders.
+
+For a manual production release, build assets, apply migrations to the production D1 database, and deploy the production Worker:
+
+```sh
+pnpm build:web
+pnpm exec wrangler d1 migrations apply read-later-production --remote --env production
+pnpm exec wrangler deploy --env production
+```
 
 GitHub Actions runs syntax checks, typechecks, Worker/D1 tests, a dry-run build, and browser smoke on pushes and PRs. A push to `main` additionally applies production migrations and deploys after verification passes. The `production` Actions environment needs `CLOUDFLARE_API_TOKEN` and `CLOUDFLARE_ACCOUNT_ID`; OAuth secrets are configured on the Worker separately. PR checks do not deploy production. See [CI](docs/ci.md) and [deployment instructions](docs/deployment.md).
 
