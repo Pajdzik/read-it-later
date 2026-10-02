@@ -589,6 +589,120 @@ button {
 .copy-editor .copy-message {
   margin-bottom: 0;
 }
+.saved-copy-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin: 10px 0 16px;
+}
+.reader-dialog {
+  width: min(820px, calc(100% - 24px));
+  max-height: calc(100% - 24px);
+  padding: clamp(20px, 5vw, 54px);
+}
+.reader-header {
+  max-width: 68ch;
+  margin: 0 auto 22px;
+}
+.reader-close {
+  display: flex;
+  justify-content: flex-end;
+  margin: -18px -20px 15px;
+}
+.reader-header h2 {
+  font-size: clamp(27px, 5vw, 40px);
+  line-height: 1.12;
+  overflow-wrap: anywhere;
+}
+.reader-metadata,
+.reader-image-note {
+  font-size: 12px;
+  line-height: 1.5;
+}
+.reader-original {
+  display: inline-block;
+  margin-top: 8px;
+  font-size: 13px;
+}
+.reader-image-note {
+  max-width: 68ch;
+  margin: 0 auto 24px;
+  padding: 10px 12px;
+  border-left: 3px solid var(--line);
+  color: var(--muted);
+}
+.reader-body {
+  max-width: 68ch;
+  margin: 0 auto;
+  font: 17px/1.75 Georgia, "Times New Roman", serif;
+  overflow-wrap: anywhere;
+}
+.reader-body h1,
+.reader-body h2,
+.reader-body h3,
+.reader-body h4,
+.reader-body h5,
+.reader-body h6 {
+  margin: 1.8em 0 0.55em;
+  font-family: Georgia, "Times New Roman", serif;
+  line-height: 1.2;
+}
+.reader-body h1 { font-size: 2em; }
+.reader-body h2 { font-size: 1.65em; }
+.reader-body h3 { font-size: 1.35em; }
+.reader-body p,
+.reader-body ul,
+.reader-body ol,
+.reader-body blockquote {
+  margin: 0 0 1.15em;
+}
+.reader-body blockquote {
+  margin-inline: 0;
+  padding-left: 1em;
+  border-left: 3px solid var(--line);
+  color: var(--muted);
+}
+.reader-body pre,
+.reader-body table {
+  max-width: 100%;
+  overflow-x: auto;
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-size: 13px;
+  line-height: 1.55;
+}
+.reader-body pre {
+  padding: 15px;
+  border-radius: 10px;
+  background: var(--mint);
+  white-space: pre;
+}
+.reader-body code {
+  padding: 0.1em 0.3em;
+  border-radius: 4px;
+  background: var(--mint);
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-size: 0.88em;
+}
+.reader-body pre code {
+  padding: 0;
+  background: transparent;
+}
+.reader-body table {
+  display: block;
+  width: max-content;
+  min-width: 100%;
+  border-collapse: collapse;
+}
+.reader-body th,
+.reader-body td {
+  padding: 7px 10px;
+  border: 1px solid var(--line);
+  text-align: left;
+  white-space: nowrap;
+}
+.reader-body a {
+  overflow-wrap: anywhere;
+}
 .github-option {
   display: flex;
   align-items: center;
@@ -606,6 +720,20 @@ button {
   }
   .copy-editor button {
     width: 100%;
+  }
+  .reader-dialog {
+    width: calc(100% - 12px);
+    max-height: calc(100% - 12px);
+    padding: 18px 15px;
+    border-radius: 13px;
+  }
+  .reader-body {
+    font-size: 16px;
+    line-height: 1.68;
+  }
+  .reader-body pre,
+  .reader-body table {
+    max-width: calc(100vw - 54px);
   }
 }
 .settings-dialog > h2 {

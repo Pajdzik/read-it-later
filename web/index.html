@@ -155,6 +155,20 @@
       </form>
       <div id="detail-content"></div>
     </dialog>
+    <dialog id="reader-dialog" class="dialog reader-dialog" aria-labelledby="reader-title">
+      <header class="reader-header">
+        <form method="dialog" class="reader-close">
+          <button class="icon-button" aria-label="Close saved copy">×</button>
+        </form>
+        <p class="eyebrow">Saved Markdown copy</p>
+        <h2 id="reader-title"></h2>
+        <p id="reader-author" class="muted" hidden></p>
+        <p id="reader-metadata" class="muted reader-metadata"></p>
+        <a id="reader-original" class="reader-original" target="_blank" rel="noopener noreferrer">Open original ↗</a>
+      </header>
+      <p class="reader-image-note">Image references are shown as text and still depend on their external source.</p>
+      <article id="reader-body" class="reader-body"></article>
+    </dialog>
     <dialog id="settings-dialog" class="dialog settings-dialog">
       <form method="dialog" class="dialog-close">
         <button class="icon-button" aria-label="Close">×</button>

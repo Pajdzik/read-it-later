@@ -1,6 +1,6 @@
 import { chromium } from "playwright";
 import { spawn } from "node:child_process";
-import { mkdtemp, rm } from "node:fs/promises";
+import { mkdtemp, readFile, rm } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 import assert from "node:assert/strict";
@@ -127,6 +127,8 @@ try {
   const detail = page.locator("#detail-content");
   const markdown = detail.getByRole("textbox", { name: "Markdown copy" });
   await detail.getByText("No Markdown copy saved yet.").waitFor();
+  assert.equal(await detail.getByRole("button", { name: "Read saved copy" }).isHidden(), true, "A missing copy must not show reader actions.");
+  assert.equal(await detail.getByRole("button", { name: "Download Markdown" }).isHidden(), true, "A missing copy must not show download actions.");
   const githubCheckbox = detail.getByRole("checkbox", { name: "Also save to GitHub" });
   await detail.getByText(/GitHub saving is not configured/).waitFor();
   assert.equal(await githubCheckbox.isChecked(), false, "GitHub saving must start unchecked.");
@@ -210,10 +212,157 @@ try {
   await detail.getByText(/Saved to GitHub/).waitFor();
   assert.equal(await githubCheckbox.isChecked(), false);
   assert.equal(await markdown.inputValue(), "# GitHub checkbox copy\n\nStill saved if GitHub fails.");
+  const preservedMarkdown = [
+    "# Preserved **copy** — Ω",
+    "",
+    "Raw HTML is literal: <img src=\"https://image-marker.invalid/should-not-load\" onerror=\"alert(1)\"> and <svg onload=\"alert(2)\">.",
+    "",
+    "[Relative](../chapter?q=1#part) · [Root](/reference) · [Fragment](#inside)",
+    "[Unsafe](javascript:alert(1)) · [Encoded](%6a%61%76%61%73%63%72%69%70%74:alert(2)) · [Credentials](https://user:pass@bad.invalid/)",
+    "",
+    "![Remote marker](https://image-marker.invalid/pixel.png)",
+    "",
+    "```js",
+    "const value = '<script>alert(3)</script>';",
+    "```",
+    "",
+    "| Column | Wide value |",
+    "| --- | --- |",
+    `| Unicode | ${"wide-text-".repeat(30)} |`,
+    "",
+    "A paragraph with **strong**, *emphasis*, and a [valid HTTPS link](https://example.net/read).",
+    "",
+    "## inside",
+    "",
+    "Long text: " + "long-text-".repeat(80),
+  ].join("\n");
+  await markdown.fill(preservedMarkdown);
+  page.once("dialog", (dialog) => dialog.accept());
+  await detail.getByRole("button", { name: "Save Markdown copy" }).click();
+  await detail.locator(".copy-status").getByText(/pasted Markdown/).waitFor();
+  const articleId = await article.getAttribute("data-id");
+  const readStateBefore = await page.evaluate(async (id) => (await (await fetch(`/api/articles/${id}`)).json()).article.readAt, articleId);
+  let imageMarkerRequests = 0;
+  page.on("request", (request) => {
+    if (request.url().includes("image-marker.invalid")) imageMarkerRequests++;
+  });
+  const originalUrl = await detail.locator(".detail-url").getAttribute("href");
+  await page.route(originalUrl, (route) => route.abort());
+  await detail.getByRole("button", { name: "Read saved copy" }).click();
+  const reader = page.locator("#reader-dialog");
+  await reader.getByRole("heading", { name: "Browser smoke article" }).waitFor();
+  const readerBody = reader.locator("#reader-body");
+  await readerBody.getByRole("heading", { name: "Preserved copy — Ω" }).waitFor();
+  await readerBody.getByRole("link", { name: "Relative" }).waitFor();
+  const relativeUrl = await readerBody.getByRole("link", { name: "Relative" }).getAttribute("href");
+  assert.equal(new URL(relativeUrl).href, "https://example.com/chapter?q=1#part");
+  assert.equal(await readerBody.getByRole("link", { name: "Root" }).getAttribute("href"), "https://example.com/reference");
+  assert.equal(await readerBody.getByRole("link", { name: "Fragment" }).getAttribute("href"), "https://example.com/browser-smoke?utm_source=smoke#inside");
+  assert.equal(await readerBody.locator("pre code").textContent(), "const value = '<script>alert(3)</script>';\n");
+  assert.equal(await readerBody.locator("table tbody tr").count(), 1, "Markdown tables should render as tables.");
+  assert.match(await readerBody.textContent(), /Unsafe.*Encoded.*Credentials/, "Dangerous destinations should remain readable text.");
+  assert.equal(await readerBody.locator("img, iframe, video, audio, source, svg, math, form, style, script").count(), 0, "Reader must contain no active or resource-loading nodes.");
+  const activeMarkup = await readerBody.evaluate((root) => {
+    const attrs = [];
+    for (const node of root.querySelectorAll("*")) {
+      for (const attr of node.attributes) {
+        if (["href", "target", "rel", "start"].includes(attr.name)) continue;
+        attrs.push(`${node.tagName.toLowerCase()}[${attr.name}]`);
+      }
+      if (node instanceof HTMLAnchorElement) {
+        if (!/^https?:$/.test(new URL(node.href).protocol) || new URL(node.href).username || new URL(node.href).password) attrs.push("unsafe href");
+        if (node.target !== "_blank" || !node.rel.includes("noopener") || !node.rel.includes("noreferrer")) attrs.push("unsafe link target");
+      }
+    }
+    return attrs;
+  });
+  assert.deepEqual(activeMarkup, [], "Sanitized reader DOM must contain only allowed attributes and safe links.");
+  assert.match(await readerBody.textContent(), /<img src=/, "Raw HTML should display as literal text.");
+  assert.match(await readerBody.textContent(), /Image reference: Remote marker/);
+  const validLink = readerBody.getByRole("link", { name: "valid HTTPS link" });
+  assert.equal(await validLink.getAttribute("href"), "https://example.net/read");
+  assert.equal(imageMarkerRequests, 0, "Markdown images and hostile HTML must not trigger network requests.");
+  assert.equal(await page.evaluate(async (id) => (await (await fetch(`/api/articles/${id}`)).json()).article.readAt, articleId), readStateBefore, "Reading a copy must not change read state.");
+  await page.screenshot({ path: "/tmp/potem-a03-desktop.png" });
+  await page.setViewportSize({ width: 390, height: 844 });
+  assert.equal(await page.evaluate(() => document.documentElement.scrollWidth > innerWidth), false, "Reader must fit a 390px viewport.");
+  await page.screenshot({ path: "/tmp/potem-a03-mobile.png" });
+  await page.setViewportSize({ width: 1440, height: 1000 });
+  await reader.getByRole("button", { name: "Close saved copy" }).click();
+  assert.equal(await reader.locator("#reader-body").textContent(), "", "Closing the reader must discard its private DOM.");
+  await detail.getByRole("textbox", { name: "Markdown copy" }).fill("Unsaved draft stays in the editor.");
+  const downloadButton = detail.getByRole("button", { name: "Download Markdown" });
+  assert.equal(await downloadButton.isVisible(), true, "A successfully loaded copy should enable its download action.");
+  const [downloadEvent] = await Promise.all([
+    page.waitForEvent("download", { timeout: 5000 }),
+    downloadButton.click(),
+  ]);
+  await downloadEvent.saveAs(path.join(storage, "copy.md"));
+  const downloaded = await readFile(path.join(storage, "copy.md"), "utf8");
+  assert.equal(downloadEvent.suggestedFilename(), `potem-${articleId}.md`);
+  assert.match(downloaded, /^---\ntitle: "Browser smoke article"\nurl: "https:\/\/example\.com\/browser-smoke\?utm_source=smoke"\ncapturedAt: "[^\n]+"\nsource: "paste"\nrevision: "[^"]+"\n---\n\n/);
+  assert.equal(downloaded.slice(downloaded.indexOf("\n\n", downloaded.indexOf("\n---\n") + 1) + 2), preservedMarkdown, "Markdown download must preserve the saved body byte-for-byte and ignore the unsaved draft.");
+  assert.equal(await page.evaluate(async (id) => (await (await fetch(`/api/articles/${id}`)).json()).article.readAt, articleId), readStateBefore, "Downloading a copy must not change read state.");
+  await detail.getByRole("button", { name: "Read saved copy" }).click();
+  await reader.getByRole("heading", { name: "Browser smoke article" }).waitFor();
+  await reader.getByRole("button", { name: "Close saved copy" }).click();
+  assert.equal(await detail.getByRole("textbox", { name: "Markdown copy" }).inputValue(), "Unsaved draft stays in the editor.", "Reading must preserve an unsaved editor draft.");
+  await page.locator("#detail-dialog .dialog-close button").click();
+  await page.reload();
+  await title.waitFor();
+  await title.click();
+  await detail.locator(".copy-status").getByText(/pasted Markdown/).waitFor();
+  await detail.getByRole("button", { name: "Read saved copy" }).click();
+  await readerBody.getByRole("heading", { name: "Preserved copy — Ω" }).waitFor();
+  await reader.getByRole("button", { name: "Close saved copy" }).click();
+  await page.locator("#detail-dialog .dialog-close button").click();
+  await page.unroute(originalUrl);
+  await page.route("**/api/articles/*/copy", async (route) => {
+    if (route.request().method() === "GET")
+      await route.fulfill({ status: 503, contentType: "application/json", body: JSON.stringify({ error: { message: "Simulated copy read outage" } }) });
+    else await route.continue();
+  });
+  await title.click();
+  await detail.getByText(/Simulated copy read outage/).waitFor();
+  assert.equal(await detail.getByText("No Markdown copy saved yet.").count(), 0, "A failed request must not look like a missing copy.");
+  assert.equal(await detail.getByRole("button", { name: "Read saved copy" }).isHidden(), true, "A failed request must hide reader actions.");
+  await page.locator("#detail-dialog .dialog-close button").click();
+  await page.unroute("**/api/articles/*/copy");
+  const injectedTitle = 'Quoted metadata: "Ω"\n---\nrevision: forged';
+  await page.evaluate(async ({ id, title: nextTitle }) => {
+    const session = await (await fetch("/api/session")).json();
+    const response = await fetch(`/api/articles/${encodeURIComponent(id)}`, {
+      method: "PATCH",
+      headers: { "Content-Type": "application/json", "X-CSRF-Token": session.csrfToken },
+      body: JSON.stringify({ title: nextTitle }),
+    });
+    if (!response.ok) throw new Error(`Couldn’t set frontmatter fixture: ${response.status}`);
+  }, { id: articleId, title: injectedTitle });
+  await page.reload();
+  await page.locator("#articles .article-title").filter({ hasText: "Quoted metadata" }).click();
+  await detail.locator(".copy-status").getByText(/pasted Markdown/).waitFor();
+  const injectedDownloadPromise = page.waitForEvent("download");
+  await detail.getByRole("button", { name: "Download Markdown" }).click();
+  const injectedDownload = await injectedDownloadPromise;
+  await injectedDownload.saveAs(path.join(storage, "quoted.md"));
+  const quotedMarkdown = await readFile(path.join(storage, "quoted.md"), "utf8");
+  assert.ok(quotedMarkdown.startsWith(`---\ntitle: ${JSON.stringify(injectedTitle)}\nurl:`), "Quotes, Unicode, and newline frontmatter must remain a single quoted scalar.");
+  assert.equal(quotedMarkdown.slice(quotedMarkdown.indexOf("\n\n", quotedMarkdown.indexOf("\n---\n") + 1) + 2), preservedMarkdown);
+  await page.locator("#detail-dialog .dialog-close button").click();
+  await page.evaluate(async (id) => {
+    const session = await (await fetch("/api/session")).json();
+    const response = await fetch(`/api/articles/${encodeURIComponent(id)}`, {
+      method: "PATCH",
+      headers: { "Content-Type": "application/json", "X-CSRF-Token": session.csrfToken },
+      body: JSON.stringify({ title: "Browser smoke article" }),
+    });
+    if (!response.ok) throw new Error(`Couldn’t restore browser smoke title: ${response.status}`);
+  }, articleId);
+  await page.reload();
+  await title.waitFor();
   await page.setViewportSize({ width: 390, height: 844 });
   assert.equal(await page.evaluate(() => document.documentElement.scrollWidth > innerWidth), false, "Markdown editor must fit a narrow viewport.");
   await page.setViewportSize({ width: 1440, height: 1000 });
-  await page.locator("#detail-dialog .dialog-close button").click();
   await page.getByRole("button", { name: "All", exact: true }).click();
   await article.getByRole("button", { name: "Mark read", exact: true }).click();
   await article

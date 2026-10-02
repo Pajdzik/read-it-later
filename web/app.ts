@@ -1,3 +1,5 @@
+import { markdownDownload, markdownDownloadName, renderMarkdown } from "./markdown.js";
+
 type Article = {
   id: string;
   url: string;
@@ -68,6 +70,7 @@ async function request<T>(path: string, init: RequestInit = {}): Promise<T> {
   if (response.status === 401) {
     stashDraft();
     copyDrafts.clear();
+    discardPrivateContent();
     location.assign("/auth/github");
     throw new Error("Sign in to continue.");
   }
@@ -324,6 +327,13 @@ async function renderCopyEditor(article: Article) {
   section.append(el("p", "Stored as Markdown text. External image links still depend on the source site.", "muted copy-explainer"));
   const status = el("p", "Checking for a saved copy…", "muted copy-status");
   status.setAttribute("aria-live", "polite");
+  const savedActions = el("div", undefined, "saved-copy-actions");
+  const readCopy = el("button", "Read saved copy", "button secondary");
+  readCopy.type = "button";
+  readCopy.hidden = true;
+  const downloadCopy = el("button", "Download Markdown", "button secondary");
+  downloadCopy.type = "button";
+  downloadCopy.hidden = true;
   const label = el("label", "Paste Markdown", "field-label");
   const textarea = el("textarea");
   textarea.rows = 12;
@@ -365,6 +375,26 @@ async function renderCopyEditor(article: Article) {
   const showStatus = (text: string) => {
     status.textContent = text;
   };
+  const showCopyActions = () => {
+    const available = Boolean(saved) && state.selected?.id === article.id && root.contains(section);
+    readCopy.hidden = !available;
+    downloadCopy.hidden = !available;
+  };
+  readCopy.addEventListener("click", () => {
+    if (saved && state.selected?.id === article.id && root.contains(section))
+      openReader(article, saved);
+  });
+  downloadCopy.addEventListener("click", () => {
+    if (!saved || state.selected?.id !== article.id || !root.contains(section)) return;
+    const objectUrl = URL.createObjectURL(markdownDownload(article, saved));
+    const anchor = el("a");
+    anchor.href = objectUrl;
+    anchor.download = markdownDownloadName(article.id);
+    savedActions.append(anchor);
+    anchor.click();
+    anchor.remove();
+    window.setTimeout(() => URL.revokeObjectURL(objectUrl), 1000);
+  });
   const renderGitHubStatus = () => {
     githubCheckbox.disabled = saving || !github?.configured;
     githubRetry.hidden = !github?.configured || !saved;
@@ -472,6 +502,7 @@ async function renderCopyEditor(article: Article) {
         { method: "PUT", body: JSON.stringify({ markdown, source, expectedRevision: saved?.revision ?? null }) },
       );
       saved = result.copy;
+      showCopyActions();
       copyDrafts.delete(article.id);
       const storedBytes = new TextEncoder().encode(saved.markdown).byteLength;
       showStatus(`Saved ${dateLabel(saved.capturedAt)} · ${saved.source === "upload" ? "uploaded file" : "pasted Markdown"} · ${storedBytes.toLocaleString()} UTF-8 bytes`);
@@ -488,7 +519,8 @@ async function renderCopyEditor(article: Article) {
       file.disabled = false;
     }
   });
-  section.append(status, label, fileLabel, githubLabel, githubVisibility, save, githubStatus, githubRetry, message);
+  savedActions.append(readCopy, downloadCopy);
+  section.append(status, savedActions, label, fileLabel, githubLabel, githubVisibility, save, githubStatus, githubRetry, message);
   root.append(section);
   const pendingDraft = copyDrafts.get(article.id);
   if (pendingDraft) {
@@ -500,6 +532,7 @@ async function renderCopyEditor(article: Article) {
     const result = await request<{ copy: ArticleCopy | null }>(`/api/articles/${encodeURIComponent(article.id)}/copy`);
     if (state.selected?.id !== article.id || !root.contains(section)) return;
     saved = result.copy;
+    showCopyActions();
     const pending = copyDrafts.get(article.id);
     if (pending) {
       textarea.value = pending.markdown;
@@ -517,14 +550,68 @@ async function renderCopyEditor(article: Article) {
     await refreshGitHubStatus();
   } catch (error) {
     showStatus("Couldn’t load Markdown copy status.");
+    showCopyActions();
     showError(`Couldn’t load this copy. ${(error as Error).message} Retry by closing and reopening this article.`);
     save.disabled = true;
   }
 }
+function openReader(article: Article, copy: ArticleCopy) {
+  if (state.selected?.id !== article.id) return;
+  const title = $("#reader-title");
+  const author = $("#reader-author");
+  const metadata = $("#reader-metadata");
+  const original = $<HTMLAnchorElement>("#reader-original");
+  const body = $("#reader-body");
+  title.textContent = article.title;
+  author.textContent = article.author ? `By ${article.author}` : "";
+  author.hidden = !article.author;
+  metadata.textContent = `Captured ${dateLabel(copy.capturedAt)} · ${copy.source === "upload" ? "uploaded file" : "pasted Markdown"} · ${sourceHost(article.url)}`;
+  original.href = safeHttpUrl(article.url) || "#";
+  body.replaceChildren(renderMarkdown(copy.markdown, article.url));
+  $<HTMLDialogElement>("#reader-dialog").showModal();
+}
+function clearReader() {
+  const dialog = document.querySelector<HTMLDialogElement>("#reader-dialog");
+  if (!dialog) return;
+  if (dialog.open) dialog.close();
+  $("#reader-body").replaceChildren();
+  $("#reader-title").textContent = "";
+  $("#reader-author").textContent = "";
+  $("#reader-metadata").textContent = "";
+  $<HTMLAnchorElement>("#reader-original").removeAttribute("href");
+}
+function discardPrivateContent() {
+  clearReader();
+  const detailDialog = $<HTMLDialogElement>("#detail-dialog");
+  if (detailDialog.open) detailDialog.close();
+  $("#detail-content").replaceChildren();
+  state.selected = null;
+}
+$("#reader-dialog").addEventListener("close", () => {
+  $("#reader-body").replaceChildren();
+  $("#reader-title").textContent = "";
+  $("#reader-author").textContent = "";
+  $("#reader-metadata").textContent = "";
+  $<HTMLAnchorElement>("#reader-original").removeAttribute("href");
+});
+$("#reader-dialog .reader-close").addEventListener("submit", (event) => {
+  event.preventDefault();
+  clearReader();
+});
+$("#reader-dialog").addEventListener("cancel", (event) => {
+  event.preventDefault();
+  clearReader();
+});
 function openDetail(article: Article) {
+  clearReader();
   renderDetail(article);
   $<HTMLDialogElement>("#detail-dialog").showModal();
 }
+$("#detail-dialog").addEventListener("close", () => {
+  clearReader();
+  $("#detail-content").replaceChildren();
+  state.selected = null;
+});
 async function initialize() {
   try {
     state.session = await request<Session>("/api/session");
@@ -657,6 +744,8 @@ $<HTMLInputElement>("#search").addEventListener("input", (e) => {
 });
 $("#more").addEventListener("click", () => load(false));
 $("#logout").addEventListener("click", async () => {
+  copyDrafts.clear();
+  discardPrivateContent();
   try {
     await request("/auth/logout", { method: "POST" });
     copyDrafts.clear();
