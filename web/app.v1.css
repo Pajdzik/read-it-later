@@ -48,7 +48,8 @@ body {
     sans-serif;
 }
 button,
-input {
+input,
+select {
   font: inherit;
   color: inherit;
 }
@@ -68,9 +69,10 @@ button {
 }
 .topbar {
   height: 76px;
-  display: flex;
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr) auto;
+  gap: 24px;
   align-items: center;
-  justify-content: space-between;
   padding: 0 max(24px, calc((100vw - 1050px) / 2));
   border-bottom: 1px solid var(--line);
   background: var(--white);
@@ -103,7 +105,7 @@ button {
 .top-actions {
   display: flex;
   align-items: center;
-  gap: 12px;
+  gap: 8px;
 }
 .account {
   color: var(--muted);
@@ -117,8 +119,34 @@ button {
   background: transparent;
   font-size: 18px;
 }
-.text-button,
-.link-button {
+.top-actions .icon-button {
+  display: grid;
+  place-items: center;
+  flex: 0 0 44px;
+  width: 44px;
+  height: 44px;
+  padding: 0;
+}
+.top-actions .icon-button:hover {
+  background: var(--mint);
+  border-color: var(--focus);
+}
+.top-actions .add-open {
+  background: var(--mint);
+  color: var(--green);
+}
+.top-actions svg,
+.search svg {
+  width: 20px;
+  height: 20px;
+  flex-shrink: 0;
+  fill: none;
+  stroke: currentColor;
+  stroke-width: 1.7;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+}
+.text-button {
   border: 0;
   background: none;
   color: var(--green);
@@ -273,33 +301,13 @@ button {
   font-size: 14px;
 }
 .library {
-  padding: 30px 2px 0;
-}
-.library-heading {
-  display: flex;
-  justify-content: space-between;
-  align-items: center;
-  gap: 15px;
-}
-.library-actions {
-  display: flex;
-  align-items: center;
-  gap: 10px;
-}
-.add-open {
-  display: inline-flex;
-  align-items: center;
-  gap: 6px;
-}
-.library-heading h2 {
-  margin: 0;
-  font:
-    500 28px Georgia,
-    serif;
-  letter-spacing: -0.4px;
+  padding: 20px 2px 0;
 }
 .search {
-  width: 235px;
+  width: min(100%, 280px);
+  min-width: 0;
+  height: 44px;
+  justify-self: end;
   display: flex;
   align-items: center;
   gap: 9px;
@@ -309,6 +317,9 @@ button {
   color: var(--muted);
   background: var(--white);
 }
+.search:focus-within {
+  border-color: var(--focus);
+}
 .search input {
   border: 0;
   background: transparent;
@@ -316,7 +327,7 @@ button {
   font-size: 13px;
 }
 .list-controls {
-  margin: 21px 0 8px;
+  margin: 0 0 8px;
   display: flex;
   align-items: center;
   justify-content: space-between;
@@ -477,25 +488,6 @@ button {
   align-items: center;
   color: var(--muted);
   font-size: 12px;
-}
-.footer div {
-  display: flex;
-  gap: 6px;
-  align-items: center;
-}
-.link-button {
-  font-size: 12px;
-}
-.import-label {
-  position: relative;
-  cursor: pointer;
-}
-.import-label input {
-  position: absolute;
-  inset: 0;
-  width: 100%;
-  opacity: 0;
-  cursor: pointer;
 }
 .dialog {
   width: min(550px, calc(100% - 30px));
@@ -768,6 +760,23 @@ button {
   font-size: 13px;
   color: var(--muted);
 }
+.settings-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+}
+.settings-row select {
+  border: 1px solid var(--line);
+  border-radius: 9px;
+  background: var(--paper);
+  padding: 8px 12px;
+}
+.settings-library-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
 .token-form label {
   font-size: 12px;
   color: var(--muted);
@@ -838,25 +847,7 @@ button {
     width: 100%;
   }
   .library {
-    padding-top: 24px;
-  }
-  .library-heading {
-    align-items: start;
-    flex-direction: column;
-    gap: 15px;
-  }
-  .library-actions {
-    width: 100%;
-  }
-  .search {
-    flex: 1;
-    width: auto;
-  }
-  .add-open {
-    padding-inline: 12px;
-  }
-  .list-controls {
-    margin-top: 15px;
+    padding-top: 16px;
   }
   .tabs button {
     padding: 9px 12px;
@@ -881,13 +872,25 @@ button {
     flex-direction: column;
     margin-top: 28px;
   }
-  .footer div {
-    padding-left: 0;
-    margin-left: -8px;
-    flex-wrap: wrap;
-  }
   .dialog {
     padding: 20px;
+  }
+}
+@media (max-width: 520px) {
+  .topbar {
+    height: auto;
+    grid-template-columns: 1fr auto;
+    gap: 12px;
+    padding-block: 12px;
+  }
+  .top-actions {
+    grid-column: 2;
+    grid-row: 1;
+  }
+  .search {
+    grid-column: 1 / -1;
+    grid-row: 2;
+    width: 100%;
   }
 }
 @media (prefers-reduced-motion: no-preference) {
