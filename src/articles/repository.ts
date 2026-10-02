@@ -26,6 +26,11 @@ export interface UpdateArticleInput {
 
 export interface SaveArticleCopyInput extends ArticleCopy {}
 
+export interface ImportArticleInput extends Article {
+  normalizedUrl: string;
+  copy?: ArticleCopy;
+}
+
 function mapArticleCopy(row: Record<string, unknown> | null): ArticleCopy | null {
   if (!row) return null;
   return {
@@ -150,20 +155,27 @@ export async function saveArticle(
     "INSERT INTO articles (id,url,normalized_url,title,author,description,created_at,updated_at,read_at) VALUES (?,?,?,?,?,?,?,?,NULL) ON CONFLICT(normalized_url) DO NOTHING RETURNING id,url,title,author,description,created_at,updated_at,read_at",
   ).bind(id, input.url, input.normalizedUrl, insertTitle, input.author ?? null, input.description ?? null, now, now).first<Record<string, unknown>>();
   if (inserted) return { article: mapArticle(inserted)!, duplicate: false, metadataUpdated: false };
-  const existing = await db.prepare("SELECT id,url,title,author,description,created_at,updated_at,read_at FROM articles WHERE normalized_url = ?")
+  const titleCanReplaceFallback = Boolean(input.fallbackTitle && input.title);
+  const updated = await db.prepare(`UPDATE articles SET
+      title = CASE WHEN ? AND title = ? AND title != ? THEN ? ELSE title END,
+      author = COALESCE(author, ?),
+      description = COALESCE(description, ?),
+      updated_at = ?
+    WHERE normalized_url = ? AND (
+      (? AND title = ? AND title != ?) OR
+      (author IS NULL AND ? IS NOT NULL) OR
+      (description IS NULL AND ? IS NOT NULL)
+    )
+    RETURNING id,url,title,author,description,created_at,updated_at,read_at`)
+    .bind(titleCanReplaceFallback ? 1 : 0, input.fallbackTitle ?? "", input.title ?? "", input.title ?? "",
+      input.author ?? null, input.description ?? null, now, input.normalizedUrl,
+      titleCanReplaceFallback ? 1 : 0, input.fallbackTitle ?? "", input.title ?? "", input.author ?? null, input.description ?? null)
+    .first<Record<string, unknown>>();
+  if (updated) return { article: mapArticle(updated)!, duplicate: true, metadataUpdated: true };
+  const current = await db.prepare("SELECT id,url,title,author,description,created_at,updated_at,read_at FROM articles WHERE normalized_url = ?")
     .bind(input.normalizedUrl).first<Record<string, unknown>>();
-  if (!existing) throw new Error("Duplicate article could not be read");
-  const current = mapArticle(existing)!;
-  const updatedTitle = input.fallbackTitle && current.title === input.fallbackTitle && input.title
-    ? input.title
-    : current.title;
-  const author = current.author ?? input.author ?? null;
-  const description = current.description ?? input.description ?? null;
-  const metadataUpdated = updatedTitle !== current.title || author !== current.author || description !== current.description;
-  if (!metadataUpdated) return { article: current, duplicate: true, metadataUpdated: false };
-  await db.prepare("UPDATE articles SET title = ?, author = ?, description = ?, updated_at = ? WHERE id = ?")
-    .bind(updatedTitle, author, description, now, current.id).run();
-  return { article: (await getArticle(db, current.id))!, duplicate: true, metadataUpdated: true };
+  if (!current) throw new Error("Duplicate article could not be read");
+  return { article: mapArticle(current)!, duplicate: true, metadataUpdated: false };
 }
 
 export async function getArticle(db: D1Database, id: string): Promise<Article | null> {
@@ -216,17 +228,73 @@ export async function updateArticle(
   const title = patch.title?.trim() ?? "";
   const hasRead = patch.read !== undefined;
   const read = patch.read === true;
-  await db.prepare(`UPDATE articles SET
+  const row = await db.prepare(`UPDATE articles SET
     title = CASE WHEN ? THEN ? ELSE title END,
     read_at = CASE WHEN ? THEN CASE WHEN ? THEN COALESCE(read_at, ?) ELSE NULL END ELSE read_at END,
     updated_at = CASE WHEN
       (? AND title != ?) OR
       (? AND ((? AND read_at IS NULL) OR (NOT ? AND read_at IS NOT NULL)))
       THEN ? ELSE updated_at END
-    WHERE id = ?`)
+    WHERE id = ?
+    RETURNING id,url,title,author,description,created_at,updated_at,read_at`)
     .bind(hasTitle ? 1 : 0, title, hasRead ? 1 : 0, read ? 1 : 0, now,
-      hasTitle ? 1 : 0, title, hasRead ? 1 : 0, read ? 1 : 0, read ? 1 : 0, now, id).run();
-  return getArticle(db, id);
+      hasTitle ? 1 : 0, title, hasRead ? 1 : 0, read ? 1 : 0, read ? 1 : 0, now, id)
+    .first<Record<string, unknown>>();
+  return mapArticle(row);
+}
+
+export async function importArticles(
+  db: D1Database,
+  articles: ImportArticleInput[],
+): Promise<{ imported: number; skipped: number }> {
+  const existingIds = new Map<string, string>();
+  for (const group of chunks(articles, 80)) {
+    const rows = await db.prepare(`SELECT id, normalized_url FROM articles WHERE id IN (${group.map(() => "?").join(",")})`)
+      .bind(...group.map((item) => item.id)).all<{ id: string; normalized_url: string }>();
+    for (const row of rows.results ?? []) existingIds.set(row.id, row.normalized_url);
+  }
+  const seenUrls = new Set<string>();
+  const toInsert: ImportArticleInput[] = [];
+  let skipped = 0;
+  for (const item of articles) {
+    const idUrl = existingIds.get(item.id);
+    if (idUrl !== undefined && idUrl !== item.normalizedUrl) {
+      throw new ValidationError("an article ID already belongs to a different URL");
+    }
+    if (seenUrls.has(item.normalizedUrl) || idUrl !== undefined) {
+      skipped++;
+      seenUrls.add(item.normalizedUrl);
+      continue;
+    }
+    seenUrls.add(item.normalizedUrl);
+    toInsert.push(item);
+  }
+
+  if (!toInsert.length) return { imported: 0, skipped };
+  const statements: D1PreparedStatement[] = [];
+  for (const item of toInsert) {
+    statements.push(db.prepare(`INSERT INTO articles (id,url,normalized_url,title,author,description,created_at,updated_at,read_at)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?) ON CONFLICT(normalized_url) DO NOTHING`)
+      .bind(item.id, item.url, item.normalizedUrl, item.title, item.author, item.description, item.createdAt, item.updatedAt, item.readAt));
+    if (item.copy) statements.push(db.prepare(`INSERT INTO article_copies (article_id,markdown,captured_at,source,revision)
+      SELECT ?,?,?,?,? WHERE changes() = 1 AND EXISTS (SELECT 1 FROM articles WHERE id = ?)
+      ON CONFLICT(article_id) DO NOTHING`)
+      .bind(item.id, item.copy.markdown, item.copy.capturedAt, item.copy.source, item.copy.revision, item.id));
+  }
+  const results = await db.batch(statements);
+  let imported = 0;
+  let resultIndex = 0;
+  for (const item of toInsert) {
+    const inserted = results[resultIndex++]?.meta.changes ?? 0;
+    imported += inserted;
+    if (item.copy) resultIndex++;
+    if (!inserted) skipped++;
+  }
+  return { imported, skipped };
+}
+
+function* chunks<T>(values: T[], size: number): Generator<T[]> {
+  for (let i = 0; i < values.length; i += size) yield values.slice(i, i + size);
 }
 
 export async function deleteArticle(db: D1Database, id: string): Promise<boolean> {
