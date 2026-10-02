@@ -1,10 +1,10 @@
-# Manual Markdown preservation (A01 decision and A02 design)
+# Markdown preservation and browser capture (A01 decision and A02 design)
 
 ## Decision
 
-The next unimplemented product feature is A02: a private Markdown copy attached to a saved link. The unchecked MVP items have code already; their external release checks remain pending. For A01, select owner-provided Markdown only. Automatic extraction (A04) is deferred because the existing metadata fetch has not proven DNS, redirect, or rebinding protection. No extraction packages, background jobs, paid services, or new storage bindings are needed. No deployed extraction benchmark is claimed.
+For A01, server-side fetching and extraction were deferred because the existing metadata fetch has not proven DNS, redirect, or rebinding protection. A02 now also supports browser-side capture: the user invokes a bookmarklet on the open page; a pinned Defuddle bundle extracts that document locally with `useAsync: false`, and sends editable Markdown to the Potem tab over a one-use origin-checked message. This does not add server fetching, background jobs, paid services, or storage bindings. No deployed server extraction benchmark is claimed.
 
-Owners can paste Markdown or load a UTF-8 `.md`/`.markdown` file in article details. The file fills an editable textarea; saving is explicit. Show whether a copy exists, its capture time, source (paste/upload), and UTF-8 byte size. A failed load or save must preserve the draft and explain how to retry. Existing original-link and read controls keep their behavior. Markdown is editable text in this phase; sanitized reading and download belong to A03. External image URLs are not an offline replica.
+Owners can capture from the desktop bookmarklet, paste Markdown, or load a UTF-8 `.md`/`.markdown` file in article details. The capture is editable and saves only after the user presses Save. For compatibility with the current copy schema, browser clips use the existing `source: "paste"` value. Potem saves the URL first and then creates a copy with `expectedRevision: null`; an existing copy is never replaced silently. The copy checkbox can be cleared to save only the link, and copy failures leave the URL and editable draft intact. A changed URL cannot receive the source page's captured Markdown. Show whether a copy exists, its capture time, source (paste/upload), and UTF-8 byte size. Existing original-link and read controls keep their behavior. Markdown is editable text; sanitized reading and download belong to A03. External image URLs are not an offline replica.
 
 ## Storage and API
 

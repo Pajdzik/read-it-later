@@ -145,6 +145,12 @@
           maxlength="500"
           placeholder="Give it a name"
       /></label>
+      <section id="capture-copy" class="capture-copy" hidden>
+        <label for="capture-markdown" class="field-label">Captured Markdown</label>
+        <textarea id="capture-markdown" rows="10" maxlength="262144" aria-describedby="capture-copy-status"></textarea>
+        <label class="capture-copy-toggle"><input id="capture-copy-enabled" type="checkbox" checked /> Save this Markdown copy</label>
+        <p id="capture-copy-status" class="muted" role="status" aria-live="polite"></p>
+      </section>
       <p id="sign-in-prompt" hidden>
         Sign in to keep your saved links in sync. <a href="/auth/github">Continue with GitHub →</a>
       </p>

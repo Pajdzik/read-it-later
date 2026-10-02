@@ -5,6 +5,7 @@ import os from "node:os";
 import path from "node:path";
 import assert from "node:assert/strict";
 import net from "node:net";
+import { createServer } from "node:http";
 
 const storage = await mkdtemp(path.join(os.tmpdir(), "read-later-smoke-"));
 const portServer = net.createServer();
@@ -14,6 +15,15 @@ await new Promise((resolve, reject) =>
   portServer.close((error) => (error ? reject(error) : resolve())),
 );
 const base = `http://127.0.0.1:${port}`;
+const sourceServer = createServer((request, response) => {
+  const pathname = new URL(request.url, "http://source.invalid").pathname;
+  const title = pathname === "/blocked" ? "Blocked source article" : `Captured ${pathname.slice(1) || "article"}`;
+  if (pathname === "/blocked") response.setHeader("Content-Security-Policy", "default-src 'self'; script-src 'self' 'unsafe-inline'");
+  response.setHeader("Content-Type", "text/html; charset=utf-8");
+  response.end(`<!doctype html><html><head><title>${title}</title><meta name="author" content="Smoke Author"></head><body><nav>Navigation clutter</nav><main><article><h1>${title}</h1><p>This browser clip keeps <strong>important formatting</strong> and source text.</p><pre><code class="language-js">const clipped = true;</code></pre></article></main></body></html>`);
+});
+await new Promise((resolve) => sourceServer.listen(0, "127.0.0.1", resolve));
+const sourceBase = `http://127.0.0.1:${sourceServer.address().port}`;
 const environment = {
   ...process.env,
   CLOUDFLARE_LOAD_DEV_VARS_FROM_DOT_ENV: "false",
@@ -504,10 +514,122 @@ try {
   assert.equal(new URL(page.url()).search, "");
   await page.goto(base + "/capture");
   await page.getByRole("heading", { name: "Desktop bookmarklet" }).waitFor();
-  assert.match(
-    await page.locator("#bookmarklet").getAttribute("href"),
-    /^javascript:/,
-  );
+  const bookmarklet = await page.locator("#bookmarklet").getAttribute("href");
+  assert.match(bookmarklet, /^javascript:/);
+  const captureFrom = async (pathname) => {
+    const source = await context.newPage();
+    const unexpectedRequests = [];
+    source.on("request", (request) => {
+      const url = new URL(request.url());
+      if (![sourceBase, base].includes(url.origin)) unexpectedRequests.push(url.href);
+    });
+    await source.goto(`${sourceBase}${pathname}`);
+    const popupPromise = source.waitForEvent("popup");
+    await source.evaluate((href) => (0, eval)(href.slice("javascript:".length)), bookmarklet);
+    const popup = await popupPromise;
+    await popup.locator("#logout").waitFor();
+    await popup.locator("#add-url").waitFor();
+    return { source, popup, unexpectedRequests };
+  };
+  const [successfulClip] = await Promise.all([captureFrom("/article")]);
+  await successfulClip.popup.locator("#capture-copy").waitFor({ state: "visible" });
+  const capturedText = await successfulClip.popup.locator("#capture-markdown").inputValue();
+  assert.match(capturedText, /important formatting/);
+  assert.doesNotMatch(capturedText, /<p>|<article>/, "Defuddle must return Markdown text rather than source HTML.");
+  assert.equal(await successfulClip.popup.locator("#add-url").inputValue(), `${sourceBase}/article`);
+  await successfulClip.popup.screenshot({ path: "/tmp/potem-browser-capture-desktop.png" });
+  await successfulClip.popup.setViewportSize({ width: 390, height: 844 });
+  assert.equal(await successfulClip.popup.evaluate(() => document.documentElement.scrollWidth > innerWidth), false, "Capture review must fit a narrow viewport.");
+  await successfulClip.popup.screenshot({ path: "/tmp/potem-browser-capture-mobile.png" });
+  await successfulClip.popup.setViewportSize({ width: 1440, height: 1000 });
+  assert.equal(await successfulClip.popup.evaluate(async (url) => (await (await fetch("/api/articles?status=all")).json()).items.some((item) => item.url === url), `${sourceBase}/article`), false, "Opening the handoff must not save before confirmation.");
+  await successfulClip.popup.locator("#add-form button").click();
+  await successfulClip.popup.getByText("Saved for later.").waitFor();
+  let captureArticles = await successfulClip.popup.evaluate(async () => (await (await fetch("/api/articles?status=all")).json()).items);
+  let capturedArticle = captureArticles.find((item) => item.url === `${sourceBase}/article`);
+  assert.ok(capturedArticle, "Confirmed browser capture must save the URL.");
+  let savedClip = await successfulClip.popup.evaluate(async (id) => (await (await fetch(`/api/articles/${id}/copy`)).json()).copy, capturedArticle.id);
+  assert.match(savedClip.markdown, /important formatting/);
+  assert.deepEqual(successfulClip.unexpectedRequests, [], "Browser extraction must not call third-party services.");
+  await successfulClip.source.close();
+  await successfulClip.popup.close();
+
+  const existingUrl = `${sourceBase}/existing`;
+  let protectedCopy = "# Owner's existing copy\n\nKeep these bytes.";
+  const existingFixture = await page.evaluate(async ({ url, markdown }) => {
+    const session = await (await fetch("/api/session")).json();
+    const headers = { "Content-Type": "application/json", "X-CSRF-Token": session.csrfToken };
+    const created = await fetch("/api/articles", { method: "POST", headers, body: JSON.stringify({ url, title: "Existing source copy" }) });
+    const article = (await created.json()).article;
+    const saved = await fetch(`/api/articles/${article.id}/copy`, { method: "PUT", headers, body: JSON.stringify({ markdown, source: "paste", expectedRevision: null }) });
+    if (!saved.ok) throw new Error(`Could not seed existing copy: ${saved.status}`);
+    return article.id;
+  }, { url: existingUrl, markdown: protectedCopy });
+  await page.goto(base + "/capture");
+  const existingCapture = await captureFrom("/existing");
+  await existingCapture.popup.locator("#capture-markdown").waitFor();
+  await existingCapture.popup.locator("#add-form button").click();
+  await existingCapture.popup.locator("#add-notice").getByText(/Link saved\. Markdown copy was not changed/).waitFor();
+  assert.equal(await existingCapture.popup.locator("#add-dialog").evaluate((dialog) => dialog.open), true, "A copy conflict should keep the draft open for a choice.");
+  let stillProtected = await existingCapture.popup.evaluate(async (id) => (await (await fetch(`/api/articles/${id}/copy`)).json()).copy, existingFixture);
+  assert.equal(stillProtected.markdown, protectedCopy, "Capture must never replace an existing copy silently.");
+  await existingCapture.popup.locator("#capture-copy-enabled").uncheck();
+  await existingCapture.popup.locator("#add-form button").click();
+  await existingCapture.popup.locator("#add-dialog").waitFor({ state: "hidden" });
+  stillProtected = await existingCapture.popup.evaluate(async (id) => (await (await fetch(`/api/articles/${id}/copy`)).json()).copy, existingFixture);
+  assert.equal(stillProtected.markdown, protectedCopy);
+  await existingCapture.source.close();
+  await existingCapture.popup.close();
+
+  const retryClip = await captureFrom("/retry");
+  await retryClip.popup.locator("#capture-markdown").waitFor();
+  let failOneCopySave = true;
+  await retryClip.popup.route("**/api/articles/*/copy", async (route) => {
+    if (route.request().method() === "PUT" && failOneCopySave) {
+      failOneCopySave = false;
+      await route.fulfill({ status: 503, contentType: "application/json", body: JSON.stringify({ error: { message: "Simulated capture copy failure" } }) });
+    } else await route.continue();
+  });
+  await retryClip.popup.locator("#add-form button").click();
+  await retryClip.popup.locator("#add-notice").getByText(/Simulated capture copy failure/).waitFor();
+  assert.equal(await retryClip.popup.locator("#capture-markdown").inputValue(), capturedText, "A failed copy write must retain the editable draft.");
+  await retryClip.popup.reload();
+  await retryClip.popup.locator("#capture-copy").waitFor({ state: "visible" });
+  assert.equal(await retryClip.popup.locator("#capture-markdown").inputValue(), capturedText, "The captured draft must survive reload.");
+  await retryClip.popup.locator("#add-form button").click();
+  await retryClip.popup.locator("#add-dialog").waitFor({ state: "hidden" });
+  captureArticles = await retryClip.popup.evaluate(async () => (await (await fetch("/api/articles?status=all")).json()).items);
+  capturedArticle = captureArticles.find((item) => item.url === `${sourceBase}/retry`);
+  savedClip = await retryClip.popup.evaluate(async (id) => (await (await fetch(`/api/articles/${id}/copy`)).json()).copy, capturedArticle.id);
+  assert.match(savedClip.markdown, /important formatting/);
+  await retryClip.source.close();
+  await retryClip.popup.close();
+
+  const changedClip = await captureFrom("/changed");
+  await changedClip.popup.locator("#capture-copy").waitFor({ state: "visible" });
+  await changedClip.popup.locator("#add-url").fill(`${sourceBase}/another-page`);
+  assert.equal(await changedClip.popup.locator("#capture-copy").isHidden(), true, "A changed URL must detach the source copy.");
+  await changedClip.popup.locator("#add-form button").click();
+  await changedClip.popup.getByText(/captured Markdown was not attached because the URL changed/).waitFor();
+  captureArticles = await changedClip.popup.evaluate(async () => (await (await fetch("/api/articles?status=all")).json()).items);
+  capturedArticle = captureArticles.find((item) => item.url === `${sourceBase}/another-page`);
+  assert.ok(capturedArticle);
+  assert.equal((await changedClip.popup.evaluate(async (id) => (await (await fetch(`/api/articles/${id}/copy`)).json()).copy, capturedArticle.id)), null);
+  await changedClip.source.close();
+  await changedClip.popup.close();
+
+  const blockedClip = await captureFrom("/blocked");
+  await blockedClip.popup.locator("#add-notice").getByText(/blocked the extractor/).waitFor();
+  assert.equal(await blockedClip.popup.locator("#add-url").inputValue(), `${sourceBase}/blocked`, "Extraction failure must retain the URL.");
+  assert.equal(await blockedClip.popup.locator("#capture-copy").isHidden(), true);
+  await blockedClip.popup.locator("#add-form button").click();
+  await blockedClip.popup.getByText("Saved for later.").waitFor();
+  captureArticles = await blockedClip.popup.evaluate(async () => (await (await fetch("/api/articles?status=all")).json()).items);
+  capturedArticle = captureArticles.find((item) => item.url === `${sourceBase}/blocked`);
+  assert.ok(capturedArticle);
+  assert.equal((await blockedClip.popup.evaluate(async (id) => (await (await fetch(`/api/articles/${id}/copy`)).json()).copy, capturedArticle.id)), null);
+  await blockedClip.source.close();
+  await blockedClip.popup.close();
   const cachedPaths = await page.evaluate(async () => {
     const paths = [];
     for (const name of await caches.keys()) {
@@ -541,4 +663,5 @@ try {
     if (server.exitCode === null) server.kill("SIGKILL");
   }
   await rm(storage, { recursive: true, force: true });
+  await new Promise((resolve) => sourceServer.close(resolve));
 }

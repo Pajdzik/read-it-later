@@ -13,6 +13,7 @@ type Article = {
 type Session = { authenticated: boolean; csrfToken?: string };
 type Page = { items: Article[]; nextCursor: string | null };
 type ArticleCopy = { markdown: string; capturedAt: string; source: "paste" | "upload"; revision: string };
+type BrowserCaptureDraft = { sourceUrl: string; title: string; markdown: string };
 type GitHubBackupStatus = {
   configured: boolean; message?: string; repository?: string; branch?: string;
   path?: string; url?: string; state?: "not_saved" | "saved" | "outdated"; backedUpAt?: string;
@@ -29,6 +30,7 @@ const state = {
   selected: null as Article | null,
 };
 const copyDrafts = new Map<string, { markdown: string; source: "paste" | "upload" }>();
+let browserCaptureDraft: BrowserCaptureDraft | null = null;
 const list = $("#articles"),
   notice = $("#notice"),
   empty = $("#empty"),
@@ -663,16 +665,48 @@ async function initialize() {
 }
 function recoverDraft() {
   const raw = sessionStorage.getItem("later-add-draft");
-  if (!raw) return;
-  try {
+  if (raw) try {
     const d = JSON.parse(raw);
-    $<HTMLInputElement>("#add-url").value = d.url || "";
-    $<HTMLInputElement>("#add-title").value = d.title || "";
+    if (!$<HTMLInputElement>("#add-url").value) $<HTMLInputElement>("#add-url").value = d.url || "";
+    if (!$<HTMLInputElement>("#add-title").value) $<HTMLInputElement>("#add-title").value = d.title || "";
     showNotice("Your unsaved link is back. Save it when you’re ready.");
     if (!$<HTMLDialogElement>("#add-dialog").open)
       $<HTMLDialogElement>("#add-dialog").showModal();
   } catch {}
+  try {
+    const capture = sessionStorage.getItem("later-browser-capture-draft");
+    if (!capture) return;
+    const draft = JSON.parse(capture) as BrowserCaptureDraft;
+    if (safeHttpUrl(draft.sourceUrl) && draft.markdown && new TextEncoder().encode(draft.markdown).byteLength <= 262144) {
+      browserCaptureDraft = draft;
+      if ($<HTMLInputElement>("#add-url").value.trim() === draft.sourceUrl) restoreBrowserCaptureDraft();
+    }
+  } catch {}
 }
+function restoreBrowserCaptureDraft() {
+  if (!browserCaptureDraft) return;
+  if ($<HTMLInputElement>("#add-url").value.trim() !== browserCaptureDraft.sourceUrl) return;
+  $<HTMLTextAreaElement>("#capture-markdown").value = browserCaptureDraft.markdown;
+  $<HTMLInputElement>("#capture-copy-enabled").checked = true;
+  $<HTMLElement>("#capture-copy").hidden = false;
+  $("#add-dialog .add-heading p").textContent = "Review the link and captured Markdown before saving.";
+  $("#capture-copy-status").textContent = "Review the captured Markdown. Saving a copy is enabled; uncheck it to save the link only.";
+  if (!$<HTMLDialogElement>("#add-dialog").open) $<HTMLDialogElement>("#add-dialog").showModal();
+}
+$<HTMLInputElement>("#add-url").addEventListener("input", () => {
+  stashDraft();
+  if (browserCaptureDraft) {
+    const matches = $<HTMLInputElement>("#add-url").value.trim() === browserCaptureDraft.sourceUrl;
+    $<HTMLElement>("#capture-copy").hidden = !matches;
+    if (!matches) $("#capture-copy-status").textContent = "The link changed. This captured copy will not be attached to it.";
+  }
+});
+$<HTMLInputElement>("#add-title").addEventListener("input", stashDraft);
+$<HTMLTextAreaElement>("#capture-markdown").addEventListener("input", () => {
+  if (!browserCaptureDraft) return;
+  browserCaptureDraft.markdown = $<HTMLTextAreaElement>("#capture-markdown").value;
+  sessionStorage.setItem("later-browser-capture-draft", JSON.stringify(browserCaptureDraft));
+});
 $("#add-open").addEventListener("click", () => {
   $<HTMLDialogElement>("#add-dialog").showModal();
   $("#add-notice").hidden = true;
@@ -687,6 +721,9 @@ $("#add-form").addEventListener("submit", async (e) => {
   }
   const url = $<HTMLInputElement>("#add-url").value.trim(),
     title = $<HTMLInputElement>("#add-title").value.trim();
+  const captured = browserCaptureDraft && url === browserCaptureDraft.sourceUrl
+    ? browserCaptureDraft
+    : null;
   const button = $<HTMLButtonElement>("#add-form button");
   button.disabled = true;
   try {
@@ -698,21 +735,62 @@ $("#add-form").addEventListener("submit", async (e) => {
         body: JSON.stringify({ url, ...(title ? { title } : {}) }),
       },
     );
-    $<HTMLInputElement>("#add-url").value = "";
-    $<HTMLInputElement>("#add-title").value = "";
-    sessionStorage.removeItem("later-add-draft");
-    $<HTMLDialogElement>("#add-dialog").close();
+    const copyEnabled = captured && $<HTMLInputElement>("#capture-copy-enabled").checked;
+    let copySaveError = "";
+    if (copyEnabled) {
+      const markdown = $<HTMLTextAreaElement>("#capture-markdown").value;
+      const bytes = new TextEncoder().encode(markdown).byteLength;
+      if (!markdown.trim() || bytes > 262144) copySaveError = "The Markdown copy is empty or exceeds the 256 KiB limit.";
+      else try {
+        await request<{ copy: ArticleCopy }>(`/api/articles/${encodeURIComponent(result.article.id)}/copy`, {
+          method: "PUT",
+          body: JSON.stringify({ markdown, source: "paste", expectedRevision: null }),
+        });
+      } catch (error) {
+        copySaveError = (error as Error).message;
+      }
+    }
+    const copyNotAttached = Boolean(browserCaptureDraft && !captured);
+    const copySkipped = Boolean(captured && !copyEnabled);
+    if (!copySaveError) {
+      $<HTMLInputElement>("#add-url").value = "";
+      $<HTMLInputElement>("#add-title").value = "";
+      sessionStorage.removeItem("later-add-draft");
+      if (browserCaptureDraft) {
+        browserCaptureDraft = null;
+        sessionStorage.removeItem("later-browser-capture-draft");
+        $<HTMLElement>("#capture-copy").hidden = true;
+        $<HTMLTextAreaElement>("#capture-markdown").value = "";
+        $("#add-dialog .add-heading p").textContent = "Paste a link and we’ll keep your place.";
+      }
+    } else {
+      stashDraft();
+    }
+    if (!copySaveError) $<HTMLDialogElement>("#add-dialog").close();
     state.status = "all";
     document
       .querySelectorAll<HTMLButtonElement>("[data-status]")
       .forEach((b) =>
         b.setAttribute("aria-pressed", String(b.dataset.status === "all")),
       );
-    showNotice(
-      result.duplicate
+    if (copySaveError) {
+      const addNotice = $("#add-notice");
+      addNotice.textContent = `Link saved. Markdown copy was not changed: ${copySaveError} Your draft remains here. Uncheck “Save this Markdown copy” to save the link only.`;
+      addNotice.classList.add("error");
+      addNotice.hidden = false;
+    } else showNotice(
+      copyNotAttached
+          ? "Link saved. The captured Markdown was not attached because the URL changed."
+          : copySkipped
+            ? "Link saved. Markdown copy was left out by your choice."
+      : result.duplicate
         ? result.metadataUpdated ? "Preview details updated." : "That link is already in your list."
         : "Saved for later.",
     );
+    if (copySaveError) {
+      await load();
+      return;
+    }
     await load();
   } catch (err) {
     const addNotice = $("#add-notice");
@@ -745,6 +823,9 @@ $<HTMLInputElement>("#search").addEventListener("input", (e) => {
 $("#more").addEventListener("click", () => load(false));
 $("#logout").addEventListener("click", async () => {
   copyDrafts.clear();
+  browserCaptureDraft = null;
+  sessionStorage.removeItem("later-browser-capture-draft");
+  sessionStorage.removeItem("later-add-draft");
   discardPrivateContent();
   try {
     await request("/auth/logout", { method: "POST" });
@@ -945,6 +1026,41 @@ if (
     );
   if (!$<HTMLDialogElement>("#add-dialog").open)
     $<HTMLDialogElement>("#add-dialog").showModal();
+}
+const captureChannel = params.get("capture");
+if (location.pathname === "/add" && captureChannel) {
+  let sourceOrigin = "";
+  try { sourceOrigin = new URL(params.get("url") || "").origin; } catch {}
+  history.replaceState({}, "", "/add");
+  let channel: string | null = captureChannel;
+  const onCapture = (event: MessageEvent) => {
+    if (!channel || !sourceOrigin || event.source !== window.opener || event.origin !== sourceOrigin || event.data?.type !== "potem-capture" || event.data.channel !== channel) return;
+    let sourceUrl: URL;
+    try { sourceUrl = new URL(event.data.sourceUrl); } catch { return; }
+    if ((sourceUrl.protocol !== "http:" && sourceUrl.protocol !== "https:") || sourceUrl.origin !== event.origin || sourceUrl.href !== $<HTMLInputElement>("#add-url").value.trim()) return;
+    const markdown = typeof event.data.markdown === "string" ? event.data.markdown : "";
+    const bytes = new TextEncoder().encode(markdown).byteLength;
+    const invalidCopy = Boolean(markdown && (bytes > 262144 || !markdown.trim()));
+    const title = typeof event.data.sourceTitle === "string" ? event.data.sourceTitle.slice(0, 500) : "";
+    channel = null;
+    removeEventListener("message", onCapture);
+    window.opener = null;
+    if (markdown && !invalidCopy) {
+      browserCaptureDraft = { sourceUrl: sourceUrl.href, title, markdown };
+      sessionStorage.setItem("later-browser-capture-draft", JSON.stringify(browserCaptureDraft));
+      $<HTMLInputElement>("#add-title").value = title;
+      stashDraft();
+      restoreBrowserCaptureDraft();
+    } else {
+      const error = invalidCopy ? "The captured Markdown is empty or exceeds 256 KiB." : typeof event.data.error === "string" ? event.data.error.slice(0, 500) : "Article extraction failed.";
+      const notice = $("#add-notice");
+      notice.textContent = `The link is ready. ${error} Save the link, then use the Markdown paste fallback in article details if needed.`;
+      notice.classList.add("error");
+      notice.hidden = false;
+    }
+  };
+  addEventListener("message", onCapture);
+  if (window.opener && sourceOrigin) window.opener.postMessage({ type: "potem-ready", channel: captureChannel }, sourceOrigin);
 }
 if ("serviceWorker" in navigator)
   addEventListener("load", () =>
