@@ -102,6 +102,8 @@ Export format is `{version: 2, exportedAt, articles: [...]}`; each article may i
 
 Import accepts up to 1 MiB and 1,000 articles. It validates the complete input and uses a transactional D1 batch. New records retain IDs/dates and copies; existing normalized URLs are skipped without attaching their incoming copies; IDs already associated with different URLs are rejected. Older exports without author/description remain accepted. A full export can exceed the import bound, as before; split large restores into valid files. Import is a restore/merge operation, not an overwrite or rollback mechanism. Keep exports outside Cloudflare and test restores in a separate database.
 
+To rehearse a downloaded backup without changing the file or contacting production, run `pnpm archive:rehearse --backup /absolute/path/export.json --report /absolute/path/report.json`. The count/byte report includes local database size, never private article content or production headroom. See the [archive rehearsal guide](docs/archive-rehearsal.md) for limits, cleanup, and the pending deployed release checks.
+
 ## Markdown preservation
 
 Article details let the owner paste Markdown or load a UTF-8 `.md`/`.markdown` file. Saving is explicit, replacements use revision checks, and each copy is limited to 256 KiB UTF-8. The editor shows capture time, source, and byte count; failed saves keep the draft. The original link and read state remain independent.
@@ -132,9 +134,10 @@ pnpm test
 pnpm build
 pnpm exec playwright install chromium
 pnpm test:browser
+pnpm test:archive
 ```
 
-`check` checks the preserved prototype's JavaScript syntax; `typecheck` checks Worker and browser TypeScript. Tests run against local Worker/D1 bindings and apply real migrations. `build` bundles assets and dry-runs deployment. Browser smoke uses temporary D1 storage and an ephemeral port to exercise persisted read state, capture drafts, errors, and desktop/mobile layouts. Chromium must be installed, or supplied through `BROWSER_EXECUTABLE`.
+`check` checks the preserved prototype's JavaScript syntax; `typecheck` checks Worker and browser TypeScript. Tests run against local Worker/D1 bindings and apply real migrations. `build` bundles assets and dry-runs deployment. Browser smoke uses temporary D1 storage and an ephemeral port to exercise persisted read state, capture drafts, errors, and desktop/mobile layouts. Archive rehearsal restores a representative export into a second fresh local D1 database, reconciles all fields, verifies idempotent imports, and reads/downloads restored copies with external requests blocked. Chromium must be installed, or supplied through `BROWSER_EXECUTABLE`.
 
 ## Deployment and operations
 

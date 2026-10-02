@@ -53,6 +53,9 @@ jobs:
       - name: Run browser smoke test
         run: pnpm test:browser
 
+      - name: Rehearse archive restoration
+        run: pnpm test:archive
+
   deploy-production:
     name: Deploy production
     needs: verify
