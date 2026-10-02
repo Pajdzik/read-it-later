@@ -4,7 +4,8 @@ FROM node:22-alpine
 
 ENV NODE_ENV=production \
     HOST=0.0.0.0 \
-    PORT=3055
+    PORT=3055 \
+    PROTOTYPE_PROJECT_ROOT=/app
 
 WORKDIR /app
 
