@@ -35,13 +35,4 @@ export interface ArticleCursor {
   id: string;
 }
 
-export function errorResponse(
-  status: number,
-  code: string,
-  message: string,
-): Response {
-  return Response.json({ error: { code, message } } satisfies ApiError, {
-    status,
-    headers: { "Cache-Control": "private, no-store" },
-  });
-}
+export { errorResponse } from './http.js';

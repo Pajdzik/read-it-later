@@ -1,5 +1,6 @@
 import type { Article, ArticleCopy, Env } from '../contracts.js';
 import { errorResponse } from '../contracts.js';
+import { exceptionResponse, jsonResponse, logUnexpectedError, PRIVATE_HEADERS } from '../http.js';
 import { deleteArticle, getArticle, getArticleCopy, listArticles, listArticlesForExport, saveArticle, saveArticleCopy, updateArticle } from './repository.js';
 import {
   BodyTooLargeError, defaultTitle, MAX_IMPORT_BYTES, MAX_IMPORT_ITEMS, MAX_TITLE_LENGTH,
@@ -8,16 +9,13 @@ import {
 import { isResponse, requireSession, validateCaptureToken } from '../auth/core.js';
 import { fetchArticleMetadata } from './metadata.js';
 
-const PRIVATE = { 'Cache-Control': 'private, no-store', 'Pragma': 'no-cache' };
+const PRIVATE = PRIVATE_HEADERS;
 type ImportArticle = Article;
 const MAX_COPY_BYTES = 256 * 1024;
 const MAX_COPY_ENVELOPE_BYTES = 2 * 1024 * 1024;
 
 function fail(status: number, code: string, message: string): Response { return errorResponse(status, code, message); }
-function json(value: unknown, status = 200, headers: HeadersInit = {}): Response {
-  return Response.json(value, { status, headers: { ...PRIVATE, ...headers } });
-}
-function storageFailure(): Response { return fail(503, 'storage_unavailable', 'The service is temporarily unavailable. Please retry.'); }
+const storageError = { status: 503, code: 'storage_unavailable', message: 'The service is temporarily unavailable. Please retry.' };
 
 export async function handleArticles(request: Request, env: Env): Promise<Response | null> {
   const url = new URL(request.url); const method = request.method.toUpperCase();
@@ -26,7 +24,7 @@ export async function handleArticles(request: Request, env: Env): Promise<Respon
   if (!isArticlePath && url.pathname !== '/api/export' && url.pathname !== '/api/import') return null;
   const needsWrite = method !== 'GET';
   let session: Awaited<ReturnType<typeof requireSession>>;
-  try { session = await requireSession(request, env, needsWrite); } catch { return storageFailure(); }
+  try { session = await requireSession(request, env, needsWrite); } catch (error) { return exceptionResponse(error, 'articles.auth', storageError); }
   if (isResponse(session)) return session;
   try {
     if (url.pathname === '/api/articles' && method === 'POST') return await createArticle(request, env);
@@ -40,7 +38,7 @@ export async function handleArticles(request: Request, env: Env): Promise<Respon
       if (!id || id.length > 128) return fail(400, 'invalid_request', 'Article ID is invalid.');
       if (method === 'GET') {
         const article = await getArticle(env.DB, id);
-        return article ? json({ article }) : fail(404, 'not_found', 'Article not found.');
+        return article ? jsonResponse({ article }) : fail(404, 'not_found', 'Article not found.');
       }
       if (method === 'PATCH') return await patchArticle(request, env, id);
       if (method === 'DELETE') { await deleteArticle(env.DB, id); return new Response(null, { status: 204, headers: PRIVATE }); }
@@ -52,15 +50,13 @@ export async function handleArticles(request: Request, env: Env): Promise<Respon
       if (!id || id.length > 128) return fail(400, 'invalid_request', 'Article ID is invalid.');
       if (method === 'GET') {
         if (!(await getArticle(env.DB, id))) return fail(404, 'not_found', 'Article not found.');
-        return json({ copy: await getArticleCopy(env.DB, id) });
+        return jsonResponse({ copy: await getArticleCopy(env.DB, id) });
       }
       if (method === 'PUT') return await putArticleCopy(request, env, id);
     }
     return null;
   } catch (error) {
-    if (error instanceof BodyTooLargeError) return fail(413, 'body_too_large', error.message);
-    if (error instanceof ValidationError) return fail(400, 'invalid_request', error.message);
-    return storageFailure();
+    return exceptionResponse(error, 'articles.request', storageError);
   }
 }
 
@@ -81,7 +77,7 @@ async function putArticleCopy(request: Request, env: Env, id: string): Promise<R
   const result = await saveArticleCopy(env.DB, id, copy, expectedRevision as string | null);
   if (result === 'missing') return fail(404, 'not_found', 'Article not found.');
   if (result === 'conflict') return fail(409, 'revision_conflict', 'This copy changed since you opened it. Reload it before replacing.');
-  return json({ copy });
+  return jsonResponse({ copy });
 }
 
 async function createArticle(request: Request, env: Env): Promise<Response> {
@@ -95,20 +91,18 @@ async function createArticle(request: Request, env: Env): Promise<Response> {
     ...normalized, title, fallbackTitle: suppliedTitle ? undefined : fallbackTitle,
     author: metadata.author, description: metadata.description,
   });
-  return json(result, result.duplicate ? 200 : 201);
+  return jsonResponse(result, result.duplicate ? 200 : 201);
 }
 
 async function capture(request: Request, env: Env): Promise<Response> {
   if (request.headers.has('Cookie') || request.headers.has('Origin')) return fail(403, 'forbidden', 'Capture requests must use a bearer token without browser credentials.');
   let auth: Awaited<ReturnType<typeof validateCaptureToken>>;
-  try { auth = await validateCaptureToken(request, env); } catch { return storageFailure(); }
+  try { auth = await validateCaptureToken(request, env); } catch (error) { return exceptionResponse(error, 'articles.capture_auth', storageError); }
   if (isResponse(auth)) return auth;
   try {
     return await createArticle(request, env);
   } catch (error) {
-    if (error instanceof BodyTooLargeError) return fail(413, 'body_too_large', error.message);
-    if (error instanceof ValidationError) return fail(400, 'invalid_request', error.message);
-    return storageFailure();
+    return exceptionResponse(error, 'articles.capture', storageError);
   }
 }
 
@@ -125,7 +119,7 @@ async function listRoute(url: URL, env: Env): Promise<Response> {
   if (!Number.isInteger(limit) || limit < 1 || limit > 100) throw new ValidationError('limit must be an integer from 1 to 100');
   const cursor = url.searchParams.get('cursor') || undefined;
   if (cursor && cursor.length > 2048) throw new ValidationError('cursor is invalid');
-  return json(await listArticles(env.DB, { status, q, limit, cursor }));
+  return jsonResponse(await listArticles(env.DB, { status, q, limit, cursor }));
 }
 
 async function patchArticle(request: Request, env: Env, id: string): Promise<Response> {
@@ -141,7 +135,7 @@ async function patchArticle(request: Request, env: Env, id: string): Promise<Res
     patch.title = title;
   }
   const article = await updateArticle(env.DB, id, patch);
-  return article ? json({ article }) : fail(404, 'not_found', 'Article not found.');
+  return article ? jsonResponse({ article }) : fail(404, 'not_found', 'Article not found.');
 }
 
 async function exportArticles(env: Env): Promise<Response> {
@@ -168,7 +162,10 @@ async function exportArticles(env: Env): Promise<Response> {
         }
         controller.enqueue(encoder.encode(']}'));
         controller.close();
-      } catch { controller.error(new Error('Export could not be completed')); }
+      } catch {
+        logUnexpectedError('articles.export_stream');
+        controller.error(new Error('Export could not be completed'));
+      }
     },
   });
   return new Response(stream, { status: 200, headers: {
@@ -248,7 +245,7 @@ async function importArticles(request: Request, env: Env): Promise<Response> {
       if (!inserted) skipped++;
     }
   }
-  return json({ imported, skipped }, 200);
+  return jsonResponse({ imported, skipped }, 200);
 }
 
 function validTimestamp(value: unknown, field: string): string {
