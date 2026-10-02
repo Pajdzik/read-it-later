@@ -56,6 +56,9 @@ jobs:
       - name: Rehearse archive restoration
         run: pnpm test:archive
 
+      - name: Test Obsidian conversion and local restore
+        run: pnpm test:obsidian
+
   deploy-production:
     name: Deploy production
     needs: verify
