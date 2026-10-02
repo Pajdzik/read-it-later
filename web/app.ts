@@ -11,6 +11,10 @@ type Article = {
 type Session = { authenticated: boolean; csrfToken?: string };
 type Page = { items: Article[]; nextCursor: string | null };
 type ArticleCopy = { markdown: string; capturedAt: string; source: "paste" | "upload"; revision: string };
+type GitHubBackupStatus = {
+  configured: boolean; message?: string; repository?: string; branch?: string;
+  path?: string; url?: string; state?: "not_saved" | "saved" | "outdated"; backedUpAt?: string;
+};
 const $ = <T extends HTMLElement = HTMLElement>(selector: string): T =>
   document.querySelector<T>(selector)!;
 const state = {
@@ -337,7 +341,20 @@ async function renderCopyEditor(article: Article) {
   message.setAttribute("role", "status");
   const save = el("button", "Save Markdown copy", "button primary");
   save.type = "button";
+  const githubLabel = el("label", undefined, "github-option");
+  const githubCheckbox = el("input");
+  githubCheckbox.type = "checkbox";
+  githubCheckbox.disabled = true;
+  githubLabel.append(githubCheckbox, document.createTextNode("Also save to GitHub"));
+  const githubStatus = el("p", "Checking GitHub destination…", "muted copy-status");
+  githubStatus.setAttribute("aria-live", "polite");
+  const githubVisibility = el("p", "GitHub copies follow the repository’s visibility. Unsaved drafts stay here until you save.", "muted copy-explainer");
+  const githubRetry = el("button", "Save saved copy to GitHub", "button secondary");
+  githubRetry.type = "button";
+  githubRetry.hidden = true;
   let saved: ArticleCopy | null = null;
+  let github: GitHubBackupStatus | null = null;
+  let saving = false;
   let source: ArticleCopy["source"] = "paste";
   save.disabled = true;
   const showError = (text: string) => {
@@ -348,6 +365,60 @@ async function renderCopyEditor(article: Article) {
   const showStatus = (text: string) => {
     status.textContent = text;
   };
+  const renderGitHubStatus = () => {
+    githubCheckbox.disabled = saving || !github?.configured;
+    githubRetry.hidden = !github?.configured || !saved;
+    githubRetry.disabled = saving;
+    githubStatus.replaceChildren();
+    if (!github?.configured) {
+      githubStatus.textContent = github?.message || "Couldn’t load GitHub settings. Reopen this article to retry.";
+      return;
+    }
+    const label = github.state === "saved" ? `Saved to GitHub ${dateLabel(github.backedUpAt!)}. `
+      : github.state === "outdated" ? "GitHub has an older saved copy or article details. " : "Not saved to GitHub yet. ";
+    githubStatus.append(document.createTextNode(label));
+    const destination = `${github.repository} · ${github.branch} · ${github.path}`;
+    const url = github.url && safeHttpUrl(github.url);
+    if (url && github.state !== "not_saved") {
+      const link = el("a", destination);
+      link.href = url;
+      link.target = "_blank";
+      link.rel = "noopener noreferrer";
+      githubStatus.append(link);
+    } else githubStatus.append(document.createTextNode(destination));
+  };
+  const refreshGitHubStatus = async () => {
+    try {
+      const result = await request<{ backup: GitHubBackupStatus }>(`/api/articles/${encodeURIComponent(article.id)}/github`);
+      if (state.selected?.id !== article.id || !root.contains(section)) return;
+      github = result.backup;
+    } catch { github = null; }
+    renderGitHubStatus();
+  };
+  const saveToGitHub = async () => {
+    if (!saved) return;
+    githubStatus.textContent = "Saving to GitHub…";
+    try {
+      const result = await request<{ backup: GitHubBackupStatus }>(`/api/articles/${encodeURIComponent(article.id)}/github`, {
+        method: "POST", body: JSON.stringify({ expectedRevision: saved.revision }),
+      });
+      github = result.backup;
+      renderGitHubStatus();
+      if (github.state === "outdated") showError("GitHub received the saved copy, but this article changed meanwhile. Reload it and save again.");
+      else showNotice("Markdown copy saved to GitHub.");
+    } catch (error) {
+      await refreshGitHubStatus();
+      showError(`Your Markdown copy is saved in Potem. Couldn’t save to GitHub. ${(error as Error).message} Use “Save saved copy to GitHub” to retry.`);
+    }
+  };
+  githubRetry.addEventListener("click", async () => {
+    saving = true;
+    save.disabled = true;
+    renderGitHubStatus();
+    message.hidden = true;
+    try { await saveToGitHub(); }
+    finally { saving = false; save.disabled = false; renderGitHubStatus(); }
+  });
   file.addEventListener("change", async () => {
     const selected = file.files?.[0];
     if (!selected) return;
@@ -388,6 +459,9 @@ async function renderCopyEditor(article: Article) {
       return;
     }
     if (saved && !confirm("Replace the saved Markdown copy with this draft?")) return;
+    const alsoSaveToGitHub = githubCheckbox.checked;
+    saving = true;
+    renderGitHubStatus();
     save.disabled = true;
     textarea.disabled = true;
     file.disabled = true;
@@ -402,15 +476,19 @@ async function renderCopyEditor(article: Article) {
       const storedBytes = new TextEncoder().encode(saved.markdown).byteLength;
       showStatus(`Saved ${dateLabel(saved.capturedAt)} · ${saved.source === "upload" ? "uploaded file" : "pasted Markdown"} · ${storedBytes.toLocaleString()} UTF-8 bytes`);
       showNotice("Markdown copy saved.");
+      if (alsoSaveToGitHub) await saveToGitHub();
+      else await refreshGitHubStatus();
     } catch (error) {
       showError(`Couldn’t save the Markdown copy. ${(error as Error).message} Your draft is still here; retry when ready.`);
     } finally {
+      saving = false;
+      renderGitHubStatus();
       save.disabled = false;
       textarea.disabled = false;
       file.disabled = false;
     }
   });
-  section.append(status, label, fileLabel, save, message);
+  section.append(status, label, fileLabel, githubLabel, githubVisibility, save, githubStatus, githubRetry, message);
   root.append(section);
   const pendingDraft = copyDrafts.get(article.id);
   if (pendingDraft) {
@@ -436,6 +514,7 @@ async function renderCopyEditor(article: Article) {
       showStatus("No Markdown copy saved yet.");
     }
     save.disabled = false;
+    await refreshGitHubStatus();
   } catch (error) {
     showStatus("Couldn’t load Markdown copy status.");
     showError(`Couldn’t load this copy. ${(error as Error).message} Retry by closing and reopening this article.`);

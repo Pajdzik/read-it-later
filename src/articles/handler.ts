@@ -8,6 +8,7 @@ import {
 } from './validation.js';
 import { isResponse, requireSession, validateCaptureToken } from '../auth/core.js';
 import { fetchArticleMetadata } from './metadata.js';
+import { getGitHubBackupStatus, GitHubBackupError, saveGitHubBackup } from './github.js';
 
 const PRIVATE = PRIVATE_HEADERS;
 type ImportArticle = Article;
@@ -20,7 +21,7 @@ const storageError = { status: 503, code: 'storage_unavailable', message: 'The s
 export async function handleArticles(request: Request, env: Env): Promise<Response | null> {
   const url = new URL(request.url); const method = request.method.toUpperCase();
   if (url.pathname === '/api/capture' && method === 'POST') return capture(request, env);
-  const isArticlePath = url.pathname === '/api/articles' || /^\/api\/articles\/[^/]+(?:\/copy)?$/.test(url.pathname);
+  const isArticlePath = url.pathname === '/api/articles' || /^\/api\/articles\/[^/]+(?:\/copy|\/github)?$/.test(url.pathname);
   if (!isArticlePath && url.pathname !== '/api/export' && url.pathname !== '/api/import') return null;
   const needsWrite = method !== 'GET';
   let session: Awaited<ReturnType<typeof requireSession>>;
@@ -31,6 +32,22 @@ export async function handleArticles(request: Request, env: Env): Promise<Respon
     if (url.pathname === '/api/articles' && method === 'GET') return await listRoute(url, env);
     if (url.pathname === '/api/export' && method === 'GET') return await exportArticles(env);
     if (url.pathname === '/api/import' && method === 'POST') return await importArticles(request, env);
+    const githubRoute = /^\/api\/articles\/([^/]+)\/github$/.exec(url.pathname);
+    if (githubRoute) {
+      let id: string;
+      try { id = decodeURIComponent(githubRoute[1]); } catch { return fail(400, 'invalid_request', 'Article ID is invalid.'); }
+      if (!id || id.length > 128) return fail(400, 'invalid_request', 'Article ID is invalid.');
+      if (method === 'GET') {
+        const article = await getArticle(env.DB, id);
+        if (!article) return fail(404, 'not_found', 'Article not found.');
+        return jsonResponse({ backup: await getGitHubBackupStatus(env, article, await getArticleCopy(env.DB, id)) });
+      }
+      if (method === 'POST') {
+        const input = parseObject(await readJson(request), ['expectedRevision'], ['expectedRevision']);
+        if (typeof input.expectedRevision !== 'string' || !/^[A-Za-z0-9_-]{1,128}$/.test(input.expectedRevision)) throw new ValidationError('expectedRevision must be a valid saved copy revision');
+        return jsonResponse(await saveGitHubBackup(env, id, input.expectedRevision));
+      }
+    }
     const detail = /^\/api\/articles\/([^/]+)$/.exec(url.pathname);
     if (detail) {
       let id: string;
@@ -56,6 +73,7 @@ export async function handleArticles(request: Request, env: Env): Promise<Respon
     }
     return null;
   } catch (error) {
+    if (error instanceof GitHubBackupError) return fail(error.status, error.code, error.message);
     return exceptionResponse(error, 'articles.request', storageError);
   }
 }
