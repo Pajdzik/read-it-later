@@ -299,7 +299,7 @@ async function verifyReader(base: string, envelope: BackupEnvelope, temporary: s
       const title = row.locator(".article-title");
       const originalReadClass = await row.getAttribute("class");
       const articleBefore = await (await api(base, `/api/articles/${encodeURIComponent(sample.id)}`)).json();
-      await title.click();
+      await row.getByRole("button", { name: "Edit", exact: true }).click();
       diagnosticStage = "reader open";
       const detail = page.locator("#detail-content");
       await detail.getByRole("button", { name: "Read saved copy", exact: true }).waitFor();

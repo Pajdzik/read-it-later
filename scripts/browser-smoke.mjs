@@ -25,7 +25,7 @@ const sourceServer = createServer((request, response) => {
   const title = pathname === "/blocked" ? "Blocked source article" : `Captured ${pathname.slice(1) || "article"}`;
   if (pathname === "/blocked") response.setHeader("Content-Security-Policy", "default-src 'self'; script-src 'self' 'unsafe-inline'");
   response.setHeader("Content-Type", "text/html; charset=utf-8");
-  response.end(`<!doctype html><html><head><title>${title}</title><meta name="author" content="Smoke Author"></head><body><nav>Navigation clutter</nav><main><article><h1>${title}</h1><p>This browser clip keeps <strong>important formatting</strong> and source text.</p><pre><code class="language-js">const clipped = true;</code></pre></article></main></body></html>`);
+  response.end(`<!doctype html><html><head><title>${title}</title><meta name="author" content="Smoke Author"><meta name="description" content="A useful lead for the browser reader smoke test."></head><body><nav>Navigation clutter</nav><main><article><h1>${title}</h1><p>This browser clip keeps <strong>important formatting</strong> and source text.</p><pre><code class="language-js">const clipped = true;</code></pre></article></main></body></html>`);
 });
 await new Promise((resolve) => sourceServer.listen(0, "127.0.0.1", resolve));
 const sourceBase = `http://127.0.0.1:${sourceServer.address().port}`;
@@ -230,7 +230,7 @@ try {
   await page.reload();
   await page.locator("#logout").waitFor();
   await title.waitFor();
-  await title.click();
+  await article.getByRole("button", { name: "Edit", exact: true }).click();
   await page.locator("#detail-content .copy-status").getByText(/uploaded file/).waitFor();
   assert.equal(await page.locator("#detail-content").getByRole("textbox", { name: "Markdown copy" }).inputValue(), uploadedMarkdown, "Uploaded Markdown must survive reload.");
   await detail.getByText(/Not saved to GitHub yet/).waitFor();
@@ -255,7 +255,7 @@ try {
   await page.locator("#detail-dialog .dialog-close button").click();
   await page.reload();
   await title.waitFor();
-  await title.click();
+  await article.getByRole("button", { name: "Edit", exact: true }).click();
   await detail.getByText(/Saved to GitHub/).waitFor();
   assert.equal(await githubCheckbox.isChecked(), false);
   assert.equal(await markdown.inputValue(), "# GitHub checkbox copy\n\nStill saved if GitHub fails.");
@@ -288,15 +288,100 @@ try {
   await detail.getByRole("button", { name: "Save Markdown copy" }).click();
   await detail.locator(".copy-status").getByText(/pasted Markdown/).waitFor();
   const articleId = await article.getAttribute("data-id");
+  const entryFixture = await page.evaluate(async ({ url }) => {
+    const session = await (await fetch("/api/session")).json();
+    const headers = { "Content-Type": "application/json", "X-CSRF-Token": session.csrfToken };
+    const created = await fetch("/api/articles", {
+      method: "POST", headers,
+      body: JSON.stringify({ url, title: "Reader entry smoke" }),
+    });
+    if (!created.ok) throw new Error(`Couldn’t create reader-entry fixture: ${created.status}`);
+    const { article: item } = await created.json();
+    const saved = await fetch(`/api/articles/${encodeURIComponent(item.id)}/copy`, {
+      method: "PUT", headers,
+      body: JSON.stringify({ markdown: "# Reader entry copy\n\nRendered from the saved copy.", source: "paste", expectedRevision: null }),
+    });
+    if (!saved.ok) throw new Error(`Couldn’t save reader-entry fixture: ${saved.status}`);
+    return { id: item.id };
+  }, { url: `${sourceBase}/reader-entry-smoke` });
+  await page.reload();
+  await page.locator("#logout").waitFor();
+  const entryArticle = page.locator(".article").filter({ hasText: "Reader entry smoke" });
+  const entryTitle = entryArticle.getByRole("button", { name: "Reader entry smoke", exact: true });
+  await entryTitle.waitFor();
+  const entryActions = entryArticle.locator(".article-actions");
+  const entryRead = entryActions.getByRole("button", { name: "Mark read", exact: true });
+  const entryEdit = entryActions.getByRole("button", { name: "Edit", exact: true });
+  const entryOriginal = entryActions.getByRole("link", { name: "Open original" });
+  const assertActionRow = async () => {
+    assert.equal(await entryActions.locator("button, a").count(), 3, "Open original, Mark read, and Edit must share one action container.");
+    const centers = await Promise.all([entryRead, entryEdit, entryOriginal].map(async (control) => {
+      const bounds = await control.boundingBox();
+      assert.ok(bounds, "Each article action must be visible.");
+      return bounds.y + bounds.height / 2;
+    }));
+    assert.ok(Math.max(...centers) - Math.min(...centers) <= 3, "Article actions must stay on one row.");
+  };
+  const entryReadState = await page.evaluate(async (id) => (await (await fetch(`/api/articles/${id}`)).json()).article.readAt, entryFixture.id);
+  await page.setViewportSize({ width: 1440, height: 1000 });
+  await assertActionRow();
+  await page.screenshot({ path: "/tmp/potem-article-actions-desktop.png" });
+  await entryTitle.click();
+  const reader = page.locator("#reader-dialog");
+  await reader.getByRole("heading", { name: "Reader entry smoke" }).waitFor();
+  await reader.locator("#reader-body").getByText("Rendered from the saved copy.").waitFor();
+  assert.equal(await page.evaluate(async (id) => (await (await fetch(`/api/articles/${id}`)).json()).article.readAt, entryFixture.id), entryReadState, "Opening a title must not change read state.");
+  await reader.getByRole("button", { name: "Close saved copy" }).click();
+  const entryLead = entryArticle.getByRole("button", { name: "Read saved copy of Reader entry smoke" });
+  await entryLead.waitFor();
+  await page.setViewportSize({ width: 390, height: 844 });
+  await assertActionRow();
+  await page.screenshot({ path: "/tmp/potem-article-actions-mobile.png" });
+  await entryLead.click();
+  await reader.getByRole("heading", { name: "Reader entry smoke" }).waitFor();
+  await reader.locator("#reader-body").getByText("Rendered from the saved copy.").waitFor();
+  assert.equal(await page.evaluate(async (id) => (await (await fetch(`/api/articles/${id}`)).json()).article.readAt, entryFixture.id), entryReadState, "Opening a lead must not change read state.");
+  await reader.getByRole("button", { name: "Close saved copy" }).click();
+  const removeEntryFixture = await page.evaluate(async (id) => {
+    const session = await (await fetch("/api/session")).json();
+    const response = await fetch(`/api/articles/${encodeURIComponent(id)}`, { method: "DELETE", headers: { "X-CSRF-Token": session.csrfToken } });
+    return response.status;
+  }, entryFixture.id);
+  assert.equal(removeEntryFixture, 204, "Reader-entry fixture should be removed after the regression check.");
+  await page.setViewportSize({ width: 1440, height: 1000 });
+  await page.reload();
+  await page.locator("#logout").waitFor();
+  await title.waitFor();
+  let releasePendingCopy;
+  let signalPendingCopy;
+  const pendingCopyStarted = new Promise((resolve) => { signalPendingCopy = resolve; });
+  const pendingCopyRelease = new Promise((resolve) => { releasePendingCopy = resolve; });
+  let delayedCopyRead = false;
+  await page.route(`**/api/articles/${articleId}/copy`, async (route) => {
+    if (route.request().method() === "GET" && !delayedCopyRead) {
+      delayedCopyRead = true;
+      signalPendingCopy();
+      await pendingCopyRelease;
+    }
+    await route.continue();
+  });
+  await title.click();
+  await pendingCopyStarted;
+  await article.getByRole("button", { name: "Edit", exact: true }).click();
+  releasePendingCopy();
+  await detail.getByRole("textbox", { name: "Markdown copy" }).waitFor();
+  await detail.locator(".copy-status").getByText(/pasted Markdown/).waitFor();
+  assert.equal(await page.locator("#reader-dialog").isHidden(), true, "Opening Edit during a pending title read must suppress the stale reader.");
+  await page.unroute(`**/api/articles/${articleId}/copy`);
+  await page.locator("#detail-dialog .dialog-close button").click();
   const readStateBefore = await page.evaluate(async (id) => (await (await fetch(`/api/articles/${id}`)).json()).article.readAt, articleId);
   let imageMarkerRequests = 0;
   page.on("request", (request) => {
     if (request.url().includes("image-marker.invalid")) imageMarkerRequests++;
   });
-  const originalUrl = await detail.locator(".detail-url").getAttribute("href");
+  const originalUrl = await article.locator(".original-link").getAttribute("href");
   await page.route(originalUrl, (route) => route.abort());
-  await detail.getByRole("button", { name: "Read saved copy" }).click();
-  const reader = page.locator("#reader-dialog");
+  await title.click();
   await reader.getByRole("heading", { name: "Browser smoke article" }).waitFor();
   const readerBody = reader.locator("#reader-body");
   await readerBody.getByRole("heading", { name: "Preserved copy — Ω" }).waitFor();
@@ -337,6 +422,8 @@ try {
   await page.setViewportSize({ width: 1440, height: 1000 });
   await reader.getByRole("button", { name: "Close saved copy" }).click();
   assert.equal(await reader.locator("#reader-body").textContent(), "", "Closing the reader must discard its private DOM.");
+  await article.getByRole("button", { name: "Edit", exact: true }).click();
+  await detail.locator(".copy-status").getByText(/pasted Markdown/).waitFor();
   await detail.getByRole("textbox", { name: "Markdown copy" }).fill("Unsaved draft stays in the editor.");
   const downloadButton = detail.getByRole("button", { name: "Download Markdown" });
   assert.equal(await downloadButton.isVisible(), true, "A successfully loaded copy should enable its download action.");
@@ -357,7 +444,7 @@ try {
   await page.locator("#detail-dialog .dialog-close button").click();
   await page.reload();
   await title.waitFor();
-  await title.click();
+  await article.getByRole("button", { name: "Edit", exact: true }).click();
   await detail.locator(".copy-status").getByText(/pasted Markdown/).waitFor();
   await detail.getByRole("button", { name: "Read saved copy" }).click();
   await readerBody.getByRole("heading", { name: "Preserved copy — Ω" }).waitFor();
@@ -386,7 +473,7 @@ try {
     if (!response.ok) throw new Error(`Couldn’t set frontmatter fixture: ${response.status}`);
   }, { id: articleId, title: injectedTitle });
   await page.reload();
-  await page.locator("#articles .article-title").filter({ hasText: "Quoted metadata" }).click();
+  await page.locator(".article").filter({ hasText: "Quoted metadata" }).getByRole("button", { name: "Edit", exact: true }).click();
   await detail.locator(".copy-status").getByText(/pasted Markdown/).waitFor();
   const injectedDownloadPromise = page.waitForEvent("download");
   await detail.getByRole("button", { name: "Download Markdown" }).click();
@@ -418,7 +505,7 @@ try {
   await page.reload();
   await page.getByRole("button", { name: "Read", exact: true }).click();
   await title.waitFor();
-  await title.click();
+  await article.getByRole("button", { name: "Edit", exact: true }).click();
   await page.route("**/api/articles/*", async (route) => {
     if (route.request().method() === "PATCH")
       await route.fulfill({
@@ -814,12 +901,10 @@ try {
   await urlPage.reload();
   await urlPage.locator("#logout").waitFor();
   await urlPage.getByRole("button", { name: "Captured pasted-url", exact: true }).click();
-  await urlPage.getByRole("button", { name: "Read saved copy", exact: true }).click();
   await urlReader.locator("#reader-body strong").getByText("important formatting").waitFor();
   const persistedCopy = await urlPage.evaluate(async (id) => (await (await fetch(`/api/articles/${id}/copy`)).json()).copy, pastedArticle);
   assert.deepEqual(persistedCopy, pastedCopy, "Reload must preserve the exact copy and revision.");
   await urlReader.getByRole("button", { name: "Close saved copy" }).click();
-  await urlPage.locator("#detail-dialog .dialog-close button").click();
   await urlPage.locator("#add-open").click();
   await urlPage.locator("#add-url").fill(`${sourceBase}/unavailable`);
   await urlPage.locator("#add-form button").click();
