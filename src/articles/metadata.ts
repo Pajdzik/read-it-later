@@ -1,3 +1,5 @@
+import { parseHTML } from 'linkedom';
+
 const MAX_HTML_BYTES = 512 * 1024;
 const MAX_TITLE = 500;
 const MAX_AUTHOR = 200;
@@ -47,10 +49,17 @@ export function parseArticleMetadata(html: string): ArticleMetadata {
     const label = meta.get(`twitter:label${index}`);
     if (label && /author|written\s+by|byline/i.test(label)) socialAuthor = meta.get(`twitter:data${index}`);
   }
+  const description = meta.get("og:description") || meta.get("twitter:description") || meta.get("description");
+  let lead: string | undefined;
+  if (!description) {
+    const { document } = parseHTML(html);
+    const content = document.querySelector("article, main, [role='main'], .content, .article-content, .post-content") ?? document.body;
+    lead = clean(content.querySelector("p")?.textContent || undefined, MAX_DESCRIPTION);
+  }
   return {
     title: clean(meta.get("og:title") || meta.get("twitter:title") || titleTag, MAX_TITLE),
     author: clean(meta.get("author") || meta.get("article:author") || socialAuthor, MAX_AUTHOR),
-    description: clean(meta.get("og:description") || meta.get("twitter:description") || meta.get("description"), MAX_DESCRIPTION),
+    description: clean(description, MAX_DESCRIPTION) || lead,
   };
 }
 
