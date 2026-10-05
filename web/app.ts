@@ -510,7 +510,7 @@ async function renderCopyEditor(article: Article) {
       showCopyActions();
       copyDrafts.delete(article.id);
       const storedBytes = new TextEncoder().encode(saved.markdown).byteLength;
-      showStatus(`Saved ${dateLabel(saved.capturedAt)} · ${saved.source === "upload" ? "uploaded file" : "pasted Markdown"} · ${storedBytes.toLocaleString()} UTF-8 bytes`);
+      showStatus(`Saved ${dateLabel(saved.capturedAt)} · ${saved.source === "upload" ? "uploaded file" : "captured or pasted Markdown"} · ${storedBytes.toLocaleString()} UTF-8 bytes`);
       showNotice("Markdown copy saved.");
       if (alsoSaveToGitHub) await saveToGitHub();
       else await refreshGitHubStatus();
@@ -547,7 +547,7 @@ async function renderCopyEditor(article: Article) {
       textarea.value = saved.markdown;
       source = saved.source;
       const bytes = new TextEncoder().encode(saved.markdown).byteLength;
-      showStatus(`Saved ${dateLabel(saved.capturedAt)} · ${saved.source === "upload" ? "uploaded file" : "pasted Markdown"} · ${bytes.toLocaleString()} UTF-8 bytes`);
+      showStatus(`Saved ${dateLabel(saved.capturedAt)} · ${saved.source === "upload" ? "uploaded file" : "captured or pasted Markdown"} · ${bytes.toLocaleString()} UTF-8 bytes`);
     } else {
       showStatus("No Markdown copy saved yet.");
     }
@@ -570,7 +570,7 @@ function openReader(article: Article, copy: ArticleCopy) {
   title.textContent = article.title;
   author.textContent = article.author ? `By ${article.author}` : "";
   author.hidden = !article.author;
-  metadata.textContent = `Captured ${dateLabel(copy.capturedAt)} · ${copy.source === "upload" ? "uploaded file" : "pasted Markdown"} · ${sourceHost(article.url)}`;
+  metadata.textContent = `Captured ${dateLabel(copy.capturedAt)} · ${copy.source === "upload" ? "uploaded file" : "captured or pasted Markdown"} · ${sourceHost(article.url)}`;
   original.href = safeHttpUrl(article.url) || "#";
   body.replaceChildren(renderMarkdown(copy.markdown, article.url));
   $<HTMLDialogElement>("#reader-dialog").showModal();
@@ -598,6 +598,7 @@ $("#reader-dialog").addEventListener("close", () => {
   $("#reader-author").textContent = "";
   $("#reader-metadata").textContent = "";
   $<HTMLAnchorElement>("#reader-original").removeAttribute("href");
+  if (!$<HTMLDialogElement>("#detail-dialog").open) state.selected = null;
 });
 $("#reader-dialog .reader-close").addEventListener("submit", (event) => {
   event.preventDefault();
@@ -649,6 +650,7 @@ async function initialize() {
     const form = $("#add-form");
     form.hidden = true;
     $(".title-option").hidden = true;
+    $("#add-url-copy-option").hidden = true;
     $("#sign-in-prompt").className = "sign-in-prompt";
     $("#sign-in-prompt").hidden = false;
     $("#sign-in-prompt a").addEventListener("click", stashDraft);
@@ -696,6 +698,7 @@ function restoreBrowserCaptureDraft() {
   $<HTMLInputElement>("#capture-copy-enabled").checked = true;
   $<HTMLInputElement>("#capture-github-enabled").checked = false;
   $<HTMLElement>("#capture-copy").hidden = false;
+  $("#add-url-copy-option").hidden = true;
   $("#add-dialog .add-heading p").textContent = "Review the link and captured Markdown before saving.";
   $("#capture-copy-status").textContent = "Review the captured Markdown. Saving a copy is enabled; uncheck it to save the link only.";
   const retry = $<HTMLButtonElement>("#capture-github-retry");
@@ -751,6 +754,8 @@ function finishBrowserCaptureDraft() {
   sessionStorage.removeItem("later-browser-capture-draft");
   sessionStorage.removeItem("later-add-draft");
   $<HTMLElement>("#capture-copy").hidden = true;
+  $("#add-url-copy-option").hidden = !state.session?.authenticated;
+  $<HTMLInputElement>("#add-capture-markdown").checked = true;
   $<HTMLTextAreaElement>("#capture-markdown").value = "";
   $<HTMLTextAreaElement>("#capture-markdown").disabled = false;
   $<HTMLInputElement>("#add-url").value = "";
@@ -763,7 +768,7 @@ function finishBrowserCaptureDraft() {
   $<HTMLButtonElement>("#capture-github-retry").hidden = true;
   $<HTMLButtonElement>("#capture-github-retry").disabled = false;
   $<HTMLButtonElement>("#capture-github-done").hidden = true;
-  $("#add-dialog .add-heading p").textContent = "Paste a link and we’ll keep your place.";
+  $("#add-dialog .add-heading p").textContent = "Paste a link to save the article and a readable Markdown copy.";
 }
 function finishPendingBrowserCapture() {
   finishBrowserCaptureDraft();
@@ -861,13 +866,18 @@ $("#add-form").addEventListener("submit", async (e) => {
   if (captured?.savedCopyRevision) return;
   const button = $<HTMLButtonElement>("#add-form button");
   button.disabled = true;
+  const captureFromUrl = !browserCaptureDraft && $<HTMLInputElement>("#add-capture-markdown").checked;
+  const addNotice = $("#add-notice");
+  addNotice.classList.remove("error");
+  addNotice.textContent = captureFromUrl ? "Saving the article and capturing Markdown…" : "Saving…";
+  addNotice.hidden = false;
   try {
     invalidateLoads();
-    const result = await request<{ article: Article; duplicate: boolean; metadataUpdated?: boolean }>(
+    const result = await request<{ article: Article; duplicate: boolean; metadataUpdated?: boolean; copy?: ArticleCopy | null; copyCaptureError?: string }>(
       "/api/articles",
       {
         method: "POST",
-        body: JSON.stringify({ url, ...(title ? { title } : {}) }),
+        body: JSON.stringify({ url, ...(title ? { title } : {}), ...(captureFromUrl ? { captureMarkdown: true } : {}) }),
       },
     );
     const copyEnabled = captured && $<HTMLInputElement>("#capture-copy-enabled").checked;
@@ -944,6 +954,11 @@ $("#add-form").addEventListener("submit", async (e) => {
       addNotice.classList.add("error");
       addNotice.hidden = false;
     } else showNotice(
+      result.copyCaptureError
+        ? `Link saved. Markdown was not saved: ${result.copyCaptureError}`
+        : result.copy
+          ? result.duplicate ? "That article is already saved with its Markdown copy." : "Article and Markdown copy saved."
+          :
       copyNotAttached
           ? pendingCopyLeftBehind
             ? "Link saved. The previous Markdown copy remains on its original article; this new link has no copy or GitHub backup."
@@ -957,12 +972,17 @@ $("#add-form").addEventListener("submit", async (e) => {
       : result.duplicate
         ? result.metadataUpdated ? "Preview details updated." : "That link is already in your list."
         : "Saved for later.",
+      Boolean(result.copyCaptureError),
     );
     if (copySaveError || githubSaveError) {
       await load();
       return;
     }
     await load();
+    if (captureFromUrl && result.copy) {
+      state.selected = result.article;
+      openReader(result.article, result.copy);
+    }
   } catch (err) {
     const addNotice = $("#add-notice");
     addNotice.textContent = `Couldn’t save this link. ${(err as Error).message}`;
@@ -1197,6 +1217,10 @@ if (
 }
 const captureChannel = params.get("capture");
 if (location.pathname === "/add" && captureChannel) {
+  // This flow saves the source tab's reviewed clip (or just its link on failure).
+  // Do not silently replace a blocked bookmarklet with a different server capture.
+  $("#add-url-copy-option").hidden = true;
+  $<HTMLInputElement>("#add-capture-markdown").checked = false;
   let sourceOrigin = "";
   try { sourceOrigin = new URL(params.get("url") || "").origin; } catch {}
   history.replaceState({}, "", "/add");

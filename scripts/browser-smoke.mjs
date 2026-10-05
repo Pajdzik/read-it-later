@@ -17,6 +17,11 @@ await new Promise((resolve, reject) =>
 const base = `http://127.0.0.1:${port}`;
 const sourceServer = createServer((request, response) => {
   const pathname = new URL(request.url, "http://source.invalid").pathname;
+  if (pathname === "/unavailable") {
+    response.writeHead(403, { "Content-Type": "text/plain" });
+    response.end("Source unavailable");
+    return;
+  }
   const title = pathname === "/blocked" ? "Blocked source article" : `Captured ${pathname.slice(1) || "article"}`;
   if (pathname === "/blocked") response.setHeader("Content-Security-Policy", "default-src 'self'; script-src 'self' 'unsafe-inline'");
   response.setHeader("Content-Type", "text/html; charset=utf-8");
@@ -155,6 +160,7 @@ try {
     .locator("#add-url")
     .fill("https://example.com/browser-smoke?utm_source=smoke");
   await page.locator("#add-title").fill("Browser smoke article");
+  await page.locator("#add-capture-markdown").uncheck();
   await page.locator("#add-form button").click();
   const title = page.getByRole("button", {
     name: "Browser smoke article",
@@ -782,6 +788,45 @@ try {
   assert.equal((await blockedClip.popup.evaluate(async (id) => (await (await fetch(`/api/articles/${id}/copy`)).json()).copy, capturedArticle.id)), null);
   await blockedClip.source.close();
   await blockedClip.popup.close();
+
+  const urlContext = await browser.newContext({ viewport: { width: 1440, height: 1000 } });
+  const urlPage = await urlContext.newPage();
+  urlPage.on("pageerror", (error) => errors.push(error.message));
+  await urlPage.goto(base);
+  await urlPage.locator("#logout").waitFor();
+  await urlPage.locator("#add-open").click();
+  assert.equal(await urlPage.locator("#add-capture-markdown").isChecked(), true, "Pasted URLs should capture Markdown by default.");
+  await urlPage.locator("#add-url").fill(`${sourceBase}/pasted-url`);
+  await urlPage.locator("#add-form button").click();
+  const urlReader = urlPage.locator("#reader-dialog");
+  await urlReader.waitFor({ state: "visible" });
+  await urlReader.locator("#reader-body strong").getByText("important formatting").waitFor();
+  assert.equal(await urlReader.locator("pre code").textContent(), "const clipped = true;\n");
+  assert.equal(await urlReader.locator("img, script, iframe").count(), 0);
+  await urlPage.screenshot({ path: path.join(os.tmpdir(), "potem-pasted-url-reader-desktop.png") });
+  await urlPage.setViewportSize({ width: 390, height: 844 });
+  await urlPage.screenshot({ path: path.join(os.tmpdir(), "potem-pasted-url-reader-mobile.png") });
+  assert.equal(await urlPage.evaluate(() => document.documentElement.scrollWidth > innerWidth), false);
+  const pastedArticle = await urlPage.locator(".article").filter({ hasText: "Captured pasted-url" }).getAttribute("data-id");
+  const pastedCopy = await urlPage.evaluate(async (id) => (await (await fetch(`/api/articles/${id}/copy`)).json()).copy, pastedArticle);
+  assert.ok(pastedCopy.markdown.includes("**important formatting**"), "The server must store Markdown, not raw HTML.");
+  await urlReader.getByRole("button", { name: "Close saved copy" }).click();
+  await urlPage.reload();
+  await urlPage.locator("#logout").waitFor();
+  await urlPage.getByRole("button", { name: "Captured pasted-url", exact: true }).click();
+  await urlPage.getByRole("button", { name: "Read saved copy", exact: true }).click();
+  await urlReader.locator("#reader-body strong").getByText("important formatting").waitFor();
+  const persistedCopy = await urlPage.evaluate(async (id) => (await (await fetch(`/api/articles/${id}/copy`)).json()).copy, pastedArticle);
+  assert.deepEqual(persistedCopy, pastedCopy, "Reload must preserve the exact copy and revision.");
+  await urlReader.getByRole("button", { name: "Close saved copy" }).click();
+  await urlPage.locator("#detail-dialog .dialog-close button").click();
+  await urlPage.locator("#add-open").click();
+  await urlPage.locator("#add-url").fill(`${sourceBase}/unavailable`);
+  await urlPage.locator("#add-form button").click();
+  await urlPage.locator("#notice").getByText(/Link saved\. Markdown was not saved/).waitFor();
+  assert.equal(await urlReader.isHidden(), true, "A failed capture must not open an empty reader.");
+  await urlPage.getByRole("button", { name: "127.0.0.1/unavailable", exact: true }).waitFor();
+  await urlContext.close();
   const cachedPaths = await page.evaluate(async () => {
     const paths = [];
     for (const name of await caches.keys()) {

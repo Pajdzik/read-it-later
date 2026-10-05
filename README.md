@@ -2,7 +2,7 @@
 
 **Potem** means “later” in Polish. It is a private, single-owner article inbox: send a URL from your desktop or phone, open the original document when ready, and explicitly mark it read. The website uses the lowercase **potem.** wordmark with two bookmarks forming a pause symbol: save your place and read later.
 
-The current service stores links, article metadata, read state, and optional owner-provided Markdown copies. The repository also retains the original Node.js Markdown-reader prototype.
+The current service stores links, article metadata, read state, and Markdown copies captured from URLs or provided by the owner. The repository also retains the original Node.js Markdown-reader prototype.
 
 ## Product decisions
 
@@ -38,6 +38,8 @@ Both the authenticated Add form and token capture API use the same save path. UR
 
 Saving makes a best-effort metadata request to the source page. It reads at most 512 KiB of HTML with a 4.5-second timeout and extracts title, author, and description from common HTML/social metadata. A supplied title takes precedence; otherwise use extracted metadata, then a hostname/path fallback. Fetch failures, blocked pages, non-HTML documents, and missing metadata still permit saving the link. This request is not a preserved article copy, does not render JavaScript, and does not use the owner's browser cookies.
 
+The website Add form now enables **Save a Markdown copy of the article** by default. Its authenticated save request includes `captureMarkdown: true`: the same bounded source request supplies HTML to Defuddle, the URL is committed first, then the extracted Markdown is saved in D1 and opened in the sanitized reader. Uncheck the option for a link-only save. Extraction does not execute page scripts or use third-party fallback APIs. Incomplete HTML, unavailable/non-HTML sources, empty content, oversized Markdown, and copy-storage failures leave the link saved and report that the copy was not saved. Adding the URL again retries a missing copy; existing copies and their revisions are preserved. Capture tokens remain link-only and cannot request or receive copies. See [URL Markdown capture](docs/url-markdown-capture.md).
+
 A unique SQL constraint handles concurrent duplicate saves. Duplicates keep their ID, saved date, and read state. A subsequent save can fill missing author/description or replace the generated fallback title; it preserves an edited title and reports whether metadata changed.
 
 ### Database and state
@@ -70,7 +72,7 @@ An explicit local authentication bypass works only on the configured loopback or
 
 | Method | Behavior |
 | --- | --- |
-| Website | Open Add, paste a URL and optional title, then save using the owner session |
+| Website | Open Add, paste a URL and optional title, then save the link and an extracted Markdown copy using the owner session |
 | Desktop bookmarklet | Extracts the open page into an editable Markdown draft in `/add`; review and confirm in the website |
 | iOS Shortcut | POSTs one URL and optional title to `/api/capture` with a save-only bearer token |
 | Installed PWA | Supported browsers open `/add` from shared URL/title/text; review and confirm |
@@ -111,7 +113,7 @@ To recover GitHub Markdown backups offline, run `pnpm github:convert --source /a
 
 ## Markdown preservation
 
-Article details let the owner paste Markdown or load a UTF-8 `.md`/`.markdown` file. Saving is explicit, replacements use revision checks, and each copy is limited to 256 KiB UTF-8. The editor shows capture time, source, and byte count; failed saves keep the draft. The original link and read state remain independent.
+Pasting a URL in Add captures a Markdown copy by default and displays it after saving. Article details also let the owner paste Markdown or load a UTF-8 `.md`/`.markdown` file, read the saved copy, or download it. Saving is explicit, replacements use revision checks, and each copy is limited to 256 KiB UTF-8. The editor shows capture time, source, and byte count; failed saves keep the draft. The original link and read state remain independent.
 
 Check **Also save to GitHub** in the browser capture dialog or article details to additionally commit the saved Markdown with source/capture frontmatter. Production targets `Pajdzik/Kamilpedia`, branch `main`, at `Articles/<article-id>.md`. Kamilpedia is public, so checked copies are public there. The checkbox starts unchecked and requires a separate server-side `GITHUB_BACKUP_TOKEN` secret with repository Contents write permission. Capture saves the URL, then the Markdown, then optionally the saved copy to GitHub. Link-only saves, changed URLs, and failed copy saves do not publish the captured content. D1 stays authoritative; GitHub failure leaves the D1 copy intact and offers a retry of the saved copy without rewriting it. Destination/status, conflict handling, configuration, and recovery are documented in the [GitHub Markdown guide](docs/github-markdown.md).
 

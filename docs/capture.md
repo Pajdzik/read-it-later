@@ -2,6 +2,12 @@
 
 Potem accepts links from the Add form, desktop bookmarklet, iOS Shortcut, and (in supported installed browsers) the PWA share target. Every capture is a draft until you confirm it in the website, except the iOS Shortcut, which posts directly to the capture API.
 
+## Paste a URL
+
+Open **Add**, paste the article URL, and choose **Save link**. **Save a Markdown copy of the article** starts checked: Potem extracts the source HTML, saves a private copy, and opens it in the reader. Uncheck the option to save only the link. After reloading, open the article and choose **Read saved copy** or **Download Markdown**.
+
+If the source blocks access, requires JavaScript/login, is not HTML, or exceeds the capture limits, the URL remains saved and a message explains that Markdown was not saved. Adding the same URL again retries a missing copy without duplicating the article or replacing an existing copy. For pages accessible only in your browser, use the bookmarklet or paste/upload Markdown in article details. See [capture limits and behavior](url-markdown-capture.md).
+
 ## Desktop bookmarklet
 
 1. Sign in to Potem and open **Capture help** (or `/capture.html`).
