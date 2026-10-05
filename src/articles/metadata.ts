@@ -54,19 +54,20 @@ export function parseArticleMetadata(html: string): ArticleMetadata {
   };
 }
 
-async function readBounded(response: Response): Promise<string> {
+async function readBounded(response: Response, requireComplete = false): Promise<string> {
   if (!response.body) return "";
   const reader = response.body.getReader();
   const chunks: Uint8Array[] = [];
   let bytes = 0;
   try {
-    while (bytes < MAX_HTML_BYTES) {
+    while (true) {
       const { done, value } = await reader.read();
       if (done) break;
+      if (requireComplete && bytes + value.byteLength > MAX_HTML_BYTES) throw new Error('Source HTML exceeds the capture limit');
       const chunk = value.subarray(0, MAX_HTML_BYTES - bytes);
       chunks.push(chunk);
       bytes += chunk.byteLength;
-      if (chunk.byteLength !== value.byteLength) break;
+      if (chunk.byteLength !== value.byteLength || (!requireComplete && bytes === MAX_HTML_BYTES)) break;
     }
   } finally {
     await reader.cancel().catch(() => undefined);
@@ -77,15 +78,23 @@ async function readBounded(response: Response): Promise<string> {
   return new TextDecoder().decode(all);
 }
 
-export async function fetchArticleMetadata(url: string): Promise<ArticleMetadata> {
+export async function fetchArticlePage(url: string, includeHtml = false): Promise<{ metadata: ArticleMetadata; html?: string; url: string }> {
   try {
     const response = await fetch(url, {
       headers: { Accept: "text/html,application/xhtml+xml;q=0.9,*/*;q=0.1", "User-Agent": "PotemReader/1.0" },
       signal: AbortSignal.timeout(4500),
     });
-    if (!response.ok || !/html|xhtml/i.test(response.headers.get("content-type") || "")) return {};
-    return parseArticleMetadata(await readBounded(response));
+    if (!response.ok || !/html|xhtml/i.test(response.headers.get("content-type") || "")) {
+      await response.body?.cancel();
+      return { metadata: {}, url };
+    }
+    const html = await readBounded(response, includeHtml);
+    return { metadata: parseArticleMetadata(html), ...(includeHtml ? { html } : {}), url: response.url || url };
   } catch {
-    return {};
+    return { metadata: {}, url };
   }
+}
+
+export async function fetchArticleMetadata(url: string): Promise<ArticleMetadata> {
+  return (await fetchArticlePage(url)).metadata;
 }

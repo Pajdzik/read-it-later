@@ -7,7 +7,8 @@ import {
   normalizeArticleUrl, parseObject, readJson, ValidationError, validateTitle,
 } from './validation.js';
 import { isResponse, requireSession, validateCaptureToken } from '../auth/core.js';
-import { fetchArticleMetadata } from './metadata.js';
+import { fetchArticlePage } from './metadata.js';
+import { ArticleExtractionError, extractArticleMarkdown } from './extraction.js';
 import { getGitHubBackupConfiguration, getGitHubBackupStatus, GitHubBackupError, saveGitHubBackup } from './github.js';
 
 const PRIVATE = PRIVATE_HEADERS;
@@ -99,18 +100,40 @@ async function putArticleCopy(request: Request, env: Env, id: string): Promise<R
   return jsonResponse({ copy });
 }
 
-async function createArticle(request: Request, env: Env): Promise<Response> {
-  const input = parseObject(await readJson(request), ['url', 'title'], ['url']);
+async function createArticle(request: Request, env: Env, allowMarkdownCapture = true): Promise<Response> {
+  const input = parseObject(await readJson(request), ['url', 'title', 'captureMarkdown'], ['url']);
+  if (input.captureMarkdown !== undefined && typeof input.captureMarkdown !== 'boolean') throw new ValidationError('captureMarkdown must be a boolean');
+  if (input.captureMarkdown === true && !allowMarkdownCapture) return fail(403, 'forbidden', 'Markdown capture requires an owner session.');
   const normalized = normalizeArticleUrl(input.url);
   const fallbackTitle = defaultTitle(normalized.url);
   const suppliedTitle = input.title === undefined ? undefined : validateTitle(input.title, fallbackTitle);
-  const metadata = await fetchArticleMetadata(normalized.url);
+  const page = await fetchArticlePage(normalized.url, input.captureMarkdown === true);
+  const metadata = page.metadata;
   const title = suppliedTitle || metadata.title || fallbackTitle;
   const result = await saveArticle(env.DB, {
     ...normalized, title, fallbackTitle: suppliedTitle ? undefined : fallbackTitle,
     author: metadata.author, description: metadata.description,
   });
-  return jsonResponse(result, result.duplicate ? 200 : 201);
+  if (input.captureMarkdown !== true) return jsonResponse(result, result.duplicate ? 200 : 201);
+  // Commit the link first. Extraction/storage failures must never undo it, and
+  // create-only revision checks protect owner-edited copies and concurrent saves.
+  let copy: ArticleCopy | null = null;
+  let copyCaptureError: string | undefined;
+  try {
+    copy = await getArticleCopy(env.DB, result.article.id);
+    if (!copy) {
+      if (page.html === undefined) throw new ArticleExtractionError('The source could not be loaded as an HTML article. Use the bookmarklet or paste Markdown in article details.');
+      const markdown = await extractArticleMarkdown(page.html, page.url);
+      const captured: ArticleCopy = { markdown, capturedAt: new Date().toISOString(), source: 'paste', revision: crypto.randomUUID() };
+      const saved = await saveArticleCopy(env.DB, result.article.id, captured, null);
+      if (saved === 'missing') throw new Error('The article was deleted while its copy was being saved.');
+      copy = saved === 'saved' ? captured : await getArticleCopy(env.DB, result.article.id);
+    }
+  } catch (error) {
+    copyCaptureError = error instanceof ArticleExtractionError
+      ? error.message : 'The Markdown copy could not be saved. Open article details to paste a copy or retry adding this URL.';
+  }
+  return jsonResponse({ ...result, copy, ...(copyCaptureError ? { copyCaptureError } : {}) }, result.duplicate ? 200 : 201);
 }
 
 async function capture(request: Request, env: Env): Promise<Response> {
@@ -119,7 +142,7 @@ async function capture(request: Request, env: Env): Promise<Response> {
   try { auth = await validateCaptureToken(request, env); } catch (error) { return exceptionResponse(error, 'articles.capture_auth', storageError); }
   if (isResponse(auth)) return auth;
   try {
-    return await createArticle(request, env);
+    return await createArticle(request, env, false);
   } catch (error) {
     return exceptionResponse(error, 'articles.capture', storageError);
   }

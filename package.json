@@ -44,6 +44,7 @@
   "dependencies": {
     "defuddle": "0.19.4",
     "dompurify": "3.4.16",
+    "linkedom": "0.18.13",
     "markdown-it": "15.0.2",
     "yaml": "2.8.1"
   }

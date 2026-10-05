@@ -56,6 +56,56 @@ describe('article HTTP handlers', () => {
     expect((await route(hostile)).status).toBe(403);
   });
 
+  it('captures a pasted URL as durable Markdown and preserves the saved copy on duplicate adds', async () => {
+    const fetcher = vi.fn(async () => new Response('<html><head><title>Extracted article</title><meta name="author" content="Alex"></head><body><nav>Navigation clutter</nav><article><h1>Readable article</h1><p>Keep this <strong>important formatting</strong> and Unicode 📰.</p><pre><code class="language-js">const saved = true;</code></pre><p><a href="/related">Related reading</a></p></article></body></html>', { headers: { 'Content-Type': 'text/html' } }));
+    vi.stubGlobal('fetch', fetcher);
+    try {
+      const response = await route(request('/api/articles', 'POST', { url: 'https://source.example/article', captureMarkdown: true }));
+      expect(response.status).toBe(201);
+      const data = await response.json() as { article: { id: string; title: string; readAt: null }; copy: { markdown: string; revision: string } };
+      expect(data.article).toMatchObject({ title: 'Extracted article', author: 'Alex', readAt: null });
+      expect(data.copy.markdown).toContain('Readable article');
+      expect(data.copy.markdown).toContain('**important formatting**');
+      expect(data.copy.markdown).toContain('📰');
+      expect(data.copy.markdown).toContain('const saved = true;');
+      expect(data.copy.markdown).toContain('https://source.example/related');
+      expect(data.copy.markdown).not.toContain('Navigation clutter');
+      expect(fetcher).toHaveBeenCalledTimes(1);
+      expect(await (await route(request(`/api/articles/${data.article.id}/copy`))).json()).toMatchObject({ copy: data.copy });
+      await route(request(`/api/articles/${data.article.id}`, 'PATCH', { read: true }));
+      const duplicate = await route(request('/api/articles', 'POST', { url: 'https://source.example/article#section', captureMarkdown: true }));
+      expect(duplicate.status).toBe(200);
+      expect(await duplicate.json()).toMatchObject({ duplicate: true, article: { id: data.article.id, readAt: expect.any(String) }, copy: data.copy });
+    } finally { vi.unstubAllGlobals(); }
+  });
+
+  it('keeps the URL when Markdown extraction fails and allows a later retry', async () => {
+    const fetcher = vi.fn(async () => new Response('Blocked', { status: 403 }));
+    vi.stubGlobal('fetch', fetcher);
+    try {
+      const response = await route(request('/api/articles', 'POST', { url: 'https://source.example/retry', captureMarkdown: true }));
+      expect(response.status).toBe(201);
+      const data = await response.json() as { article: { id: string }; copy: null; copyCaptureError: string };
+      expect(data.copy).toBeNull();
+      expect(data.copyCaptureError).toContain('source could not be loaded');
+      expect(await (await route(request(`/api/articles/${data.article.id}`))).json()).toMatchObject({ article: { id: data.article.id } });
+      fetcher.mockImplementation(async () => new Response('<html><body><article><h1>Retry worked</h1><p>This article is now available to read and preserve.</p></article></body></html>', { headers: { 'Content-Type': 'text/html' } }));
+      const retried = await route(request('/api/articles', 'POST', { url: 'https://source.example/retry', captureMarkdown: true }));
+      expect(await retried.json()).toMatchObject({ duplicate: true, article: { id: data.article.id }, copy: { markdown: expect.stringContaining('This article is now available') } });
+    } finally { vi.unstubAllGlobals(); }
+  });
+
+  it('rejects invalid capture options and never archives truncated HTML', async () => {
+    expect((await route(request('/api/articles', 'POST', { url: 'https://source.example/invalid', captureMarkdown: 'yes' }))).status).toBe(400);
+    const fetcher = vi.fn(async () => new Response(`<article><h1>Incomplete</h1><p>${'x'.repeat(512 * 1024)}</p></article>`, { headers: { 'Content-Type': 'text/html' } }));
+    vi.stubGlobal('fetch', fetcher);
+    try {
+      const response = await route(request('/api/articles', 'POST', { url: 'https://source.example/oversized', captureMarkdown: true }));
+      expect(response.status).toBe(201);
+      expect(await response.json()).toMatchObject({ copy: null, copyCaptureError: expect.any(String) });
+    } finally { vi.unstubAllGlobals(); }
+  });
+
   it('stores private Markdown copies with atomic revisions and independent article state', async () => {
     await env.DB.prepare('INSERT INTO articles(id,url,normalized_url,title,created_at,updated_at,read_at) VALUES(?,?,?,?,?,?,?)')
       .bind('copy-article', 'https://example.com/copy', 'https://example.com/copy', 'Copy test', '2026-01-01T00:00:00.000Z', '2026-01-02T00:00:00.000Z', '2026-01-03T00:00:00.000Z').run();
@@ -122,6 +172,8 @@ describe('article HTTP handlers', () => {
     const captureRequest = () => new Request('https://service.example/api/capture', { method: 'POST', headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' }, body: JSON.stringify({ url: 'https://example.com/from-phone' }) });
     const saved = await handleArticles(captureRequest(), ownerEnv);
     expect(saved?.status).toBe(201);
+    const captureCopy = await handleArticles(new Request('https://service.example/api/capture', { method: 'POST', headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' }, body: JSON.stringify({ url: 'https://example.com/from-phone', captureMarkdown: true }) }), ownerEnv);
+    expect(captureCopy?.status).toBe(403);
     const forbiddenList = await handleArticles(new Request('https://service.example/api/articles', { headers: { Authorization: `Bearer ${token}` } }), ownerEnv);
     expect(forbiddenList?.status).toBe(401);
     const revokeRequest = new Request(`https://service.example/api/capture-tokens/${createdData.id}`, { method: 'DELETE', headers: { Cookie: `read_later_session=${sessionToken}`, Origin: 'https://service.example', 'X-CSRF-Token': csrf } });
