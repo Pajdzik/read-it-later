@@ -18,6 +18,7 @@
     "db:migrate:remote": "CLOUDFLARE_LOAD_DEV_VARS_FROM_DOT_ENV=false wrangler d1 migrations apply read-later --remote",
     "build:web": "tsx scripts/build-web.ts",
     "test:browser": "node --import tsx scripts/browser-smoke.mjs",
+    "test:mobile": "node --import tsx scripts/mobile-smoke.mjs",
     "archive:rehearse": "tsx scripts/archive-rehearsal.ts",
     "test:archive": "node --import tsx --test scripts/archive-backup.test.mjs && tsx scripts/archive-rehearsal.ts",
     "obsidian:convert": "tsx scripts/obsidian-convert.ts",

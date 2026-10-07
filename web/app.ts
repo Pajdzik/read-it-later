@@ -1236,11 +1236,12 @@ if (
     JSON.stringify({ url, title: $<HTMLInputElement>("#add-title").value }),
   );
   history.replaceState({}, "", "/add");
-  if (url) showNotice("Link prefilled. Review and choose Save link.");
-  else
-    showNotice(
-      "We couldn’t find one clear link. Paste the link you want to save.",
-    );
+  const addNotice = $("#add-notice");
+  addNotice.textContent = url
+    ? "Link prefilled. Review and choose Save link."
+    : "We couldn’t find one clear link. Paste the link you want to save.";
+  addNotice.classList.toggle("error", !url);
+  addNotice.hidden = false;
   if (!$<HTMLDialogElement>("#add-dialog").open)
     $<HTMLDialogElement>("#add-dialog").showModal();
 }
