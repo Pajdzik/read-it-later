@@ -754,7 +754,7 @@ button {
   }
   .reader-body pre,
   .reader-body table {
-    max-width: calc(100vw - 54px);
+    max-width: 100%;
   }
 }
 .settings-dialog > h2 {
