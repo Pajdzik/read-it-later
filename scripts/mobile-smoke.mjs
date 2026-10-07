@@ -221,11 +221,46 @@ async function runProfile(name, browserType, device) {
   await page.goto(`${base}${manifest.share_target.action}?${shareQuery}`);
   await page.locator("#logout").waitFor();
 
-  await page.locator("#add-capture-markdown").uncheck();
+  await page.locator("#add-capture-markdown").check();
+  const captureSaveResponsePromise = page.waitForResponse((response) =>
+    new URL(response.url()).pathname === "/api/articles" && response.request().method() === "POST");
   await page.locator("#add-form button").tap();
+  const captureSaveResponse = await captureSaveResponsePromise;
+  assert.equal(captureSaveResponse.status(), 201, `${name}: requested capture did not acknowledge the saved link.`);
+  const captureSave = await captureSaveResponse.json();
+  assert.equal(captureSave.extraction?.state, "queued", `${name}: requested capture must persist a queued extraction intent.`);
+  assert.equal(captureSave.extraction?.paused, true, `${name}: local runtime should report its disabled capture processor.`);
+  assert.equal(Object.hasOwn(captureSave, "copy"), false, `${name}: save response must not include synchronous Markdown.`);
+  await page.locator("#notice").getByText(/Link saved\. Capture is paused/).waitFor();
   const titleButton = page.getByRole("button", { name: shareTitle, exact: true });
   await titleButton.waitFor();
   const article = page.locator(".article").filter({ hasText: shareTitle });
+  await article.locator(".extraction-badge").getByText("Capture paused").waitFor();
+  const shareArticleId = await article.getAttribute("data-id");
+  const persistedIntent = await page.evaluate(async (id) => (await (await fetch(`/api/articles/${id}`)).json()).article, shareArticleId);
+  assert.equal(persistedIntent.extraction.state, "queued", `${name}: capture intent was not persisted with the article.`);
+  assert.equal(persistedIntent.extraction.paused, true, `${name}: disabled processor state was not exposed.`);
+  assert.equal(persistedIntent.hasCopy, false, `${name}: link-save acknowledgement must not claim a copy exists.`);
+  assert.equal((await page.evaluate(async (id) => (await (await fetch(`/api/articles/${id}/copy`)).json()).copy, shareArticleId)), null,
+    `${name}: a queued extraction must not expose a premature Markdown copy.`);
+  await titleButton.tap();
+  const pendingReader = page.locator("#reader-dialog");
+  await pendingReader.locator("#reader-pending").waitFor({ state: "visible" });
+  await pendingReader.getByText(/Capture is paused/).waitFor();
+  assert.equal(await pendingReader.locator("#reader-original").getAttribute("href"), shareUrl,
+    `${name}: pending reader should preserve the source link.`);
+  await pendingReader.getByRole("button", { name: "Paste or upload Markdown" }).tap();
+  const shareDetail = page.locator("#detail-content");
+  const markdownDraft = `# ${shareTitle}\n\nManually saved while the background processor is paused. **Important formatting** stays readable.\n\n| Fixture | State |\n| --- | --- |\n| Mobile | paused |`;
+  await shareDetail.getByRole("textbox", { name: "Markdown copy" }).fill(markdownDraft);
+  await shareDetail.getByRole("button", { name: "Save Markdown copy" }).tap();
+  await shareDetail.getByText(/pasted Markdown/).waitFor();
+  await shareDetail.getByRole("button", { name: "Read saved copy" }).tap();
+  await page.locator("#reader-dialog #reader-body").getByRole("heading", { name: shareTitle }).waitFor();
+  assert.equal(await page.locator("#reader-dialog #reader-body table tbody tr").count(), 1,
+    `${name}: manually persisted Markdown should remain readable while extraction is paused.`);
+  await page.locator("#reader-dialog .reader-close button").tap();
+  await page.locator("#detail-dialog .dialog-close button").tap();
 
   // A duplicate normalized URL keeps its original record and state.
   await page.locator("#add-open").tap();
@@ -275,16 +310,6 @@ async function runProfile(name, browserType, device) {
   await page.locator("#theme-toggle").selectOption("dark");
   await page.locator("#settings-dialog .dialog-close button").tap();
 
-  await page.locator("#add-open").tap();
-  const fixtureUrl = `${sourceBase}/${name}`;
-  await page.locator("#add-url").fill(fixtureUrl);
-  await page.locator("#add-capture-markdown").check();
-  await page.locator("#add-form button").tap();
-  await page.locator("#reader-dialog").waitFor({ state: "visible", timeout: 10000 });
-  await page.locator("#reader-body").getByText("important formatting").waitFor();
-  await page.locator("#reader-dialog .reader-close button").tap();
-  await page.getByRole("button", { name: `Local fixture ${name}`, exact: true }).waitFor();
-
   // Explicit read state persists after a reload; opening the saved title does
   // not itself mark it read. Search and status filters navigate the real list.
   await article.getByRole("button", { name: "Mark read" }).tap();
@@ -319,9 +344,10 @@ async function runProfile(name, browserType, device) {
 
   // Long content checks control reachability and no page-level horizontal
   // overflow. Paste the copy through article details, then open the title.
-  await titleButton.tap();
+  await article.getByRole("button", { name: "Edit", exact: true }).tap();
   const detail = page.locator("#detail-content");
   await detail.getByRole("textbox", { name: "Markdown copy" }).fill(`# Wide reader check\n\n${"word-without-breaks-".repeat(24)}\n\n| left | ${"column-header-".repeat(8)} |\n| --- | --- |\n| text | ${"wide-cell-".repeat(24)} |`);
+  page.once("dialog", (dialog) => dialog.accept());
   await detail.getByRole("button", { name: "Save Markdown copy" }).tap();
   await detail.getByText(/pasted Markdown/).waitFor();
   await detail.getByRole("button", { name: "Read saved copy" }).tap();
@@ -454,9 +480,33 @@ try {
   const captured = await capture();
   assert.equal(captured.status, 201);
   assert.match(captured.headers.get("cache-control") || "", /no-store/i);
+  const captureResult = await captured.json();
+  assert.equal(captureResult.extractionRequested, true, "Token capture should request background extraction by default.");
+  assert.equal(Object.hasOwn(captureResult, "copy"), false, "Token acknowledgment must not include a synchronous Markdown copy.");
+  assert.equal(Object.hasOwn(captureResult, "job"), false, "Token acknowledgment must not expose extraction job history.");
+  assert.equal(Object.hasOwn(captureResult, "jobHistory"), false, "Token acknowledgment must not expose extraction job history.");
+  assert.equal(Object.hasOwn(captureResult, "extraction"), false, "Token acknowledgment exposes intent only; owners read status through the authenticated API.");
+  assert.equal(Object.hasOwn(captureResult.article, "extraction"), false, "Token acknowledgment must not expose internal job status on the article record.");
+  const tokenArticle = await fetch(`${base}/api/articles/${encodeURIComponent(captureResult.article.id)}`, { headers: { Origin: base } }).then((response) => response.json());
+  assert.equal(tokenArticle.article.extraction.state, "queued", "Token capture should persist extraction intent with the link.");
+  assert.equal(tokenArticle.article.extraction.paused, true, "The local runtime should report that extraction is paused.");
+  assert.equal(tokenArticle.article.hasCopy, false, "Token capture should persist the link before a Markdown copy exists.");
+  const tokenCopy = await fetch(`${base}/api/articles/${encodeURIComponent(captureResult.article.id)}/copy`, { headers: { Origin: base } }).then((response) => response.json());
+  assert.equal(tokenCopy.copy, null, "Token capture must not synchronously create a Markdown copy.");
   const duplicate = await capture();
   assert.equal(duplicate.status, 200);
-  assert.equal((await duplicate.json()).duplicate, true);
+  const duplicateResult = await duplicate.json();
+  assert.equal(duplicateResult.duplicate, true);
+  assert.equal(duplicateResult.extractionRequested, true, "Duplicate token shares should retain the existing extraction request.");
+  const linkOnly = await fetch(`${base}/api/capture`, {
+    method: "POST", headers: { Authorization: `Bearer ${token.token}`, "Content-Type": "application/json" },
+    body: JSON.stringify({ url: `${sourceBase}/shortcut-link-only`, captureMarkdown: false }),
+  });
+  assert.equal(linkOnly.status, 201);
+  const linkOnlyResult = await linkOnly.json();
+  assert.equal(linkOnlyResult.extractionRequested, false, "Token capture should honor explicit link-only opt-out.");
+  const linkOnlyArticle = await fetch(`${base}/api/articles/${encodeURIComponent(linkOnlyResult.article.id)}`).then((response) => response.json());
+  assert.equal(linkOnlyArticle.article.extraction.state, "none", "Explicit false should not persist an extraction intent.");
   const revoked = await fetch(`${base}/api/capture-tokens/${encodeURIComponent(token.id)}`, {
     method: "DELETE", headers: { ...ownerHeaders },
   });

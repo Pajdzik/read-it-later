@@ -441,11 +441,13 @@ function renderDetail(article: Article) {
     extractionStatus.textContent = "Queueing a new capture attempt…";
     try {
       const result = await request<{ extraction: ExtractionStatus }>(`/api/articles/${encodeURIComponent(article.id)}/extraction/retry`, { method: "POST", body: JSON.stringify({}) });
+      if (state.selected?.id !== article.id || !extractionPanel.isConnected || !$<HTMLDialogElement>("#detail-dialog").open) return;
       const updated = { ...article, extraction: result.extraction };
       state.selected = updated;
-      renderDetail(updated);
+      refreshDetailAfterExtraction(updated);
       startExtractionPolling(updated);
     } catch (error) {
+      if (state.selected?.id !== article.id || !extractionPanel.isConnected || !$<HTMLDialogElement>("#detail-dialog").open) return;
       extractionStatus.textContent = `Couldn’t retry capture. ${(error as Error).message}`;
       retryCapture.disabled = false;
     }
@@ -759,15 +761,18 @@ $("#reader-manual-copy").addEventListener("click", () => {
 });
 $("#reader-retry").addEventListener("click", async () => {
   const article = state.selected;
+  const generation = readerLoadGeneration;
   const button = $<HTMLButtonElement>("#reader-retry");
   if (!article) return;
   button.disabled = true;
   $("#reader-pending-status").textContent = "Queueing a new capture attempt…";
   try {
     const result = await request<{ extraction: ExtractionStatus }>(`/api/articles/${encodeURIComponent(article.id)}/extraction/retry`, { method: "POST", body: JSON.stringify({}) });
+    if (generation !== readerLoadGeneration || state.selected?.id !== article.id || !$<HTMLDialogElement>("#reader-dialog").open) return;
     const updated = { ...article, extraction: result.extraction };
     renderPendingReader(updated);
   } catch (error) {
+    if (generation !== readerLoadGeneration || state.selected?.id !== article.id || !$<HTMLDialogElement>("#reader-dialog").open) return;
     $("#reader-pending-status").textContent = `Couldn’t retry capture. ${(error as Error).message}`;
     button.disabled = false;
   }

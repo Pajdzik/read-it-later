@@ -978,6 +978,54 @@ try {
   await urlReader.getByRole("button", { name: "Retry capture" }).click();
   await urlReader.getByText(/being prepared in the background/).waitFor();
   await urlReader.getByRole("button", { name: "Close saved copy" }).click();
+  // A successful server retry must not reopen a closed view or replace another
+  // article when its response arrives after navigation.
+  const retryPattern = `**/api/articles/${failedFixture.id}/extraction/retry`;
+  await urlPage.unroute(retryPattern);
+  let releaseRetry, observeRetry;
+  const retryStarted = new Promise((resolve) => { observeRetry = resolve; });
+  const retryGate = new Promise((resolve) => { releaseRetry = resolve; });
+  await urlPage.route(retryPattern, async (route) => {
+    observeRetry();
+    await retryGate;
+    await route.fulfill({ contentType: "application/json", body: JSON.stringify({ extraction: { state: "queued", attempts: 0, errorCode: null, nextAttemptAt: null, paused: false } }) });
+  });
+  await failedArticle.getByRole("button", { name: "Failed capture smoke", exact: true }).click();
+  const lateReaderResponse = urlPage.waitForResponse((response) => response.url().endsWith(`/articles/${failedFixture.id}/extraction/retry`));
+  await urlReader.getByRole("button", { name: "Retry capture" }).click();
+  await retryStarted;
+  await urlReader.getByRole("button", { name: "Close saved copy" }).click();
+  releaseRetry();
+  await (await lateReaderResponse).finished();
+  await urlPage.evaluate(() => new Promise((resolve) => requestAnimationFrame(() => requestAnimationFrame(resolve))));
+  assert.equal(await urlReader.evaluate((dialog) => dialog.open), false, "A late retry must not reopen a closed reader.");
+
+  await urlPage.unroute(retryPattern);
+  let releaseDetailRetry, observeDetailRetry;
+  const detailRetryStarted = new Promise((resolve) => { observeDetailRetry = resolve; });
+  const detailRetryGate = new Promise((resolve) => { releaseDetailRetry = resolve; });
+  await urlPage.route(retryPattern, async (route) => {
+    observeDetailRetry();
+    await detailRetryGate;
+    await route.fulfill({ contentType: "application/json", body: JSON.stringify({ extraction: { state: "queued", attempts: 0, errorCode: null, nextAttemptAt: null, paused: false } }) });
+  });
+  await failedArticle.getByRole("button", { name: "Edit", exact: true }).click();
+  const lateDetailResponse = urlPage.waitForResponse((response) => response.url().endsWith(`/articles/${failedFixture.id}/extraction/retry`));
+  await urlPage.locator("#detail-content").getByRole("button", { name: "Retry capture" }).click();
+  await detailRetryStarted;
+  await urlPage.locator("#detail-dialog .dialog-close button").click();
+  await asyncArticle.getByRole("button", { name: "Edit", exact: true }).click();
+  releaseDetailRetry();
+  await (await lateDetailResponse).finished();
+  await urlPage.evaluate(() => new Promise((resolve) => requestAnimationFrame(() => requestAnimationFrame(resolve))));
+  assert.equal(await urlPage.locator("#detail-content h2").textContent(), "Background capture smoke", "A late retry must not replace another article's details.");
+  await urlPage.locator("#detail-dialog .dialog-close button").click();
+  await failedArticle.getByRole("button", { name: "Edit", exact: true }).click();
+  await urlPage.locator("#detail-content .edit-form input").fill("Keep my unsaved title");
+  await urlPage.locator("#detail-content").getByRole("button", { name: "Retry capture" }).click();
+  await urlPage.locator("#detail-extraction-status").getByText("Capturing Markdown").waitFor();
+  assert.equal(await urlPage.locator("#detail-content .edit-form input").inputValue(), "Keep my unsaved title", "Retry acknowledgment must preserve an unsaved title draft.");
+  await urlPage.locator("#detail-dialog .dialog-close button").click();
   await urlPage.unroute("**/api/articles");
   await urlPage.unroute(`**/api/articles/${asyncFixture.id}/extraction`);
   await urlPage.unroute(`**/api/articles/${asyncFixture.id}/copy`);
