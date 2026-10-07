@@ -7,7 +7,7 @@ The current service stores links, article metadata, read state, and Markdown cop
 ## Product decisions
 
 - **One owner, multiple devices.** GitHub login allows one configured numeric user ID. There is no public registration, collaboration, or separate library per account.
-- **Reading starts at the original.** Opening a link never marks it read automatically. Mark read/unread is an explicit server-persisted action.
+- **Reading starts with the saved copy.** Click an article title or lead to read its preserved Markdown; articles without a copy open the copy editor. Open original, Mark read/unread, and Edit share the article action row. Reading never marks an article read automatically; read state changes explicitly.
 - **The reading list comes first.** The responsive website offers Unread, Read, and All views, search, pagination, an Add dialog, article details, title editing, and deletion. Light, dark, and system themes are available.
 - **Capture should stay lightweight.** Use the website, a desktop bookmarklet, an iOS Shortcut, or an installed PWA share target where supported. Native apps, browser extensions, and email ingestion are deferred.
 - **Keep the stack small.** One TypeScript Worker serves the API and website; one D1 database stores the library and authentication records. Use plain HTML/CSS/browser TypeScript, prepared SQL, and migrations, without a frontend framework or ORM.

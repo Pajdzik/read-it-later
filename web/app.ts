@@ -34,6 +34,7 @@ const copyDrafts = new Map<string, { markdown: string; source: "paste" | "upload
 let browserCaptureDraft: BrowserCaptureDraft | null = null;
 let captureGitHubConfiguration: GitHubCaptureConfiguration | null = null;
 let captureGitHubConfigurationPromise: Promise<void> | null = null;
+let readerLoadGeneration = 0;
 const list = $("#articles"),
   notice = $("#notice"),
   empty = $("#empty"),
@@ -143,23 +144,27 @@ function renderArticle(article: Article) {
   const main = el("div", undefined, "article-main");
   const title = el("button", article.title, "article-title");
   title.type = "button";
-  title.addEventListener("click", () => openDetail(article));
+  title.addEventListener("click", () => void openSavedCopy(article));
   const meta = el(
     "p",
     `${sourceHost(article.url)}${article.author ? ` · By ${article.author}` : ""} · Saved ${dateLabel(article.createdAt)}`,
     "article-meta",
   );
   const description = article.description
-    ? el("p", article.description, "article-description")
+    ? el("button", article.description, "article-description article-lead")
     : null;
-  const link = el("a", "Open original ↗", "original-link");
+  if (description) {
+    description.type = "button";
+    description.setAttribute("aria-label", `Read saved copy of ${article.title}`);
+    description.addEventListener("click", () => void openSavedCopy(article));
+  }
+  const link = el("a", "Open original ↗", "action-button subtle original-link");
   link.href = safeHttpUrl(article.url) || "#";
   link.target = "_blank";
   link.rel = "noopener noreferrer";
   link.addEventListener("click", (e) => e.stopPropagation());
   main.append(title, meta);
   if (description) main.append(description);
-  main.append(link);
   const actions = el("div", undefined, "article-actions");
   const read = el(
     "button",
@@ -171,7 +176,7 @@ function renderArticle(article: Article) {
   const edit = el("button", "Edit", "action-button subtle");
   edit.type = "button";
   edit.addEventListener("click", () => openDetail(article));
-  actions.append(read, edit);
+  actions.append(read, edit, link);
   li.append(main, actions);
   return li;
 }
@@ -576,6 +581,8 @@ function openReader(article: Article, copy: ArticleCopy) {
   $<HTMLDialogElement>("#reader-dialog").showModal();
 }
 function clearReader() {
+  readerLoadGeneration++;
+  if (notice.textContent === "Loading Markdown copy…") showNotice("");
   const dialog = document.querySelector<HTMLDialogElement>("#reader-dialog");
   if (!dialog) return;
   if (dialog.open) dialog.close();
@@ -612,6 +619,28 @@ function openDetail(article: Article) {
   clearReader();
   renderDetail(article);
   $<HTMLDialogElement>("#detail-dialog").showModal();
+}
+async function openSavedCopy(article: Article) {
+  const generation = ++readerLoadGeneration;
+  state.selected = article;
+  showNotice("Loading Markdown copy…");
+  try {
+    const result = await request<{ copy: ArticleCopy | null }>(
+      `/api/articles/${encodeURIComponent(article.id)}/copy`,
+    );
+    if (generation !== readerLoadGeneration || state.selected?.id !== article.id) return;
+    if (result.copy) {
+      showNotice("");
+      openReader(article, result.copy);
+    } else {
+      showNotice("No Markdown copy saved yet. Add one in article details.");
+      openDetail(article);
+    }
+  } catch (error) {
+    if (generation !== readerLoadGeneration || state.selected?.id !== article.id) return;
+    showNotice(`Couldn’t load this Markdown copy. ${(error as Error).message}`, true);
+    openDetail(article);
+  }
 }
 $("#detail-dialog").addEventListener("close", () => {
   clearReader();
