@@ -304,6 +304,13 @@ try {
     if (!saved.ok) throw new Error(`Couldn’t save reader-entry fixture: ${saved.status}`);
     return { id: item.id };
   }, { url: `${sourceBase}/reader-entry-smoke` });
+  await page.route("**/api/articles?*", async (route) => {
+    const response = await route.fetch();
+    const data = await response.json();
+    const entry = data.items?.find((item) => item.id === entryFixture.id);
+    if (entry) entry.description = "A lead used to test opening the saved copy.";
+    await route.fulfill({ response, body: JSON.stringify(data) });
+  });
   await page.reload();
   await page.locator("#logout").waitFor();
   const entryArticle = page.locator(".article").filter({ hasText: "Reader entry smoke" });
@@ -348,6 +355,7 @@ try {
     return response.status;
   }, entryFixture.id);
   assert.equal(removeEntryFixture, 204, "Reader-entry fixture should be removed after the regression check.");
+  await page.unroute("**/api/articles?*");
   await page.setViewportSize({ width: 1440, height: 1000 });
   await page.reload();
   await page.locator("#logout").waitFor();
@@ -881,36 +889,101 @@ try {
   urlPage.on("pageerror", (error) => errors.push(error.message));
   await urlPage.goto(base);
   await urlPage.locator("#logout").waitFor();
+  const asyncFixture = await urlPage.evaluate(async ({ url }) => {
+    const session = await (await fetch("/api/session")).json();
+    const response = await fetch("/api/articles", {
+      method: "POST",
+      headers: { "Content-Type": "application/json", "X-CSRF-Token": session.csrfToken },
+      body: JSON.stringify({ url, title: "Background capture smoke", captureMarkdown: false }),
+    });
+    if (!response.ok) throw new Error(`Couldn’t create background-capture fixture: ${response.status}`);
+    return (await response.json()).article;
+  }, { url: `${sourceBase}/async-smoke` });
+  const failedFixture = await urlPage.evaluate(async ({ url }) => {
+    const session = await (await fetch("/api/session")).json();
+    const response = await fetch("/api/articles", {
+      method: "POST",
+      headers: { "Content-Type": "application/json", "X-CSRF-Token": session.csrfToken },
+      body: JSON.stringify({ url, title: "Failed capture smoke", captureMarkdown: false }),
+    });
+    if (!response.ok) throw new Error(`Couldn’t create failed-capture fixture: ${response.status}`);
+    return (await response.json()).article;
+  }, { url: `${sourceBase}/failed-smoke` });
+  let asyncState = "queued";
+  let extractionReads = 0;
+  const asyncCopy = { markdown: "# Background copy\n\nReady without replacing the editor draft.", capturedAt: "2026-10-06T00:00:00.000Z", source: "paste", revision: "smoke-background-revision" };
+  await urlPage.route("**/api/articles?*", async (route) => {
+    const response = await route.fetch();
+    const data = await response.json();
+    const item = data.items?.find((candidate) => candidate.id === asyncFixture.id);
+    if (item) item.extraction = { state: asyncState, attempts: 0, errorCode: null, nextAttemptAt: null, paused: false };
+    const failedItem = data.items?.find((candidate) => candidate.id === failedFixture.id);
+    if (failedItem) failedItem.extraction = { state: "failed", attempts: 3, errorCode: "source_unavailable", nextAttemptAt: null, paused: false };
+    await route.fulfill({ response, body: JSON.stringify(data) });
+  });
+  await urlPage.route(`**/api/articles/${asyncFixture.id}/copy`, async (route) => {
+    if (route.request().method() === "GET") {
+      await route.fulfill({ contentType: "application/json", body: JSON.stringify({ copy: asyncState === "ready" ? asyncCopy : null }) });
+      return;
+    }
+    await route.continue();
+  });
+  await urlPage.route(`**/api/articles/${failedFixture.id}/copy`, (route) => route.fulfill({ contentType: "application/json", body: JSON.stringify({ copy: null }) }));
+  await urlPage.route(`**/api/articles/${failedFixture.id}/extraction/retry`, (route) => route.fulfill({ contentType: "application/json", body: JSON.stringify({ extraction: { state: "queued", attempts: 0, errorCode: null, nextAttemptAt: null, paused: false } }) }));
+  await urlPage.route(`**/api/articles/${asyncFixture.id}/extraction`, async (route) => {
+    extractionReads++;
+    if (extractionReads >= 1) asyncState = "ready";
+    await route.fulfill({ contentType: "application/json", body: JSON.stringify({ extraction: { state: asyncState, attempts: 1, errorCode: null, nextAttemptAt: null, paused: false } }) });
+  });
   await urlPage.locator("#add-open").click();
   assert.equal(await urlPage.locator("#add-capture-markdown").isChecked(), true, "Pasted URLs should capture Markdown by default.");
-  await urlPage.locator("#add-url").fill(`${sourceBase}/pasted-url`);
+  await urlPage.locator("#add-url").fill(asyncFixture.url);
+  await urlPage.route("**/api/articles", async (route) => {
+    if (route.request().method() !== "POST") return route.continue();
+    const submitted = route.request().postDataJSON();
+    assert.equal(submitted.captureMarkdown, true, "The Add form must request background Markdown capture by default.");
+    const response = await route.fetch({ postData: JSON.stringify({ ...submitted, captureMarkdown: false }) });
+    const data = await response.json();
+    await route.fulfill({ response, body: JSON.stringify({ ...data, extraction: { state: "queued", attempts: 0, errorCode: null, nextAttemptAt: null, paused: false } }) });
+  });
   await urlPage.locator("#add-form button").click();
+  await urlPage.locator("#notice").getByText(/Link saved\. Capturing Markdown in the background/).waitFor();
+  const asyncArticle = urlPage.locator(`.article[data-id="${asyncFixture.id}"]`);
+  await asyncArticle.locator(".extraction-badge").getByText("Capturing Markdown").waitFor();
   const urlReader = urlPage.locator("#reader-dialog");
-  await urlReader.waitFor({ state: "visible" });
-  await urlReader.locator("#reader-body strong").getByText("important formatting").waitFor();
-  assert.equal(await urlReader.locator("pre code").textContent(), "const clipped = true;\n");
-  assert.equal(await urlReader.locator("img, script, iframe").count(), 0);
-  await urlPage.screenshot({ path: path.join(os.tmpdir(), "potem-pasted-url-reader-desktop.png") });
+  await asyncArticle.getByRole("button", { name: "Background capture smoke", exact: true }).click();
+  await urlReader.locator("#reader-pending").waitFor({ state: "visible" });
+  await urlReader.getByText(/being prepared in the background/).waitFor();
   await urlPage.setViewportSize({ width: 390, height: 844 });
-  await urlPage.screenshot({ path: path.join(os.tmpdir(), "potem-pasted-url-reader-mobile.png") });
-  assert.equal(await urlPage.evaluate(() => document.documentElement.scrollWidth > innerWidth), false);
-  const pastedArticle = await urlPage.locator(".article").filter({ hasText: "Captured pasted-url" }).getAttribute("data-id");
-  const pastedCopy = await urlPage.evaluate(async (id) => (await (await fetch(`/api/articles/${id}/copy`)).json()).copy, pastedArticle);
-  assert.ok(pastedCopy.markdown.includes("**important formatting**"), "The server must store Markdown, not raw HTML.");
+  assert.equal(await urlPage.evaluate(() => document.documentElement.scrollWidth > innerWidth), false, "The pending reader must fit a phone screen.");
+  const pendingBounds = await urlReader.locator("#reader-pending").boundingBox();
+  assert.ok(pendingBounds && pendingBounds.x >= 0 && pendingBounds.x + pendingBounds.width <= 390, "Pending reader actions must fit a narrow viewport.");
+  await urlPage.screenshot({ path: path.join(os.tmpdir(), "potem-pending-reader-mobile.png") });
+  await urlReader.getByRole("button", { name: "Paste or upload Markdown" }).click();
+  const asyncDetail = urlPage.locator("#detail-content");
+  const draftBox = asyncDetail.getByRole("textbox", { name: "Markdown copy" });
+  await draftBox.fill("# My manual draft\n\nKeep this while background capture finishes.");
+  await asyncDetail.locator("#detail-extraction-status").getByText("Capturing Markdown").waitFor();
+  await asyncDetail.locator(".copy-status").getByText(/Unsaved draft/).waitFor();
+  await urlPage.waitForFunction(() => document.querySelector("#detail-extraction-status")?.textContent === "Markdown ready", null, { timeout: 10000 });
+  assert.equal(await draftBox.inputValue(), "# My manual draft\n\nKeep this while background capture finishes.", "Polling must preserve the user's unsaved Markdown draft.");
+  await asyncDetail.getByRole("button", { name: "Read saved copy" }).click();
+  await urlReader.locator("#reader-body").getByText("Ready without replacing the editor draft.").waitFor();
   await urlReader.getByRole("button", { name: "Close saved copy" }).click();
-  await urlPage.reload();
-  await urlPage.locator("#logout").waitFor();
-  await urlPage.getByRole("button", { name: "Captured pasted-url", exact: true }).click();
-  await urlReader.locator("#reader-body strong").getByText("important formatting").waitFor();
-  const persistedCopy = await urlPage.evaluate(async (id) => (await (await fetch(`/api/articles/${id}/copy`)).json()).copy, pastedArticle);
-  assert.deepEqual(persistedCopy, pastedCopy, "Reload must preserve the exact copy and revision.");
+  await urlPage.locator("#detail-dialog .dialog-close button").click();
+  const failedArticle = urlPage.locator(`.article[data-id="${failedFixture.id}"]`);
+  await failedArticle.locator(".extraction-badge").getByText("Capture failed").waitFor();
+  await failedArticle.getByRole("button", { name: "Failed capture smoke", exact: true }).click();
+  await urlReader.getByText(/The source site could not be reached/).waitFor();
+  await urlReader.getByRole("button", { name: "Retry capture" }).click();
+  await urlReader.getByText(/being prepared in the background/).waitFor();
   await urlReader.getByRole("button", { name: "Close saved copy" }).click();
-  await urlPage.locator("#add-open").click();
-  await urlPage.locator("#add-url").fill(`${sourceBase}/unavailable`);
-  await urlPage.locator("#add-form button").click();
-  await urlPage.locator("#notice").getByText(/Link saved\. Markdown was not saved/).waitFor();
-  assert.equal(await urlReader.isHidden(), true, "A failed capture must not open an empty reader.");
-  await urlPage.getByRole("button", { name: "127.0.0.1/unavailable", exact: true }).waitFor();
+  await urlPage.unroute("**/api/articles");
+  await urlPage.unroute(`**/api/articles/${asyncFixture.id}/extraction`);
+  await urlPage.unroute(`**/api/articles/${asyncFixture.id}/copy`);
+  await urlPage.unroute(`**/api/articles/${failedFixture.id}/copy`);
+  await urlPage.unroute(`**/api/articles/${failedFixture.id}/extraction/retry`);
+  await urlPage.unroute("**/api/articles?*");
   await urlContext.close();
   const cachedPaths = await page.evaluate(async () => {
     const paths = [];

@@ -7,8 +7,8 @@ import {
   normalizeArticleUrl, parseObject, readJson, ValidationError, validateTitle,
 } from './validation.js';
 import { isResponse, requireSession, validateCaptureToken } from '../auth/core.js';
-import { fetchArticlePage } from './metadata.js';
-import { ArticleExtractionError, extractArticleMarkdown } from './extraction.js';
+import { enqueueExtractionJob, getExtractionStatus, getExtractionStatuses, retryExtractionJob } from './jobs.js';
+import { isBackgroundCapturePaused } from './source-fetch.js';
 import { getGitHubBackupConfiguration, getGitHubBackupStatus, GitHubBackupError, saveGitHubBackup } from './github.js';
 
 const PRIVATE = PRIVATE_HEADERS;
@@ -22,7 +22,7 @@ const storageError = { status: 503, code: 'storage_unavailable', message: 'The s
 export async function handleArticles(request: Request, env: Env): Promise<Response | null> {
   const url = new URL(request.url); const method = request.method.toUpperCase();
   if (url.pathname === '/api/capture' && method === 'POST') return capture(request, env);
-  const isArticlePath = url.pathname === '/api/articles' || /^\/api\/articles\/[^/]+(?:\/copy|\/github)?$/.test(url.pathname);
+  const isArticlePath = url.pathname === '/api/articles' || /^\/api\/articles\/[^/]+(?:\/copy|\/github|\/extraction(?:\/retry)?)?$/.test(url.pathname);
   if (!isArticlePath && url.pathname !== '/api/export' && url.pathname !== '/api/import' && url.pathname !== '/api/github') return null;
   const needsWrite = method !== 'GET';
   let session: Awaited<ReturnType<typeof requireSession>>;
@@ -34,6 +34,29 @@ export async function handleArticles(request: Request, env: Env): Promise<Respon
     if (url.pathname === '/api/articles' && method === 'GET') return await listRoute(url, env);
     if (url.pathname === '/api/export' && method === 'GET') return await exportArticles(env);
     if (url.pathname === '/api/import' && method === 'POST') return await importArticles(request, env);
+    const extractionRoute = /^\/api\/articles\/([^/]+)\/extraction(\/retry)?$/.exec(url.pathname);
+    if (extractionRoute) {
+      let id: string;
+      try { id = decodeURIComponent(extractionRoute[1]); } catch { return fail(400, 'invalid_request', 'Article ID is invalid.'); }
+      if (!id || id.length > 128) return fail(400, 'invalid_request', 'Article ID is invalid.');
+      if (method === 'GET' && !extractionRoute[2]) {
+        const extraction = await getExtractionStatus(env.DB, id, isBackgroundCapturePaused(env));
+        return extraction ? jsonResponse({ extraction }) : fail(404, 'not_found', 'Article not found.');
+      }
+      if (method === 'POST' && extractionRoute[2]) {
+        // Accept an empty body or an empty object; retries cannot select another
+        // source, publish a copy, or change a saved revision.
+        if (request.body) parseObject(await readJson(request), []);
+        const result = await retryExtractionJob(env.DB, id);
+        if (result === 'missing') return fail(404, 'not_found', 'Article not found.');
+        if (result === 'cooldown') {
+          const response = fail(429, 'retry_cooldown', 'Wait one minute before retrying Markdown capture.');
+          response.headers.set('Retry-After', '60');
+          return response;
+        }
+        return jsonResponse({ extraction: await getExtractionStatus(env.DB, id, isBackgroundCapturePaused(env)) });
+      }
+    }
     const githubRoute = /^\/api\/articles\/([^/]+)\/github$/.exec(url.pathname);
     if (githubRoute) {
       let id: string;
@@ -57,7 +80,9 @@ export async function handleArticles(request: Request, env: Env): Promise<Respon
       if (!id || id.length > 128) return fail(400, 'invalid_request', 'Article ID is invalid.');
       if (method === 'GET') {
         const article = await getArticle(env.DB, id);
-        return article ? jsonResponse({ article }) : fail(404, 'not_found', 'Article not found.');
+        if (!article) return fail(404, 'not_found', 'Article not found.');
+        const extraction = await getExtractionStatus(env.DB, id, isBackgroundCapturePaused(env));
+        return jsonResponse({ article: { ...article, hasCopy: extraction?.state === 'ready', extraction } });
       }
       if (method === 'PATCH') return await patchArticle(request, env, id);
       if (method === 'DELETE') { await deleteArticle(env.DB, id); return new Response(null, { status: 204, headers: PRIVATE }); }
@@ -100,40 +125,25 @@ async function putArticleCopy(request: Request, env: Env, id: string): Promise<R
   return jsonResponse({ copy });
 }
 
-async function createArticle(request: Request, env: Env, allowMarkdownCapture = true): Promise<Response> {
+async function createArticle(request: Request, env: Env, tokenCapture = false): Promise<Response> {
   const input = parseObject(await readJson(request), ['url', 'title', 'captureMarkdown'], ['url']);
   if (input.captureMarkdown !== undefined && typeof input.captureMarkdown !== 'boolean') throw new ValidationError('captureMarkdown must be a boolean');
-  if (input.captureMarkdown === true && !allowMarkdownCapture) return fail(403, 'forbidden', 'Markdown capture requires an owner session.');
+  const extractionRequested = input.captureMarkdown === true || (tokenCapture && input.captureMarkdown !== false);
   const normalized = normalizeArticleUrl(input.url);
   const fallbackTitle = defaultTitle(normalized.url);
   const suppliedTitle = input.title === undefined ? undefined : validateTitle(input.title, fallbackTitle);
-  const page = await fetchArticlePage(normalized.url, input.captureMarkdown === true);
-  const metadata = page.metadata;
-  const title = suppliedTitle || metadata.title || fallbackTitle;
+  const title = suppliedTitle || fallbackTitle;
   const result = await saveArticle(env.DB, {
-    ...normalized, title, fallbackTitle: suppliedTitle ? undefined : fallbackTitle,
-    author: metadata.author, description: metadata.description,
+    ...normalized, title, extractionRequested,
+    titleOrigin: suppliedTitle ? 'supplied' : 'fallback',
   });
-  if (input.captureMarkdown !== true) return jsonResponse(result, result.duplicate ? 200 : 201);
-  // Commit the link first. Extraction/storage failures must never undo it, and
-  // create-only revision checks protect owner-edited copies and concurrent saves.
-  let copy: ArticleCopy | null = null;
-  let copyCaptureError: string | undefined;
-  try {
-    copy = await getArticleCopy(env.DB, result.article.id);
-    if (!copy) {
-      if (page.html === undefined) throw new ArticleExtractionError('The source could not be loaded as an HTML article. Use the bookmarklet or paste Markdown in article details.');
-      const markdown = await extractArticleMarkdown(page.html, page.url);
-      const captured: ArticleCopy = { markdown, capturedAt: new Date().toISOString(), source: 'paste', revision: crypto.randomUUID() };
-      const saved = await saveArticleCopy(env.DB, result.article.id, captured, null);
-      if (saved === 'missing') throw new Error('The article was deleted while its copy was being saved.');
-      copy = saved === 'saved' ? captured : await getArticleCopy(env.DB, result.article.id);
-    }
-  } catch (error) {
-    copyCaptureError = error instanceof ArticleExtractionError
-      ? error.message : 'The Markdown copy could not be saved. Open article details to paste a copy or retry adding this URL.';
+  if (extractionRequested) {
+    try { await enqueueExtractionJob(env.DB, result.article.id); }
+    catch { logUnexpectedError('articles.extraction_enqueue'); }
   }
-  return jsonResponse({ ...result, copy, ...(copyCaptureError ? { copyCaptureError } : {}) }, result.duplicate ? 200 : 201);
+  // Save-only credentials receive no saved copy, revision, or job history.
+  if (tokenCapture) return jsonResponse({ ...result, extractionRequested }, result.duplicate ? 200 : 201);
+  return jsonResponse({ ...result, extraction: await getExtractionStatus(env.DB, result.article.id, isBackgroundCapturePaused(env)) }, result.duplicate ? 200 : 201);
 }
 
 async function capture(request: Request, env: Env): Promise<Response> {
@@ -142,7 +152,7 @@ async function capture(request: Request, env: Env): Promise<Response> {
   try { auth = await validateCaptureToken(request, env); } catch (error) { return exceptionResponse(error, 'articles.capture_auth', storageError); }
   if (isResponse(auth)) return auth;
   try {
-    return await createArticle(request, env, false);
+    return await createArticle(request, env, true);
   } catch (error) {
     return exceptionResponse(error, 'articles.capture', storageError);
   }
@@ -161,7 +171,12 @@ async function listRoute(url: URL, env: Env): Promise<Response> {
   if (!Number.isInteger(limit) || limit < 1 || limit > 100) throw new ValidationError('limit must be an integer from 1 to 100');
   const cursor = url.searchParams.get('cursor') || undefined;
   if (cursor && cursor.length > 2048) throw new ValidationError('cursor is invalid');
-  return jsonResponse(await listArticles(env.DB, { status, q, limit, cursor }));
+  const page = await listArticles(env.DB, { status, q, limit, cursor });
+  const statuses = await getExtractionStatuses(env.DB, page.items.map(article => article.id), isBackgroundCapturePaused(env));
+  return jsonResponse({ ...page, items: page.items.map(article => {
+    const extraction = statuses.get(article.id);
+    return { ...article, hasCopy: extraction?.state === 'ready', extraction };
+  }) });
 }
 
 async function patchArticle(request: Request, env: Env, id: string): Promise<Response> {
@@ -177,7 +192,9 @@ async function patchArticle(request: Request, env: Env, id: string): Promise<Res
     patch.title = title;
   }
   const article = await updateArticle(env.DB, id, patch);
-  return article ? jsonResponse({ article }) : fail(404, 'not_found', 'Article not found.');
+  if (!article) return fail(404, 'not_found', 'Article not found.');
+  const extraction = await getExtractionStatus(env.DB, id, isBackgroundCapturePaused(env));
+  return jsonResponse({ article: { ...article, hasCopy: extraction?.state === 'ready', extraction } });
 }
 
 async function exportArticles(env: Env): Promise<Response> {

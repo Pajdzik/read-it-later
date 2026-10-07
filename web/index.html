@@ -94,7 +94,7 @@
         <span class="add-plus" aria-hidden="true">＋</span>
         <div>
           <h2 id="add-heading">Save something for later</h2>
-        <p>Paste a link to save the article and a readable Markdown copy.</p>
+          <p>Save a link now and capture its Markdown in the background.</p>
         </div>
       </div>
       <form id="add-form" class="add-form">
@@ -153,7 +153,14 @@
         <p id="reader-metadata" class="muted reader-metadata"></p>
         <a id="reader-original" class="reader-original" target="_blank" rel="noopener noreferrer">Open original ↗</a>
       </header>
-      <p class="reader-image-note">Image references are shown as text and still depend on their external source.</p>
+      <section id="reader-pending" class="reader-pending" hidden aria-live="polite">
+        <p id="reader-pending-status" class="reader-pending-status"></p>
+        <div class="reader-pending-actions">
+          <button id="reader-manual-copy" class="button secondary" type="button">Paste or upload Markdown</button>
+          <button id="reader-retry" class="button secondary" type="button" hidden>Retry capture</button>
+        </div>
+      </section>
+      <p id="reader-image-note" class="reader-image-note">Image references are shown as text and still depend on their external source.</p>
       <article id="reader-body" class="reader-body"></article>
     </dialog>
     <dialog id="settings-dialog" class="dialog settings-dialog" aria-labelledby="settings-heading">

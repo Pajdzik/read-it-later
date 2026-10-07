@@ -10,6 +10,8 @@ export interface SaveArticleInput {
   fallbackTitle?: string;
   author?: string;
   description?: string;
+  extractionRequested?: boolean;
+  titleOrigin?: "fallback" | "supplied" | "extracted" | "protected";
 }
 
 export interface ListArticlesInput {
@@ -81,14 +83,21 @@ export async function saveArticleCopy(
   expectedRevision: string | null,
 ): Promise<"saved" | "conflict" | "missing"> {
   const now = copy.capturedAt;
-  const result = expectedRevision === null
-    ? await db.prepare(`INSERT INTO article_copies (article_id,markdown,captured_at,source,revision)
+  const copyWrite = expectedRevision === null
+    ? db.prepare(`INSERT INTO article_copies (article_id,markdown,captured_at,source,revision)
         SELECT ?,?,?,?,? WHERE EXISTS (SELECT 1 FROM articles WHERE id = ?)
         ON CONFLICT(article_id) DO NOTHING`)
-      .bind(id, copy.markdown, now, copy.source, copy.revision, id).run()
-    : await db.prepare(`UPDATE article_copies SET markdown = ?, captured_at = ?, source = ?, revision = ?
+      .bind(id, copy.markdown, now, copy.source, copy.revision, id)
+    : db.prepare(`UPDATE article_copies SET markdown = ?, captured_at = ?, source = ?, revision = ?
         WHERE article_id = ? AND revision = ? AND EXISTS (SELECT 1 FROM articles WHERE id = ?)`)
-      .bind(copy.markdown, now, copy.source, copy.revision, id, expectedRevision, id).run();
+      .bind(copy.markdown, now, copy.source, copy.revision, id, expectedRevision, id);
+  const satisfyJobs = db.prepare(`UPDATE article_extraction_jobs
+      SET state = 'succeeded', lease_token = NULL, lease_expires_at = NULL,
+          error_code = NULL, finished_at = ?, updated_at = ?
+      WHERE article_id = ? AND state IN ('queued','running','retry_wait')
+        AND EXISTS (SELECT 1 FROM article_copies c WHERE c.article_id = ? AND c.revision = ?)`)
+    .bind(now, now, id, id, copy.revision);
+  const [result] = await db.batch([copyWrite, satisfyJobs]);
   if ((result.meta.changes ?? 0) > 0) return "saved";
   const article = await db.prepare("SELECT 1 AS found FROM articles WHERE id = ?").bind(id).first();
   if (!article) return "missing";
@@ -145,25 +154,56 @@ export async function saveArticle(
 ): Promise<{ article: Article; duplicate: boolean; metadataUpdated: boolean }> {
   const now = new Date().toISOString();
   const id = crypto.randomUUID();
-  const insertTitle = input.title?.trim() || input.url;
+  const insertTitle = input.title?.trim() || input.fallbackTitle?.trim() || input.url;
+  const titleOrigin = input.titleOrigin ?? (input.title?.trim() ? "supplied" : "fallback");
+  const allowDuplicateMetadataTitle = input.fallbackTitle !== undefined || input.titleOrigin === "extracted";
+  const extractionRequestedAt = input.extractionRequested ? now : null;
+  const before = await db.prepare("SELECT id,title,author,description,created_at,updated_at,read_at FROM articles WHERE normalized_url = ?")
+    .bind(input.normalizedUrl).first<Record<string, unknown>>();
+  const insert = db.prepare(
+    `INSERT INTO articles (id,url,normalized_url,title,author,description,created_at,updated_at,read_at,extraction_requested_at,title_origin)
+     VALUES (?,?,?,?,?,?,?,?,NULL,?,?) ON CONFLICT(normalized_url) DO NOTHING`,
+  ).bind(id, input.url, input.normalizedUrl, insertTitle, input.author ?? null, input.description ?? null, now, now, extractionRequestedAt, titleOrigin);
+  // Duplicate metadata only fills empty fields. For older callers that still pass
+  // fallbackTitle, a matching unprotected title can be upgraded to page metadata.
+  const updateDuplicate = db.prepare(`UPDATE articles SET
+      title = CASE WHEN ? AND title_origin != 'protected' AND
+        (title_origin = 'fallback' OR title = ?) AND ? != '' THEN ? ELSE title END,
+      title_origin = CASE WHEN ? AND title_origin != 'protected' AND
+        (title_origin = 'fallback' OR title = ?) AND ? != '' THEN 'extracted' ELSE title_origin END,
+      author = COALESCE(author, ?), description = COALESCE(description, ?),
+      extraction_requested_at = CASE WHEN ? AND NOT EXISTS (
+        SELECT 1 FROM article_copies c WHERE c.article_id = articles.id
+      ) AND NOT EXISTS (
+        SELECT 1 FROM article_extraction_jobs j WHERE j.article_id = articles.id AND j.state = 'failed'
+      ) THEN COALESCE(extraction_requested_at, ?) ELSE extraction_requested_at END,
+      updated_at = CASE WHEN
+        (? AND title_origin != 'protected' AND (title_origin = 'fallback' OR title = ?) AND ? != '' AND title != ?) OR
+        (author IS NULL AND ? IS NOT NULL) OR (description IS NULL AND ? IS NOT NULL)
+        THEN ? ELSE updated_at END
+    WHERE normalized_url = ? AND id != ?`)
+    .bind(allowDuplicateMetadataTitle ? 1 : 0, input.fallbackTitle ?? "", input.title?.trim() ?? "", input.title?.trim() ?? "",
+      allowDuplicateMetadataTitle ? 1 : 0, input.fallbackTitle ?? "", input.title?.trim() ?? "",
+      input.author ?? null, input.description ?? null,
+      input.extractionRequested ? 1 : 0, now,
+      allowDuplicateMetadataTitle ? 1 : 0, input.fallbackTitle ?? "", input.title?.trim() ?? "", input.title?.trim() ?? "",
+      input.author ?? null, input.description ?? null, now,
+      input.normalizedUrl, id);
+  await db.batch([insert, updateDuplicate]);
   const inserted = await db.prepare(
-    "INSERT INTO articles (id,url,normalized_url,title,author,description,created_at,updated_at,read_at) VALUES (?,?,?,?,?,?,?,?,NULL) ON CONFLICT(normalized_url) DO NOTHING RETURNING id,url,title,author,description,created_at,updated_at,read_at",
-  ).bind(id, input.url, input.normalizedUrl, insertTitle, input.author ?? null, input.description ?? null, now, now).first<Record<string, unknown>>();
+    "SELECT id,url,title,author,description,created_at,updated_at,read_at FROM articles WHERE id = ?",
+  ).bind(id).first<Record<string, unknown>>();
   if (inserted) return { article: mapArticle(inserted)!, duplicate: false, metadataUpdated: false };
-  const existing = await db.prepare("SELECT id,url,title,author,description,created_at,updated_at,read_at FROM articles WHERE normalized_url = ?")
+  const existing = await db.prepare("SELECT id,url,title,author,description,created_at,updated_at,read_at,title_origin FROM articles WHERE normalized_url = ?")
     .bind(input.normalizedUrl).first<Record<string, unknown>>();
   if (!existing) throw new Error("Duplicate article could not be read");
   const current = mapArticle(existing)!;
-  const updatedTitle = input.fallbackTitle && current.title === input.fallbackTitle && input.title
-    ? input.title
-    : current.title;
-  const author = current.author ?? input.author ?? null;
-  const description = current.description ?? input.description ?? null;
-  const metadataUpdated = updatedTitle !== current.title || author !== current.author || description !== current.description;
-  if (!metadataUpdated) return { article: current, duplicate: true, metadataUpdated: false };
-  await db.prepare("UPDATE articles SET title = ?, author = ?, description = ?, updated_at = ? WHERE id = ?")
-    .bind(updatedTitle, author, description, now, current.id).run();
-  return { article: (await getArticle(db, current.id))!, duplicate: true, metadataUpdated: true };
+  const metadataUpdated = !!before && (
+    String(before.title) !== current.title ||
+    (before.author == null && current.author !== null) ||
+    (before.description == null && current.description !== null)
+  );
+  return { article: current, duplicate: true, metadataUpdated };
 }
 
 export async function getArticle(db: D1Database, id: string): Promise<Article | null> {
@@ -218,13 +258,14 @@ export async function updateArticle(
   const read = patch.read === true;
   await db.prepare(`UPDATE articles SET
     title = CASE WHEN ? THEN ? ELSE title END,
+    title_origin = CASE WHEN ? THEN 'protected' ELSE title_origin END,
     read_at = CASE WHEN ? THEN CASE WHEN ? THEN COALESCE(read_at, ?) ELSE NULL END ELSE read_at END,
     updated_at = CASE WHEN
-      (? AND title != ?) OR
+      (? AND (title != ? OR title_origin != 'protected')) OR
       (? AND ((? AND read_at IS NULL) OR (NOT ? AND read_at IS NOT NULL)))
       THEN ? ELSE updated_at END
     WHERE id = ?`)
-    .bind(hasTitle ? 1 : 0, title, hasRead ? 1 : 0, read ? 1 : 0, now,
+    .bind(hasTitle ? 1 : 0, title, hasTitle ? 1 : 0, hasRead ? 1 : 0, read ? 1 : 0, now,
       hasTitle ? 1 : 0, title, hasRead ? 1 : 0, read ? 1 : 0, read ? 1 : 0, now, id).run();
   return getArticle(db, id);
 }

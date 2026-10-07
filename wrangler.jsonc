@@ -8,7 +8,8 @@
     "GITHUB_BACKUP_BRANCH": "main",
     "GITHUB_BACKUP_PATH": "Articles",
     "GITHUB_BACKUP_REPOSITORY": "Pajdzik/Kamilpedia",
-    "OWNER_GITHUB_ID": "1497744"
+    "OWNER_GITHUB_ID": "1497744",
+    "BACKGROUND_CAPTURE_ENABLED": "false"
   },
   "assets": {
     "directory": "./dist/web",
@@ -35,7 +36,8 @@
       "name": "read-it-later-staging",
       "vars": {
         "APP_ORIGIN": "https://read-it-later-staging.<account-subdomain>.workers.dev",
-        "OWNER_GITHUB_ID": "replace-with-numeric-github-user-id"
+        "OWNER_GITHUB_ID": "replace-with-numeric-github-user-id",
+        "BACKGROUND_CAPTURE_ENABLED": "false"
       },
       "d1_databases": [
         {
@@ -44,7 +46,12 @@
           "database_id": "11111111-1111-4111-8111-111111111111",
           "migrations_dir": "migrations"
         }
-      ]
+      ],
+      "triggers": {
+        "crons": [
+          "* * * * *"
+        ]
+      }
     },
     "production": {
       "name": "read-it-later-production",
@@ -53,7 +60,8 @@
         "OWNER_GITHUB_ID": "1497744",
         "GITHUB_BACKUP_REPOSITORY": "Pajdzik/Kamilpedia",
         "GITHUB_BACKUP_BRANCH": "main",
-        "GITHUB_BACKUP_PATH": "Articles"
+        "GITHUB_BACKUP_PATH": "Articles",
+        "BACKGROUND_CAPTURE_ENABLED": "false"
       },
       "d1_databases": [
         {
@@ -62,7 +70,17 @@
           "database_id": "e4a7e714-8e4e-413d-8f13-51c0c02fab5f",
           "migrations_dir": "migrations"
         }
-      ]
+      ],
+      "triggers": {
+        "crons": [
+          "* * * * *"
+        ]
+      }
     }
+  },
+  "triggers": {
+    "crons": [
+      "* * * * *"
+    ]
   }
 }

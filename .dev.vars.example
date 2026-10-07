@@ -13,3 +13,7 @@ DEV_AUTH_BYPASS=true
 # GITHUB_BACKUP_BRANCH=main
 # GITHUB_BACKUP_PATH=Articles
 # GITHUB_BACKUP_TOKEN=github_pat_...
+
+# Background capture records durable intent; processing stays paused until the
+# protected ARTICLE_FETCHER service binding and staging runtime gates are ready.
+BACKGROUND_CAPTURE_ENABLED=false

@@ -398,6 +398,18 @@ button {
   color: var(--muted);
   font-size: 12px;
 }
+.extraction-badge {
+  display: inline-block;
+  margin-top: 4px;
+  padding: 3px 7px;
+  border-radius: 999px;
+  background: var(--mint);
+  color: var(--green);
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: .02em;
+}
+.extraction-badge[hidden] { display: none; }
 .article-description {
   display: block;
   width: 100%;
@@ -565,6 +577,17 @@ button {
   margin-top: 22px;
   padding-top: 8px;
 }
+.extraction-panel {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 8px 14px;
+  margin-top: 18px;
+  padding: 12px 14px;
+  border-radius: 10px;
+  background: var(--mint);
+}
+.extraction-panel p { margin: 0; color: var(--green); font-size: 13px; }
 .copy-editor h3 {
   font: 500 20px Georgia, serif;
 }
@@ -645,6 +668,16 @@ button {
   margin-top: 8px;
   font-size: 13px;
 }
+.reader-pending {
+  max-width: 68ch;
+  margin: 24px auto;
+  padding: 18px;
+  border-radius: 12px;
+  background: var(--mint);
+}
+.reader-pending-status { margin: 0 0 14px; line-height: 1.55; }
+.reader-pending-actions { display: flex; flex-wrap: wrap; gap: 8px; }
+.reader-pending[hidden] { display: none; }
 .reader-image-note {
   max-width: 68ch;
   margin: 0 auto 24px;

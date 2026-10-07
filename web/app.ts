@@ -9,7 +9,11 @@ type Article = {
   createdAt: string;
   updatedAt: string;
   readAt: string | null;
+  hasCopy?: boolean;
+  extraction?: ExtractionStatus;
 };
+type ExtractionState = "none" | "queued" | "running" | "retry_wait" | "ready" | "failed";
+type ExtractionStatus = { state: ExtractionState; attempts: number; errorCode: string | null; nextAttemptAt: string | null; paused: boolean };
 type Session = { authenticated: boolean; csrfToken?: string };
 type Page = { items: Article[]; nextCursor: string | null };
 type ArticleCopy = { markdown: string; capturedAt: string; source: "paste" | "upload"; revision: string };
@@ -35,6 +39,9 @@ let browserCaptureDraft: BrowserCaptureDraft | null = null;
 let captureGitHubConfiguration: GitHubCaptureConfiguration | null = null;
 let captureGitHubConfigurationPromise: Promise<void> | null = null;
 let readerLoadGeneration = 0;
+let extractionPollTimer = 0;
+let extractionPollStartedAt = 0;
+let extractionPollGeneration = 0;
 const list = $("#articles"),
   notice = $("#notice"),
   empty = $("#empty"),
@@ -128,6 +135,111 @@ function dateLabel(date: string) {
         year: "numeric",
       }).format(d);
 }
+function extractionLabel(extraction?: ExtractionStatus) {
+  if (!extraction || extraction.state === "none") return "";
+  if (extraction.state === "ready") return "Markdown ready";
+  if (extraction.state === "failed") return "Capture failed";
+  if (extraction.paused) return "Capture paused";
+  return extraction.state === "retry_wait" ? "Capture retrying" : "Capturing Markdown";
+}
+function extractionIsPending(extraction?: ExtractionStatus) {
+  return Boolean(extraction && ["queued", "running", "retry_wait"].includes(extraction.state));
+}
+function extractionFailureMessage(code: string | null | undefined) {
+  switch (code) {
+    case "source_http":
+    case "source_unavailable": return "The source site could not be reached.";
+    case "upstream_http": return "The source site refused the request or is unavailable.";
+    case "network_error": return "A network error interrupted capture.";
+    case "timeout": return "The source site took too long to respond.";
+    case "unsupported_content":
+    case "unsupported_content_type": return "This link does not serve a supported article page.";
+    case "source_too_large":
+    case "response_too_large": return "The source page is larger than the capture limit.";
+    case "unsafe_destination":
+    case "unsafe_redirect":
+    case "redirect_downgrade":
+    case "redirect_loop":
+    case "too_many_redirects":
+    case "unvalidated_redirect": return "The source link could not be fetched safely.";
+    case "unsupported_encoding":
+    case "invalid_encoding": return "The source page uses an unsupported text encoding.";
+    case "conversion_failed": return "The source page could not be converted to Markdown.";
+    case "storage_failed":
+    case "copy_unavailable": return "The Markdown copy could not be saved.";
+    default: return "Markdown capture failed.";
+  }
+}
+function stopExtractionPolling() {
+  window.clearTimeout(extractionPollTimer);
+  extractionPollTimer = 0;
+  extractionPollGeneration++;
+}
+function scheduleExtractionPoll(article: Article) {
+  stopExtractionPolling();
+  if (!state.session?.authenticated || document.visibilityState === "hidden" || !extractionIsPending(article.extraction)) return;
+  if (!$<HTMLDialogElement>("#detail-dialog").open && !$<HTMLDialogElement>("#reader-dialog").open) return;
+  const generation = extractionPollGeneration;
+  const delay = Date.now() - extractionPollStartedAt < 60_000 ? 5_000 : 30_000;
+  extractionPollTimer = window.setTimeout(async () => {
+    try {
+      const result = await request<{ extraction: ExtractionStatus }>(`/api/articles/${encodeURIComponent(article.id)}/extraction`);
+      if (generation !== extractionPollGeneration || state.selected?.id !== article.id) return;
+      const updated = { ...state.selected, extraction: result.extraction } as Article;
+      state.selected = updated;
+      const row = list.querySelector<HTMLElement>(`[data-id="${CSS.escape(article.id)}"]`);
+      if (row) {
+        const badge = row.querySelector<HTMLElement>(".extraction-badge");
+        if (badge) { badge.textContent = extractionLabel(result.extraction); badge.hidden = !extractionLabel(result.extraction); }
+      }
+      if (result.extraction.state === "ready") {
+        if ($<HTMLDialogElement>("#reader-dialog").open) {
+          const copy = await request<{ copy: ArticleCopy | null }>(`/api/articles/${encodeURIComponent(article.id)}/copy`);
+          if (copy.copy && generation === extractionPollGeneration && state.selected?.id === article.id && $<HTMLDialogElement>("#reader-dialog").open && !$<HTMLDialogElement>("#detail-dialog").open) openReader(updated, copy.copy);
+        } else if ($<HTMLDialogElement>("#detail-dialog").open) refreshDetailAfterExtraction(updated);
+        stopExtractionPolling();
+        return;
+      }
+      if (result.extraction.state === "failed") {
+        if ($<HTMLDialogElement>("#detail-dialog").open) refreshDetailAfterExtraction(updated);
+        else renderPendingReader(updated);
+        stopExtractionPolling();
+        return;
+      }
+      const status = $("#reader-pending-status");
+      if ($<HTMLDialogElement>("#reader-dialog").open && !status.hidden) status.textContent = extractionLabel(result.extraction);
+      if ($<HTMLDialogElement>("#detail-dialog").open) {
+        const detailStatus = $("#detail-extraction-status");
+        if (detailStatus) detailStatus.textContent = extractionLabel(result.extraction);
+      }
+      scheduleExtractionPoll(updated);
+    } catch {
+      if (generation === extractionPollGeneration) scheduleExtractionPoll(article);
+    }
+  }, delay);
+}
+function startExtractionPolling(article: Article) {
+  stopExtractionPolling();
+  extractionPollStartedAt = Date.now();
+  scheduleExtractionPoll(article);
+}
+function refreshDetailAfterExtraction(article: Article) {
+  const root = $("#detail-content");
+  const titleDraft = root.querySelector<HTMLInputElement>(".edit-form input")?.value;
+  const githubChoice = root.querySelector<HTMLInputElement>(".github-option input")?.checked;
+  renderDetail(article);
+  const titleInput = root.querySelector<HTMLInputElement>(".edit-form input");
+  if (titleDraft !== undefined && titleInput) titleInput.value = titleDraft;
+  const githubInput = root.querySelector<HTMLInputElement>(".github-option input");
+  if (githubChoice !== undefined && githubInput) githubInput.checked = githubChoice;
+}
+document.addEventListener("visibilitychange", () => {
+  if (document.visibilityState === "hidden") {
+    stopExtractionPolling();
+    return;
+  }
+  if (state.selected && extractionIsPending(state.selected.extraction)) scheduleExtractionPoll(state.selected);
+});
 function el<K extends keyof HTMLElementTagNameMap>(
   tag: K,
   text?: string,
@@ -150,6 +262,8 @@ function renderArticle(article: Article) {
     `${sourceHost(article.url)}${article.author ? ` · By ${article.author}` : ""} · Saved ${dateLabel(article.createdAt)}`,
     "article-meta",
   );
+  const extractionBadge = el("span", extractionLabel(article.extraction), "extraction-badge");
+  extractionBadge.hidden = !extractionBadge.textContent;
   const description = article.description
     ? el("button", article.description, "article-description article-lead")
     : null;
@@ -163,7 +277,7 @@ function renderArticle(article: Article) {
   link.target = "_blank";
   link.rel = "noopener noreferrer";
   link.addEventListener("click", (e) => e.stopPropagation());
-  main.append(title, meta);
+  main.append(title, meta, extractionBadge);
   if (description) main.append(description);
   const actions = el("div", undefined, "article-actions");
   const read = el(
@@ -315,6 +429,31 @@ function renderDetail(article: Article) {
     }
   });
   actions.append(toggle, del);
+  const extractionPanel = el("section", undefined, "extraction-panel");
+  extractionPanel.setAttribute("aria-live", "polite");
+  const extractionStatus = el("p", extractionLabel(article.extraction), "extraction-detail-status");
+  extractionStatus.id = "detail-extraction-status";
+  const retryCapture = el("button", "Retry capture", "button secondary");
+  retryCapture.type = "button";
+  retryCapture.hidden = article.extraction?.state !== "failed";
+  retryCapture.addEventListener("click", async () => {
+    retryCapture.disabled = true;
+    extractionStatus.textContent = "Queueing a new capture attempt…";
+    try {
+      const result = await request<{ extraction: ExtractionStatus }>(`/api/articles/${encodeURIComponent(article.id)}/extraction/retry`, { method: "POST", body: JSON.stringify({}) });
+      const updated = { ...article, extraction: result.extraction };
+      state.selected = updated;
+      renderDetail(updated);
+      startExtractionPolling(updated);
+    } catch (error) {
+      extractionStatus.textContent = `Couldn’t retry capture. ${(error as Error).message}`;
+      retryCapture.disabled = false;
+    }
+  });
+  if (article.extraction && article.extraction.state !== "none") {
+    if (article.extraction.state === "failed") extractionStatus.textContent = `${extractionFailureMessage(article.extraction.errorCode)} Paste or upload a browser copy below, or retry.`;
+    extractionPanel.append(extractionStatus, retryCapture);
+  }
   root.append(
     eyebrow,
     el("h2", article.title),
@@ -325,8 +464,10 @@ function renderDetail(article: Article) {
     el("h3", "Original link"),
     url,
     actions,
+    extractionPanel,
   );
   void renderCopyEditor(article);
+  if (extractionIsPending(article.extraction)) startExtractionPolling(article);
 }
 
 async function renderCopyEditor(article: Article) {
@@ -554,7 +695,11 @@ async function renderCopyEditor(article: Article) {
       const bytes = new TextEncoder().encode(saved.markdown).byteLength;
       showStatus(`Saved ${dateLabel(saved.capturedAt)} · ${saved.source === "upload" ? "uploaded file" : "captured or pasted Markdown"} · ${bytes.toLocaleString()} UTF-8 bytes`);
     } else {
-      showStatus("No Markdown copy saved yet.");
+      showStatus(extractionIsPending(article.extraction)
+        ? `${extractionLabel(article.extraction)} · You can paste or upload a copy while capture runs.`
+        : article.extraction?.state === "failed"
+          ? "No Markdown copy saved. Paste or upload a browser copy, or retry capture above."
+          : "No Markdown copy saved yet.");
     }
     save.disabled = false;
     await refreshGitHubStatus();
@@ -576,12 +721,60 @@ function openReader(article: Article, copy: ArticleCopy) {
   author.textContent = article.author ? `By ${article.author}` : "";
   author.hidden = !article.author;
   metadata.textContent = `Captured ${dateLabel(copy.capturedAt)} · ${copy.source === "upload" ? "uploaded file" : "captured or pasted Markdown"} · ${sourceHost(article.url)}`;
+  $("#reader-pending").hidden = true;
+  $("#reader-image-note").hidden = false;
+  body.hidden = false;
   original.href = safeHttpUrl(article.url) || "#";
   body.replaceChildren(renderMarkdown(copy.markdown, article.url));
-  $<HTMLDialogElement>("#reader-dialog").showModal();
+  const dialog = $<HTMLDialogElement>("#reader-dialog");
+  if (!dialog.open) dialog.showModal();
+  stopExtractionPolling();
 }
+function renderPendingReader(article: Article) {
+  state.selected = article;
+  $("#reader-title").textContent = article.title;
+  $("#reader-author").hidden = true;
+  $("#reader-metadata").textContent = `${sourceHost(article.url)} · ${extractionLabel(article.extraction)}`;
+  const original = $<HTMLAnchorElement>("#reader-original");
+  original.href = safeHttpUrl(article.url) || "#";
+  $("#reader-pending-status").textContent = article.extraction?.state === "failed"
+    ? `${extractionFailureMessage(article.extraction.errorCode)} You can paste or upload a browser copy in article details.`
+    : article.extraction?.paused ? "Capture is paused. Your link is saved; you can add Markdown manually in article details."
+      : "Markdown is being prepared in the background. You can close this view; the link is already saved.";
+  $("#reader-pending").hidden = false;
+  const retry = $<HTMLButtonElement>("#reader-retry");
+  retry.hidden = article.extraction?.state !== "failed";
+  retry.disabled = false;
+  $("#reader-image-note").hidden = true;
+  $("#reader-body").hidden = true;
+  const dialog = $<HTMLDialogElement>("#reader-dialog");
+  if (!dialog.open) dialog.showModal();
+  startExtractionPolling(article);
+}
+$("#reader-manual-copy").addEventListener("click", () => {
+  const article = state.selected;
+  if (!article) return;
+  clearReader();
+  openDetail(article);
+});
+$("#reader-retry").addEventListener("click", async () => {
+  const article = state.selected;
+  const button = $<HTMLButtonElement>("#reader-retry");
+  if (!article) return;
+  button.disabled = true;
+  $("#reader-pending-status").textContent = "Queueing a new capture attempt…";
+  try {
+    const result = await request<{ extraction: ExtractionStatus }>(`/api/articles/${encodeURIComponent(article.id)}/extraction/retry`, { method: "POST", body: JSON.stringify({}) });
+    const updated = { ...article, extraction: result.extraction };
+    renderPendingReader(updated);
+  } catch (error) {
+    $("#reader-pending-status").textContent = `Couldn’t retry capture. ${(error as Error).message}`;
+    button.disabled = false;
+  }
+});
 function clearReader() {
   readerLoadGeneration++;
+  stopExtractionPolling();
   if (notice.textContent === "Loading Markdown copy…") showNotice("");
   const dialog = document.querySelector<HTMLDialogElement>("#reader-dialog");
   if (!dialog) return;
@@ -590,6 +783,9 @@ function clearReader() {
   $("#reader-title").textContent = "";
   $("#reader-author").textContent = "";
   $("#reader-metadata").textContent = "";
+  $("#reader-pending").hidden = true;
+  $("#reader-body").hidden = false;
+  $("#reader-image-note").hidden = false;
   $<HTMLAnchorElement>("#reader-original").removeAttribute("href");
 }
 function discardPrivateContent() {
@@ -604,8 +800,12 @@ $("#reader-dialog").addEventListener("close", () => {
   $("#reader-title").textContent = "";
   $("#reader-author").textContent = "";
   $("#reader-metadata").textContent = "";
+  $("#reader-pending").hidden = true;
   $<HTMLAnchorElement>("#reader-original").removeAttribute("href");
-  if (!$<HTMLDialogElement>("#detail-dialog").open) state.selected = null;
+  if (!$<HTMLDialogElement>("#detail-dialog").open) {
+    stopExtractionPolling();
+    state.selected = null;
+  }
 });
 $("#reader-dialog .reader-close").addEventListener("submit", (event) => {
   event.preventDefault();
@@ -619,6 +819,7 @@ function openDetail(article: Article) {
   clearReader();
   renderDetail(article);
   $<HTMLDialogElement>("#detail-dialog").showModal();
+  if (extractionIsPending(article.extraction)) startExtractionPolling(article);
 }
 async function openSavedCopy(article: Article) {
   const generation = ++readerLoadGeneration;
@@ -633,8 +834,13 @@ async function openSavedCopy(article: Article) {
       showNotice("");
       openReader(article, result.copy);
     } else {
-      showNotice("No Markdown copy saved yet. Add one in article details.");
-      openDetail(article);
+      if (extractionIsPending(article.extraction) || article.extraction?.state === "failed") {
+        showNotice("");
+        renderPendingReader(article);
+      } else {
+        showNotice("No Markdown copy saved yet. Add one in article details.");
+        openDetail(article);
+      }
     }
   } catch (error) {
     if (generation !== readerLoadGeneration || state.selected?.id !== article.id) return;
@@ -643,6 +849,7 @@ async function openSavedCopy(article: Article) {
   }
 }
 $("#detail-dialog").addEventListener("close", () => {
+  stopExtractionPolling();
   clearReader();
   $("#detail-content").replaceChildren();
   state.selected = null;
@@ -898,15 +1105,15 @@ $("#add-form").addEventListener("submit", async (e) => {
   const captureFromUrl = !browserCaptureDraft && $<HTMLInputElement>("#add-capture-markdown").checked;
   const addNotice = $("#add-notice");
   addNotice.classList.remove("error");
-  addNotice.textContent = captureFromUrl ? "Saving the article and capturing Markdown…" : "Saving…";
+  addNotice.textContent = captureFromUrl ? "Saving the link and queueing Markdown capture…" : "Saving…";
   addNotice.hidden = false;
   try {
     invalidateLoads();
-    const result = await request<{ article: Article; duplicate: boolean; metadataUpdated?: boolean; copy?: ArticleCopy | null; copyCaptureError?: string }>(
+    const result = await request<{ article: Article; duplicate: boolean; metadataUpdated?: boolean; extraction?: ExtractionStatus }>(
       "/api/articles",
       {
         method: "POST",
-        body: JSON.stringify({ url, ...(title ? { title } : {}), ...(captureFromUrl ? { captureMarkdown: true } : {}) }),
+        body: JSON.stringify({ url, ...(title ? { title } : {}), ...(captureFromUrl ? { captureMarkdown: true } : captured ? { captureMarkdown: false } : {}) }),
       },
     );
     const copyEnabled = captured && $<HTMLInputElement>("#capture-copy-enabled").checked;
@@ -983,35 +1190,29 @@ $("#add-form").addEventListener("submit", async (e) => {
       addNotice.classList.add("error");
       addNotice.hidden = false;
     } else showNotice(
-      result.copyCaptureError
-        ? `Link saved. Markdown was not saved: ${result.copyCaptureError}`
-        : result.copy
-          ? result.duplicate ? "That article is already saved with its Markdown copy." : "Article and Markdown copy saved."
-          :
       copyNotAttached
           ? pendingCopyLeftBehind
             ? "Link saved. The previous Markdown copy remains on its original article; this new link has no copy or GitHub backup."
             : "Link saved. The captured Markdown was not attached because the URL changed."
           : githubSaved
             ? "Link and Markdown copy saved to Potem and GitHub."
-            : savedCopy
+          : savedCopy
               ? "Link and Markdown copy saved privately in Potem."
               : copySkipped
                 ? "Link saved. Markdown copy was left out by your choice."
-      : result.duplicate
-        ? result.metadataUpdated ? "Preview details updated." : "That link is already in your list."
-        : "Saved for later.",
-      Boolean(result.copyCaptureError),
+      : captureFromUrl && extractionIsPending(result.extraction || result.article.extraction)
+        ? (result.extraction || result.article.extraction)?.paused
+          ? "Link saved. Capture is paused; Markdown can be added from article details."
+          : "Link saved. Capturing Markdown in the background."
+        : result.duplicate
+          ? result.metadataUpdated ? "Preview details updated." : "That link is already in your list."
+          : "Saved for later.",
     );
     if (copySaveError || githubSaveError) {
       await load();
       return;
     }
     await load();
-    if (captureFromUrl && result.copy) {
-      state.selected = result.article;
-      openReader(result.article, result.copy);
-    }
   } catch (err) {
     const addNotice = $("#add-notice");
     addNotice.textContent = `Couldn’t save this link. ${(err as Error).message}`;
@@ -1026,6 +1227,7 @@ document
   .forEach((button) =>
     button.addEventListener("click", () => {
       invalidateLoads();
+      stopExtractionPolling();
       state.status = button.dataset.status || "unread";
       document
         .querySelectorAll("[data-status]")
@@ -1036,12 +1238,14 @@ document
 let searchTimer: number;
 $<HTMLInputElement>("#search").addEventListener("input", (e) => {
   clearTimeout(searchTimer);
+  stopExtractionPolling();
   invalidateLoads();
   state.query = (e.target as HTMLInputElement).value.trim();
   searchTimer = window.setTimeout(() => load(), 250);
 });
 $("#more").addEventListener("click", () => load(false));
 $("#logout").addEventListener("click", async () => {
+  stopExtractionPolling();
   copyDrafts.clear();
   browserCaptureDraft = null;
   sessionStorage.removeItem("later-browser-capture-draft");
@@ -1236,11 +1440,12 @@ if (
     JSON.stringify({ url, title: $<HTMLInputElement>("#add-title").value }),
   );
   history.replaceState({}, "", "/add");
-  if (url) showNotice("Link prefilled. Review and choose Save link.");
-  else
-    showNotice(
-      "We couldn’t find one clear link. Paste the link you want to save.",
-    );
+  const addNotice = $("#add-notice");
+  addNotice.textContent = url
+    ? "Link prefilled. Review and choose Save link."
+    : "We couldn’t find one clear link. Paste the link you want to save.";
+  addNotice.classList.toggle("error", !url);
+  addNotice.hidden = false;
   if (!$<HTMLDialogElement>("#add-dialog").open)
     $<HTMLDialogElement>("#add-dialog").showModal();
 }
