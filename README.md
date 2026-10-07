@@ -146,15 +146,16 @@ pnpm check
 pnpm typecheck
 pnpm test
 pnpm build
-pnpm exec playwright install chromium
+pnpm exec playwright install chromium webkit
 pnpm test:browser
+pnpm test:mobile
 pnpm test:prototype
 pnpm test:archive
 pnpm test:obsidian
 pnpm test:github
 ```
 
-`check` aliases `typecheck`, which checks all TypeScript sources across the Worker, browser app, service worker, prototype, scripts, and tests. Tests run against local Worker/D1 bindings and apply real migrations. `build` bundles assets and dry-runs deployment. Browser smoke uses temporary D1 storage and an ephemeral port to exercise persisted read state, capture drafts, errors, and desktop/mobile layouts. Archive rehearsal restores a representative export into a second fresh local D1 database, reconciles all fields, verifies idempotent imports, and reads/downloads restored copies with external requests blocked. Chromium must be installed, or supplied through `BROWSER_EXECUTABLE`.
+`check` aliases `typecheck`, which checks all TypeScript sources across the Worker, browser app, service worker, prototype, scripts, and tests. Tests run against local Worker/D1 bindings and apply real migrations. `build` bundles assets and dry-runs deployment. Browser smoke uses temporary D1 storage and an ephemeral port to exercise persisted read state, capture drafts, errors, and desktop/mobile layouts. `test:mobile` uses a separate temporary Wrangler config, local Worker/D1, and fixture server, then exercises touch flows with Android Chromium and iPhone WebKit profiles in portrait, short portrait, and landscape. It checks manifest-driven sharing, save retries, local extraction, read state, populated service-worker cache boundaries, and the local capture-token HTTP contract. Both runners emit screenshots under `/tmp`; see [mobile release validation](docs/mobile-release.md) for paths, browser versions, deployed read-only checks, and pending physical-device results. Archive rehearsal restores a representative export into a second fresh local D1 database, reconciles all fields, verifies idempotent imports, and reads/downloads restored copies with external requests blocked. Install Chromium and WebKit for the browser runners, or supply `BROWSER_EXECUTABLE` for Chromium and `WEBKIT_EXECUTABLE` for WebKit.
 
 `test:obsidian` exercises the offline converter against temporary vaults, then imports converted fixtures through a temporary real Worker/D1 API, exports and reconciles them, repeats the import, and verifies a preexisting normalized-URL record and its copy/read state remain intact.
 
@@ -194,7 +195,7 @@ Back up before destructive schema changes. Prefer additive migrations and roll b
 | `wrangler.jsonc` | Worker, assets and environment bindings |
 | `server.ts`, `public/`, `Dockerfile` | Preserved Node.js Markdown-reader prototype |
 
-Supporting documents: [TypeScript migration](docs/typescript-migration.md), [original design](docs/design.md), [implementation tracker](docs/tasks.md), [capture](docs/capture.md), [CI](docs/ci.md), [deployment and operations](docs/deployment.md), and [prototype](docs/prototype.md). The original design/tracker record the initial implementation scope; this README reflects the current code, including metadata enrichment and production CI deployment.
+Supporting documents: [TypeScript migration](docs/typescript-migration.md), [original design](docs/design.md), [implementation tracker](docs/tasks.md), [capture](docs/capture.md), [mobile release validation](docs/mobile-release.md), [CI](docs/ci.md), [deployment and operations](docs/deployment.md), and [prototype](docs/prototype.md). The original design/tracker record the initial implementation scope; this README reflects the current code, including metadata enrichment and production CI deployment.
 
 ### Preserved prototype
 
