@@ -2,7 +2,7 @@
 
 ## Decision
 
-Update: the ordinary Add form now also supports [synchronous URL Markdown capture](url-markdown-capture.md), reusing its existing bounded metadata fetch and creating a copy only after the link is saved. That supersedes the manual/browser-only experience described by the original A01 decision below. Background capture jobs, full DNS/rebinding protection, and deployed performance validation remain deferred.
+Update: the ordinary Add form and mobile capture API now record durable [background URL Markdown capture](url-markdown-capture.md), creating copies through leased D1 jobs after the link is saved. The processor stays paused until a protected fetch service and deployed runtime validation satisfy A01; the historical manual/browser decision below records the original boundary. Full deployed DNS/rebinding and performance evidence remains pending.
 
 For A01, server-side fetching and extraction were deferred because the existing metadata fetch has not proven DNS, redirect, or rebinding protection. A02 now also supports browser-side capture: the user invokes a bookmarklet on the open page; a pinned Defuddle bundle extracts that document locally with `useAsync: false`, and sends editable Markdown to the Potem tab over a one-use origin-checked message. This does not add server fetching, background jobs, paid services, or storage bindings. No deployed server extraction benchmark is claimed.
 

@@ -22,7 +22,9 @@ flowchart LR
     Shortcut[iOS Shortcut: save-only token] --> Worker
     Worker --> Assets[Workers Static Assets]
     Worker --> D1[(D1: library and auth)]
-    Worker --> Metadata[Original website: metadata request]
+    Cron[Scheduled trigger] --> Worker
+    Worker --> Fetcher[Protected article fetch service]
+    Fetcher --> Source[Original website]
     Browser --> Original[Original article or document]
 ```
 
@@ -36,9 +38,11 @@ The frontend is bundled with esbuild. JavaScript and CSS use content-hashed file
 
 Both the authenticated Add form and token capture API use the same save path. URLs must be absolute HTTP(S), have no embedded credentials, and fit within 8 KiB. The submitted URL is retained for opening the original. A separate normalized URL is the unique deduplication key: normalize host/default ports, remove fragments and `utm_*`, `fbclid`, and `gclid`, and retain other query bytes/order, path case, and trailing slashes. This deliberately treats fragment-only differences as the same article; changing the policy later requires an explicit data migration.
 
-Saving makes a best-effort metadata request to the source page. It reads at most 512 KiB of HTML with a 4.5-second timeout and extracts title, author, and description from common HTML/social metadata. When no description metadata exists, the first paragraph in the main article content supplies the description. A supplied title takes precedence; otherwise use extracted metadata, then a hostname/path fallback. Fetch failures, blocked pages, non-HTML documents, and missing metadata still permit saving the link. This request is not a preserved article copy, does not render JavaScript, and does not use the owner's browser cookies.
+Saving commits the URL immediately with a supplied title or hostname/path fallback. The website Add form enables **Save a Markdown copy of the article** by default and records durable extraction intent through `captureMarkdown: true`. A scheduled Worker later fetches a bounded HTML page, extracts title/author/description and Markdown with the pinned Defuddle parser, and creates a private copy in D1. Closing the browser or phone after the link-save acknowledgment does not cancel that intent. Uncheck the option for a link-only save; link-only saves do not fetch metadata.
 
-The website Add form now enables **Save a Markdown copy of the article** by default. Its authenticated save request includes `captureMarkdown: true`: the same bounded source request supplies HTML to Defuddle, the URL is committed first, then the extracted Markdown is saved in D1 and opened in the sanitized reader. Uncheck the option for a link-only save. Extraction does not execute page scripts or use third-party fallback APIs. Incomplete HTML, unavailable/non-HTML sources, empty content, oversized Markdown, and copy-storage failures leave the link saved and report that the copy was not saved. Adding the URL again retries a missing copy; existing copies and their revisions are preserved. Capture tokens remain link-only and cannot request or receive copies. See [URL Markdown capture](docs/url-markdown-capture.md).
+Mobile capture tokens request background extraction by default, including existing iOS Shortcut `{url, title?}` payloads. `captureMarkdown: false` opts out. Tokens remain save-only: they cannot read copies or job history, submit Markdown, retry failed jobs, or publish to GitHub. Website details show queued, running, retrying, ready, failed, or paused status and provide an owner-only retry. Duplicate saves preserve existing copies and do not restart exhausted jobs. Reviewed browser clips take priority and continue using their existing explicit copy-save path.
+
+Processing is **paused by default** in every environment. Activation requires `BACKGROUND_CAPTURE_ENABLED=true` and an `ARTICLE_FETCHER` service binding that enforces public destinations at connection time. There is no unrestricted source-fetch fallback. The deployed safe-egress and extraction CPU checks remain pending; existing automatic website extraction becomes queued/paused until activation. See [background extraction](docs/background-markdown-extraction.md), [URL Markdown capture](docs/url-markdown-capture.md), and the [deployment gate](docs/deployment.md#background-markdown-extraction).
 
 A unique SQL constraint handles concurrent duplicate saves. Duplicates keep their ID, saved date, and read state. A subsequent save can fill missing author/description or replace the generated fallback title; it preserves an edited title and reports whether metadata changed.
 
@@ -51,6 +55,8 @@ A unique SQL constraint handles concurrent duplicate saves. Duplicates keep thei
 | `oauth_states` | Short-lived hashed OAuth state and browser binding |
 | `capture_tokens` | Hashed save-only tokens, labels, creation and revocation dates |
 | `capture_rate_buckets` | Atomic per-token, per-minute capture request counts |
+| `article_copies` | Private Markdown, capture time/source, and revision |
+| `article_extraction_jobs` | Durable job generation, attempts, due time, lease, and safe failure code |
 
 There is no users table because the database represents one owner's library. Normal saves generate UUIDs; imports retain opaque IDs. Timestamps use UTC ISO strings. `read_at = NULL` means unread. Marking read twice retains the first read timestamp; marking unread clears it. Concurrent read changes use the last committed write.
 
@@ -64,7 +70,7 @@ GitHub OAuth requests identity access (`read:user`) and checks the immutable num
 
 Cookie-authenticated writes require an exact same-origin `Origin` and a session-bound CSRF token. Library/auth responses use `private, no-store`; the Worker applies a restrictive content security policy and other browser security headers. Displayed content uses text nodes and validated HTTP(S) links. There is no cross-origin API allowance.
 
-Settings creates revocable capture tokens. The plaintext is shown once; D1 stores only its hash. Tokens can save through `POST /api/capture` and cannot list, export, edit, or delete articles. Capture rejects browser cookies/Origin headers and allows 60 requests per minute per token using atomic D1 counters. Ordinary JSON request bodies are limited to 16 KiB; titles to 500 characters.
+Settings creates revocable capture tokens. The plaintext is shown once; D1 stores only its hash. Tokens can save links and request server-generated background copies through `POST /api/capture`; they cannot list, read copies, export, edit, or delete articles. Capture rejects browser cookies/Origin headers and allows 60 requests per minute per token using atomic D1 counters. Ordinary JSON request bodies are limited to 16 KiB; titles to 500 characters.
 
 An explicit local authentication bypass works only on the configured loopback origin. It must remain absent from deployed environments. Changing the owner ID requires revoking existing sessions and capture tokens because all records belong to the same library.
 
@@ -72,9 +78,9 @@ An explicit local authentication bypass works only on the configured loopback or
 
 | Method | Behavior |
 | --- | --- |
-| Website | Open Add, paste a URL and optional title, then save the link and an extracted Markdown copy using the owner session |
+| Website | Open Add, paste a URL and optional title, then save the link and queue an optional background Markdown copy |
 | Desktop bookmarklet | Extracts the open page into an editable Markdown draft in `/add`; review and confirm in the website |
-| iOS Shortcut | POSTs one URL and optional title to `/api/capture` with a save-only bearer token |
+| iOS Shortcut | POSTs one URL and optional title to `/api/capture` with a save-only bearer token; background extraction defaults on |
 | Installed PWA | Supported browsers open `/add` from shared URL/title/text; review and confirm |
 
 `GET /add` never writes data. The desktop bookmarklet injects the pinned Defuddle browser bundle into the currently viewed page, extracts Markdown locally with third-party async extraction disabled, and sends it to the Potem tab through a one-use `postMessage` channel. Markdown never appears in a URL or is sent to Defuddle. Potem checks the source origin, opener, channel, source URL, and 256 KiB UTF-8 bound. The draft is editable and stays in same-origin session storage until saved. The normal Save action first saves the URL, then attempts to create a copy with `expectedRevision: null`; an existing copy is never silently replaced. If copy saving fails, the link remains saved and the draft stays available for retry or link-only saving. A changed URL cannot receive the original page’s clip. Page CSP or opener isolation can block extraction/handoff; the original URL/title prefill remains and paste remains available. Drafts survive login redirects and reloads. Shared query parameters are removed from the address bar. Ambiguous shared text does not silently choose a link. PWA share-target support varies, and native iOS/Android sharing requires actual-device validation. See the [capture guide](docs/capture.md) and website Capture help.
@@ -94,6 +100,7 @@ All API payloads are JSON with camelCase fields. Errors use `{error: {code, mess
 | `PATCH /api/articles/:id` | Change title and/or read state |
 | `DELETE /api/articles/:id` | Delete an article |
 | `GET /api/articles/:id/copy`, `PUT /api/articles/:id/copy` | Read or save a private Markdown copy with revision checks |
+| `GET /api/articles/:id/extraction`, `POST /api/articles/:id/extraction/retry` | Owner-only capture status and retry of failed extraction |
 | `GET /api/github` | Owner-only GitHub configuration for capture before an article exists; never returns credentials |
 | `GET /api/articles/:id/github`, `POST /api/articles/:id/github` | Check the configured GitHub destination or save the persisted Markdown copy there |
 | `GET /api/export`, `POST /api/import` | Download or restore versioned library JSON |
@@ -113,13 +120,13 @@ To recover GitHub Markdown backups offline, run `pnpm github:convert --source /a
 
 ## Markdown preservation
 
-Pasting a URL in Add captures a Markdown copy by default and displays it after saving. Article details also let the owner paste Markdown or load a UTF-8 `.md`/`.markdown` file, read the saved copy, or download it. Saving is explicit, replacements use revision checks, and each copy is limited to 256 KiB UTF-8. The editor shows capture time, source, and byte count; failed saves keep the draft. The original link and read state remain independent.
+Pasting a URL in Add queues a Markdown copy by default; the reader displays it when background capture completes. Paused or failed capture keeps the link available. Article details also let the owner paste Markdown or load a UTF-8 `.md`/`.markdown` file, read the saved copy, or download it. Saving is explicit, replacements use revision checks, and each copy is limited to 256 KiB UTF-8. The editor shows capture time, source, and byte count; failed saves keep the draft. The original link and read state remain independent.
 
 Check **Also save to GitHub** in the browser capture dialog or article details to additionally commit the saved Markdown with source/capture frontmatter. Production targets `Pajdzik/Kamilpedia`, branch `main`, at `Articles/<article-id>.md`. Kamilpedia is public, so checked copies are public there. The checkbox starts unchecked and requires a separate server-side `GITHUB_BACKUP_TOKEN` secret with repository Contents write permission. Capture saves the URL, then the Markdown, then optionally the saved copy to GitHub. Link-only saves, changed URLs, and failed copy saves do not publish the captured content. D1 stays authoritative; GitHub failure leaves the D1 copy intact and offers a retry of the saved copy without rewriting it. Destination/status, conflict handling, configuration, and recovery are documented in the [GitHub Markdown guide](docs/github-markdown.md).
 
 Copies are editable Markdown text. Article details can open the last successfully saved revision in a sanitized reader or download it as a UTF-8 Markdown file with quoted YAML frontmatter. Raw HTML is shown as text, unsafe links are unlinked, and image references are shown as text because their external sources are not included. Reading and downloading do not change read state or include unsaved editor drafts. R2 is deferred until measured storage needs justify it.
 
-The A01 decision and browser-capture boundary are recorded in [markdown-preservation.md](docs/markdown-preservation.md). No deployed server extraction benchmark was run. Background server capture remains deferred until DNS/egress and redirect protections, runtime costs, and retries are proven; current metadata fetching does not establish those guarantees. See archive tasks A01–A06 in the [implementation tracker](docs/tasks.md).
+The A01 decision and browser-capture boundary are recorded in [markdown-preservation.md](docs/markdown-preservation.md). No deployed server extraction benchmark was run. The [background Markdown extraction design](docs/background-markdown-extraction.md) specifies the implemented D1 jobs for website and mobile saves, including existing iOS Shortcut payloads. Production processing stays paused until connection-time egress protection and deployed runtime costs are proven; local tests do not establish those guarantees. See archive tasks A01–A06 in the [implementation tracker](docs/tasks.md).
 
 ## Local development
 
@@ -148,7 +155,7 @@ pnpm test:obsidian
 pnpm test:github
 ```
 
-`check` aliases `typecheck`, which checks all TypeScript sources across the Worker, browser app, service worker, prototype, scripts, and tests. Tests run against local Worker/D1 bindings and apply real migrations. `build` bundles assets and dry-runs deployment. Browser smoke uses temporary D1 storage and an ephemeral port to exercise persisted read state, capture drafts, errors, and desktop/mobile layouts. `test:mobile` uses a separate temporary Wrangler config, local Worker/D1, and fixture server, then exercises touch flows with Android Chromium and iPhone WebKit profiles in portrait, short portrait, and landscape. It checks manifest-driven sharing, save retries, local extraction, read state, populated service-worker cache boundaries, and the local capture-token HTTP contract. Both runners emit screenshots under `/tmp`; see [mobile release validation](docs/mobile-release.md) for paths, browser versions, deployed read-only checks, and pending physical-device results. Archive rehearsal restores a representative export into a second fresh local D1 database, reconciles all fields, verifies idempotent imports, and reads/downloads restored copies with external requests blocked. Install Chromium and WebKit for the browser runners, or supply `BROWSER_EXECUTABLE` for Chromium and `WEBKIT_EXECUTABLE` for WebKit.
+`check` aliases `typecheck`, which checks all TypeScript sources across the Worker, browser app, service worker, prototype, scripts, and tests. Tests run against local Worker/D1 bindings and apply real migrations. `build` bundles assets and dry-runs deployment. Browser smoke uses temporary D1 storage and an ephemeral port to exercise persisted read state, capture drafts, errors, and desktop/mobile layouts. `test:mobile` uses a separate temporary Wrangler config, local Worker/D1, and fixture server, then exercises touch flows with Android Chromium and iPhone WebKit profiles in portrait, short portrait, and landscape. It checks manifest-driven sharing, save retries, queued/paused capture, manual-copy reading, read state, populated service-worker cache boundaries, and the local capture-token HTTP contract. Both runners emit screenshots under `/tmp`; see [mobile release validation](docs/mobile-release.md) for paths, browser versions, deployed read-only checks, and pending physical-device results. Archive rehearsal restores a representative export into a second fresh local D1 database, reconciles all fields, verifies idempotent imports, and reads/downloads restored copies with external requests blocked. Install Chromium and WebKit for the browser runners, or supply `BROWSER_EXECUTABLE` for Chromium and `WEBKIT_EXECUTABLE` for WebKit.
 
 `test:obsidian` exercises the offline converter against temporary vaults, then imports converted fixtures through a temporary real Worker/D1 API, exports and reconciles them, repeats the import, and verifies a preexisting normalized-URL record and its copy/read state remain intact.
 

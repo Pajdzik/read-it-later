@@ -1,6 +1,7 @@
 import { env as testEnv } from 'cloudflare:test';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
-import type { Env } from '../src/contracts';
+import type { Env, ExtractionStatus } from '../src/contracts';
+import { processExtractionJobs } from '../src/articles/processor';
 import { handleArticles } from '../src/articles/handler';
 import { handleAuth } from '../src/auth/handler';
 import { normalizeArticleUrl, readJson, BodyTooLargeError } from '../src/articles/validation';
@@ -56,54 +57,96 @@ describe('article HTTP handlers', () => {
     expect((await route(hostile)).status).toBe(403);
   });
 
-  it('captures a pasted URL as durable Markdown and preserves the saved copy on duplicate adds', async () => {
+  it('acknowledges a durable request before fetching and preserves copies on duplicate adds', async () => {
     const fetcher = vi.fn(async () => new Response('<html><head><title>Extracted article</title><meta name="author" content="Alex"></head><body><nav>Navigation clutter</nav><article><h1>Readable article</h1><p>Keep this <strong>important formatting</strong> and Unicode 📰.</p><pre><code class="language-js">const saved = true;</code></pre><p><a href="/related">Related reading</a></p></article></body></html>', { headers: { 'Content-Type': 'text/html' } }));
-    vi.stubGlobal('fetch', fetcher);
-    try {
-      const response = await route(request('/api/articles', 'POST', { url: 'https://source.example/article', captureMarkdown: true }));
-      expect(response.status).toBe(201);
-      const data = await response.json() as { article: { id: string; title: string; readAt: null }; copy: { markdown: string; revision: string } };
-      expect(data.article).toMatchObject({ title: 'Extracted article', author: 'Alex', readAt: null });
-      expect(data.copy.markdown).toContain('Readable article');
-      expect(data.copy.markdown).toContain('**important formatting**');
-      expect(data.copy.markdown).toContain('📰');
-      expect(data.copy.markdown).toContain('const saved = true;');
-      expect(data.copy.markdown).toContain('https://source.example/related');
-      expect(data.copy.markdown).not.toContain('Navigation clutter');
-      expect(fetcher).toHaveBeenCalledTimes(1);
-      expect(await (await route(request(`/api/articles/${data.article.id}/copy`))).json()).toMatchObject({ copy: data.copy });
-      await route(request(`/api/articles/${data.article.id}`, 'PATCH', { read: true }));
-      const duplicate = await route(request('/api/articles', 'POST', { url: 'https://source.example/article#section', captureMarkdown: true }));
-      expect(duplicate.status).toBe(200);
-      expect(await duplicate.json()).toMatchObject({ duplicate: true, article: { id: data.article.id, readAt: expect.any(String) }, copy: data.copy });
-    } finally { vi.unstubAllGlobals(); }
+    const enabledEnv: Env = { ...env, BACKGROUND_CAPTURE_ENABLED: 'true', ARTICLE_FETCHER: { fetch: fetcher, connect() { throw new Error('No socket access'); } } };
+    const response = (await handleArticles(request('/api/articles', 'POST', { url: 'https://source.example.com/article', captureMarkdown: true }), enabledEnv))!;
+    expect(response.status).toBe(201);
+    const data = await response.json() as { article: { id: string; title: string; readAt: null }; extraction: ExtractionStatus };
+    expect(data.article).toMatchObject({ title: 'source.example.com/article', readAt: null });
+    expect(data.extraction).toMatchObject({ state: 'queued', paused: false });
+    expect(fetcher).not.toHaveBeenCalled();
+    expect(await (await route(request(`/api/articles/${data.article.id}/copy`))).json()).toEqual({ copy: null });
+    // The scheduled invocation has no dependency on the original request or phone.
+    await processExtractionJobs(enabledEnv);
+    const copyData = await (await route(request(`/api/articles/${data.article.id}/copy`))).json() as { copy: { markdown: string; revision: string } };
+    expect(copyData.copy.markdown).toContain('Readable article');
+    expect(copyData.copy.markdown).toContain('**important formatting**');
+    expect(copyData.copy.markdown).toContain('📰');
+    expect(copyData.copy.markdown).toContain('const saved = true;');
+    expect(copyData.copy.markdown).toContain('https://source.example.com/related');
+    expect(copyData.copy.markdown).not.toContain('Navigation clutter');
+    expect(fetcher).toHaveBeenCalledTimes(1);
+    expect(await (await route(request(`/api/articles/${data.article.id}`))).json()).toMatchObject({ article: { title: 'Extracted article', author: 'Alex', hasCopy: true, extraction: { state: 'ready' } } });
+    await route(request(`/api/articles/${data.article.id}`, 'PATCH', { read: true }));
+    const duplicate = await route(request('/api/articles', 'POST', { url: 'https://source.example.com/article#section', captureMarkdown: true }));
+    expect(duplicate.status).toBe(200);
+    expect(await duplicate.json()).toMatchObject({ duplicate: true, article: { id: data.article.id, readAt: expect.any(String) }, extraction: { state: 'ready' } });
+    await processExtractionJobs(enabledEnv);
+    expect(fetcher).toHaveBeenCalledTimes(1);
+    expect(await (await route(request(`/api/articles/${data.article.id}/copy`))).json()).toEqual(copyData);
   });
 
-  it('keeps the URL when Markdown extraction fails and allows a later retry', async () => {
+  it('keeps the URL on extraction failure and exposes an owner retry without resetting jobs on duplicate saves', async () => {
     const fetcher = vi.fn(async () => new Response('Blocked', { status: 403 }));
+    const enabledEnv: Env = { ...env, BACKGROUND_CAPTURE_ENABLED: 'true', ARTICLE_FETCHER: { fetch: fetcher, connect() { throw new Error('No socket access'); } } };
+    const response = await route(request('/api/articles', 'POST', { url: 'https://source.example.com/retry', captureMarkdown: true }));
+    expect(response.status).toBe(201);
+    const data = await response.json() as { article: { id: string }; extraction: ExtractionStatus };
+    expect(data.extraction).toMatchObject({ state: 'queued', paused: true });
+    await processExtractionJobs(enabledEnv);
+    const statusPath = `/api/articles/${data.article.id}/extraction`;
+    expect(await (await route(request(statusPath))).json()).toMatchObject({ extraction: { state: 'failed' } });
+    const duplicate = await route(request('/api/articles', 'POST', { url: 'https://source.example.com/retry', captureMarkdown: true }));
+    expect(await duplicate.json()).toMatchObject({ extraction: { state: 'failed' } });
+    expect(await (await route(request(`/api/articles/${data.article.id}`))).json()).toMatchObject({ article: { id: data.article.id } });
+    // Make the terminal generation old enough for the explicit retry cooldown.
+    await env.DB.prepare("UPDATE article_extraction_jobs SET updated_at = ?, finished_at = ? WHERE article_id = ?").bind('2026-01-01T00:00:00.000Z', '2026-01-01T00:00:00.000Z', data.article.id).run();
+    const retried = await route(request(statusPath + '/retry', 'POST', {}));
+    expect(retried.status).toBe(200);
+    expect(await retried.json()).toMatchObject({ extraction: { state: 'queued', attempts: 0 } });
+    expect((await route(request(statusPath + '/retry', 'POST', { url: 'https://other.example' }))).status).toBe(400);
+    fetcher.mockImplementation(async () => new Response('<html><body><article><h1>Retry worked</h1><p>This article is now available to read and preserve.</p></article></body></html>', { headers: { 'Content-Type': 'text/html' } }));
+    await processExtractionJobs(enabledEnv);
+    expect(await (await route(request(`/api/articles/${data.article.id}/copy`))).json()).toMatchObject({ copy: { markdown: expect.stringContaining('This article is now available') } });
+  });
+
+  it('rejects invalid capture options and never fetches during link-only saves', async () => {
+    expect((await route(request('/api/articles', 'POST', { url: 'https://source.example.com/invalid', captureMarkdown: 'yes' }))).status).toBe(400);
+    const fetcher = vi.fn(() => { throw new Error('Save must not fetch'); });
     vi.stubGlobal('fetch', fetcher);
     try {
-      const response = await route(request('/api/articles', 'POST', { url: 'https://source.example/retry', captureMarkdown: true }));
+      const response = await route(request('/api/articles', 'POST', { url: 'https://source.example.com/link-only', captureMarkdown: false }));
       expect(response.status).toBe(201);
-      const data = await response.json() as { article: { id: string }; copy: null; copyCaptureError: string };
-      expect(data.copy).toBeNull();
-      expect(data.copyCaptureError).toContain('source could not be loaded');
-      expect(await (await route(request(`/api/articles/${data.article.id}`))).json()).toMatchObject({ article: { id: data.article.id } });
-      fetcher.mockImplementation(async () => new Response('<html><body><article><h1>Retry worked</h1><p>This article is now available to read and preserve.</p></article></body></html>', { headers: { 'Content-Type': 'text/html' } }));
-      const retried = await route(request('/api/articles', 'POST', { url: 'https://source.example/retry', captureMarkdown: true }));
-      expect(await retried.json()).toMatchObject({ duplicate: true, article: { id: data.article.id }, copy: { markdown: expect.stringContaining('This article is now available') } });
+      expect(await response.json()).toMatchObject({ extraction: { state: 'none' } });
+      expect(fetcher).not.toHaveBeenCalled();
+      const rows = await env.DB.prepare('SELECT count(*) AS n FROM article_extraction_jobs').first<{ n: number }>();
+      expect(rows?.n).toBe(0);
     } finally { vi.unstubAllGlobals(); }
   });
 
-  it('rejects invalid capture options and never archives truncated HTML', async () => {
-    expect((await route(request('/api/articles', 'POST', { url: 'https://source.example/invalid', captureMarkdown: 'yes' }))).status).toBe(400);
-    const fetcher = vi.fn(async () => new Response(`<article><h1>Incomplete</h1><p>${'x'.repeat(512 * 1024)}</p></article>`, { headers: { 'Content-Type': 'text/html' } }));
-    vi.stubGlobal('fetch', fetcher);
+  it('acknowledges durable intent even when immediate job materialization fails', async () => {
+    const log = vi.spyOn(console, 'error').mockImplementation(() => {});
+    await env.DB.prepare("CREATE TRIGGER fail_job_enqueue BEFORE INSERT ON article_extraction_jobs BEGIN SELECT RAISE(FAIL, 'fixture enqueue failure'); END").run();
+    let articleId: string;
     try {
-      const response = await route(request('/api/articles', 'POST', { url: 'https://source.example/oversized', captureMarkdown: true }));
+      const response = await route(request('/api/articles', 'POST', { url: 'https://example.com/enqueue-recovery', captureMarkdown: true }));
       expect(response.status).toBe(201);
-      expect(await response.json()).toMatchObject({ copy: null, copyCaptureError: expect.any(String) });
-    } finally { vi.unstubAllGlobals(); }
+      const data = await response.json() as { article: { id: string }; extraction: ExtractionStatus };
+      articleId = data.article.id;
+      expect(data.extraction).toMatchObject({ state: 'queued', attempts: 0 });
+      expect(await env.DB.prepare('SELECT extraction_requested_at FROM articles WHERE id = ?').bind(articleId).first()).toMatchObject({ extraction_requested_at: expect.any(String) });
+      expect(log).toHaveBeenCalledTimes(1);
+    } finally {
+      await env.DB.prepare('DROP TRIGGER fail_job_enqueue').run();
+      log.mockRestore();
+    }
+    const enabledEnv: Env = {
+      ...env, BACKGROUND_CAPTURE_ENABLED: 'true',
+      ARTICLE_FETCHER: { fetch: async () => new Response('<article><h1>Recovered</h1><p>A complete preserved article from the durable request.</p></article>', { headers: { 'Content-Type': 'text/html' } }), connect() { throw new Error('No socket access'); } },
+    };
+    await processExtractionJobs(enabledEnv);
+    expect(await (await route(request(`/api/articles/${articleId!}/copy`))).json()).toMatchObject({ copy: { markdown: expect.stringContaining('durable request') } });
   });
 
   it('stores private Markdown copies with atomic revisions and independent article state', async () => {
@@ -172,8 +215,21 @@ describe('article HTTP handlers', () => {
     const captureRequest = () => new Request('https://service.example/api/capture', { method: 'POST', headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' }, body: JSON.stringify({ url: 'https://example.com/from-phone' }) });
     const saved = await handleArticles(captureRequest(), ownerEnv);
     expect(saved?.status).toBe(201);
+    const savedCapture = await saved!.json() as { article: { id: string }; extractionRequested: boolean };
+    expect(savedCapture.extractionRequested).toBe(true);
+    expect(savedCapture).not.toHaveProperty('extraction');
+    expect(savedCapture).not.toHaveProperty('copy');
+    expect(await env.DB.prepare('SELECT extraction_requested_at FROM articles WHERE id = ?').bind(savedCapture.article.id).first()).toMatchObject({ extraction_requested_at: expect.any(String) });
+    const tokenStatus = await handleArticles(new Request(`https://service.example/api/articles/${savedCapture.article.id}/extraction`, { headers: { Authorization: `Bearer ${token}` } }), ownerEnv);
+    expect(tokenStatus?.status).toBe(401);
+    const tokenRetry = await handleArticles(new Request(`https://service.example/api/articles/${savedCapture.article.id}/extraction/retry`, { method: 'POST', headers: { Authorization: `Bearer ${token}` } }), ownerEnv);
+    expect(tokenRetry?.status).toBe(401);
+    const linkOnly = await handleArticles(new Request('https://service.example/api/capture', { method: 'POST', headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' }, body: JSON.stringify({ url: 'https://example.com/phone-link-only', captureMarkdown: false }) }), ownerEnv);
+    expect(linkOnly?.status).toBe(201);
+    expect(await linkOnly!.json()).toMatchObject({ extractionRequested: false });
     const captureCopy = await handleArticles(new Request('https://service.example/api/capture', { method: 'POST', headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' }, body: JSON.stringify({ url: 'https://example.com/from-phone', captureMarkdown: true }) }), ownerEnv);
-    expect(captureCopy?.status).toBe(403);
+    expect(captureCopy?.status).toBe(200);
+    expect(await captureCopy!.json()).toMatchObject({ extractionRequested: true });
     const forbiddenList = await handleArticles(new Request('https://service.example/api/articles', { headers: { Authorization: `Bearer ${token}` } }), ownerEnv);
     expect(forbiddenList?.status).toBe(401);
     const revokeRequest = new Request(`https://service.example/api/capture-tokens/${createdData.id}`, { method: 'DELETE', headers: { Cookie: `read_later_session=${sessionToken}`, Origin: 'https://service.example', 'X-CSRF-Token': csrf } });
