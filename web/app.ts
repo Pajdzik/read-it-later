@@ -1264,8 +1264,6 @@ async function retryBrowserCaptureGitHub() {
     }
     finishBrowserCaptureDraft();
     $<HTMLDialogElement>("#add-dialog").close();
-    draft.stage = 'complete';
-    if (draft.requestId) sessionStorage.setItem('later-extension-capture', JSON.stringify(draft));
     showNotice("Markdown copy saved to Potem and GitHub.");
     await load();
   } catch (error) {
