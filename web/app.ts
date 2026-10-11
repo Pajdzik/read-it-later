@@ -31,6 +31,11 @@ type GitHubBackupStatus = {
   configured: boolean; message?: string; repository?: string; branch?: string;
   path?: string; url?: string; state?: "not_saved" | "saved" | "outdated"; backedUpAt?: string;
 };
+function matchesGitHubDestination(configuration: GitHubCaptureConfiguration, expected: ExtensionDestination | undefined): boolean {
+  return Boolean(expected && configuration.configured &&
+    configuration.repository === expected.repository && configuration.branch === expected.branch &&
+    (configuration.folder || "") === expected.folder);
+}
 const $ = <T extends HTMLElement = HTMLElement>(selector: string): T =>
   document.querySelector<T>(selector)!;
 const state = {
@@ -1017,8 +1022,7 @@ async function finishExtensionSetup() {
   extensionAutosaveStarted = true;
   try {
     const { github } = await request<{ github: GitHubCaptureConfiguration }>('/api/github');
-    const match = github.configured && github.repository === draft.destination.repository && github.branch === draft.destination.branch && (github.folder || '') === draft.destination.folder;
-    if (!match) {
+    if (!matchesGitHubDestination(github, draft.destination)) {
       draft.mode = 'review';
       sessionStorage.setItem('later-extension-capture', JSON.stringify(draft));
       showNotice('The consented GitHub destination changed. Review this capture or reconnect in extension settings.', true);
@@ -1209,7 +1213,6 @@ function finishBrowserCaptureDraft(result: 'saved' | 'action-required' = 'saved'
   $<HTMLButtonElement>('#extension-confirm-replacement').hidden = true;
   $<HTMLElement>('#extension-actions').hidden = true;
   $<HTMLDetailsElement>('#capture-existing-copy').hidden = true;
-  $<HTMLDetailsElement>('#capture-existing-copy').hidden = true;
   $<HTMLInputElement>("#capture-copy-enabled").checked = true;
   $<HTMLInputElement>("#capture-copy-enabled").disabled = false;
   $<HTMLInputElement>("#capture-github-enabled").checked = false;
@@ -1393,7 +1396,7 @@ async function confirmExtensionReplacement() {
     if (publish) {
       const config = (await request<{ github: GitHubCaptureConfiguration }>('/api/github')).github;
       const expected = draft.mode === 'simple' ? draft.destination : undefined;
-      if (expected && (!config.configured || config.repository !== expected.repository || config.branch !== expected.branch || (config.folder || '') !== expected.folder)) {
+      if (expected && !matchesGitHubDestination(config, expected)) {
         throw new Error('The consented GitHub destination changed. The confirmed metadata and Markdown remain saved in Potem.');
       }
       draft.stage = 'publishing';
@@ -1483,7 +1486,7 @@ $("#add-form").addEventListener("submit", async (e) => {
     if (captured?.mode === 'simple') {
       const consented = captured.destination;
       const { github } = await request<{ github: GitHubCaptureConfiguration }>('/api/github');
-      if (!consented || !github.configured || github.repository !== consented.repository || github.branch !== consented.branch || (github.folder || '') !== consented.folder) {
+      if (!matchesGitHubDestination(github, consented)) {
         throw new Error('The consented GitHub destination changed. No save was started; review this capture or reconnect in extension settings.');
       }
     }
