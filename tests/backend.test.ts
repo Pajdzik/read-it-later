@@ -57,6 +57,22 @@ describe('article HTTP handlers', () => {
     expect((await route(hostile)).status).toBe(403);
   });
 
+  it('creates and explicitly edits extension metadata while preserving duplicate metadata and read state', async () => {
+    const created = await route(request('/api/articles', 'POST', { url: 'https://example.com/metadata', title: 'Saved title', author: ' Ada ', description: ' A lead. ' , captureMarkdown: false }));
+    expect(created.status).toBe(201);
+    const article = (await created.json() as { article: { id: string } }).article;
+    expect(await (await route(request(`/api/articles/${article.id}`))).json()).toMatchObject({ article: { author: 'Ada', description: 'A lead.' } });
+    await route(request(`/api/articles/${article.id}`, 'PATCH', { read: true }));
+    const duplicate = await route(request('/api/articles', 'POST', { url: 'https://example.com/metadata', author: 'Later', description: 'Later lead' }));
+    expect(await duplicate.json()).toMatchObject({ duplicate: true, article: { author: 'Ada', description: 'A lead.', readAt: expect.any(String) } });
+    expect((await route(request(`/api/articles/${article.id}`, 'PATCH', { author: 'Editor', description: null }))).status).toBe(200);
+    expect(await (await route(request(`/api/articles/${article.id}`))).json()).toMatchObject({ article: { author: 'Editor', description: null, readAt: expect.any(String) } });
+    await route(request(`/api/articles/${article.id}`, 'PATCH', { author: '', title: 'Edited' }));
+    expect(await (await route(request(`/api/articles/${article.id}`))).json()).toMatchObject({ article: { title: 'Edited', author: null, description: null } });
+    expect((await route(request('/api/articles', 'POST', { url: 'https://example.com/invalid-meta', author: 'x'.repeat(201) }))).status).toBe(400);
+    expect((await route(request('/api/articles', 'POST', { url: 'https://example.com/invalid-meta', description: 3 }))).status).toBe(400);
+  });
+
   it('acknowledges a durable request before fetching and preserves copies on duplicate adds', async () => {
     const fetcher = vi.fn(async () => new Response('<html><head><title>Extracted article</title><meta name="author" content="Alex"></head><body><nav>Navigation clutter</nav><article><h1>Readable article</h1><p>Keep this <strong>important formatting</strong> and Unicode 📰.</p><pre><code class="language-js">const saved = true;</code></pre><p><a href="/related">Related reading</a></p></article></body></html>', { headers: { 'Content-Type': 'text/html' } }));
     const enabledEnv: Env = { ...env, BACKGROUND_CAPTURE_ENABLED: 'true', ARTICLE_FETCHER: { fetch: fetcher, connect() { throw new Error('No socket access'); } } };
@@ -219,6 +235,8 @@ describe('article HTTP handlers', () => {
     expect(savedCapture.extractionRequested).toBe(true);
     expect(savedCapture).not.toHaveProperty('extraction');
     expect(savedCapture).not.toHaveProperty('copy');
+    const tokenMetadata = await handleArticles(new Request('https://service.example/api/capture', { method: 'POST', headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' }, body: JSON.stringify({ url: 'https://example.com/token-metadata', author: 'Should be rejected' }) }), ownerEnv);
+    expect(tokenMetadata?.status).toBe(400);
     expect(await env.DB.prepare('SELECT extraction_requested_at FROM articles WHERE id = ?').bind(savedCapture.article.id).first()).toMatchObject({ extraction_requested_at: expect.any(String) });
     const tokenStatus = await handleArticles(new Request(`https://service.example/api/articles/${savedCapture.article.id}/extraction`, { headers: { Authorization: `Bearer ${token}` } }), ownerEnv);
     expect(tokenStatus?.status).toBe(401);

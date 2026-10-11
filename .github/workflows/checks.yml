@@ -53,6 +53,9 @@ jobs:
       - name: Run browser smoke test
         run: pnpm test:browser
 
+      - name: Run browser extension checks
+        run: pnpm test:extension
+
       - name: Run mobile browser smoke test
         run: pnpm test:mobile
 

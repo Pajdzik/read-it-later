@@ -17,7 +17,15 @@ type ExtractionStatus = { state: ExtractionState; attempts: number; errorCode: s
 type Session = { authenticated: boolean; csrfToken?: string };
 type Page = { items: Article[]; nextCursor: string | null };
 type ArticleCopy = { markdown: string; capturedAt: string; source: "paste" | "upload"; revision: string };
-type BrowserCaptureDraft = { sourceUrl: string; title: string; markdown: string; savedArticleId?: string; savedCopyRevision?: string };
+type ExtensionDestination = { repository: string; branch: string; folder: string };
+type BrowserCaptureDraft = {
+  sourceUrl: string; title: string; markdown: string; author?: string; description?: string;
+  requestId?: string; mode?: 'review' | 'simple'; destination?: ExtensionDestination; extractionError?: string;
+  capturedAt?: string; savedArticleId?: string; savedCopyRevision?: string;
+  publishRequested?: boolean;
+  stage?: 'draft' | 'link-saved' | 'metadata-saving' | 'metadata-saved' | 'copy-saving' | 'copy-saved' | 'publishing' | 'complete';
+  conflict?: { article: Article; copy: ArticleCopy | null }; replacementConfirmed?: boolean;
+};
 type GitHubCaptureConfiguration = { configured: boolean; message?: string; repository?: string; branch?: string; folder?: string };
 type GitHubBackupStatus = {
   configured: boolean; message?: string; repository?: string; branch?: string;
@@ -42,6 +50,50 @@ let readerLoadGeneration = 0;
 let extractionPollTimer = 0;
 let extractionPollStartedAt = 0;
 let extractionPollGeneration = 0;
+const extensionUrl = new URL(location.href);
+const extensionHandoffId = extensionUrl.searchParams.get('extension');
+let extensionDraftReceived = false;
+let extensionAutosaveStarted = false;
+const connectRequestId = new URL(location.href).pathname === '/extension-connect'
+  ? new URL(location.href).searchParams.get('request') : null;
+if (connectRequestId) sessionStorage.setItem('later-extension-connect-request', connectRequestId);
+function extensionPost(type: string, requestId: string, extra: Record<string, unknown> = {}) {
+  window.postMessage({ namespace: 'potem-extension', version: 1, type, requestId, ...extra }, location.origin);
+}
+window.addEventListener('message', (event: MessageEvent) => {
+  const message = event.data as Record<string, unknown> | null;
+  if (event.source !== window || event.origin !== location.origin || !message || message.namespace !== 'potem-extension' || message.version !== 1) return;
+  if (message.type !== 'deliver-capture' || typeof message.requestId !== 'string' || message.requestId !== extensionHandoffId || !message.capture || typeof message.capture !== 'object') return;
+  const capture = message.capture as Record<string, unknown>;
+  const rawSourceUrl = typeof capture.sourceUrl === 'string' ? capture.sourceUrl : '';
+  const sourceUrl = safeHttpUrl(rawSourceUrl);
+  const markdown = typeof capture.markdown === 'string' ? capture.markdown : '';
+  if (capture.version !== 1 || capture.requestId !== message.requestId || (!sourceUrl && capture.extractionError !== 'unsupported') ||
+      new TextEncoder().encode(rawSourceUrl).byteLength > 8192 || new TextEncoder().encode(markdown).byteLength > 262144 ||
+      typeof capture.title !== 'string' || capture.title.length > 500 || !['review', 'simple'].includes(String(capture.mode))) return;
+  const draft: BrowserCaptureDraft = {
+    requestId: message.requestId, sourceUrl: sourceUrl || rawSourceUrl, title: capture.title, markdown,
+    mode: capture.mode as 'review' | 'simple', capturedAt: typeof capture.capturedAt === 'string' ? capture.capturedAt : undefined,
+    ...(typeof capture.author === 'string' ? { author: capture.author.slice(0, 200) } : {}),
+    ...(typeof capture.description === 'string' ? { description: capture.description.slice(0, 500) } : {}),
+    ...(capture.destination && typeof capture.destination === 'object' ? { destination: capture.destination as ExtensionDestination } : {}),
+    ...(typeof capture.extractionError === 'string' ? { extractionError: capture.extractionError } : {}),
+  };
+  try {
+    sessionStorage.setItem('later-extension-capture', JSON.stringify(draft));
+    sessionStorage.setItem('later-extension-request', message.requestId);
+    browserCaptureDraft = draft;
+    extensionDraftReceived = true;
+    $<HTMLInputElement>('#add-url').value = sourceUrl || '';
+    $<HTMLInputElement>('#add-title').value = draft.title;
+    $<HTMLInputElement>('#capture-author').value = draft.author || '';
+    $<HTMLTextAreaElement>('#capture-description').value = draft.description || '';
+    restoreBrowserCaptureDraft();
+    if (!$<HTMLDialogElement>('#add-dialog').open) $<HTMLDialogElement>('#add-dialog').showModal();
+    extensionPost('ack-capture', message.requestId);
+    void finishExtensionSetup();
+  } catch { /* Quota failures are surfaced by the 20-second extension handoff deadline. */ }
+});
 const list = $("#articles"),
   notice = $("#notice"),
   empty = $("#empty"),
@@ -58,6 +110,18 @@ function showNotice(message: string, bad = false) {
   notice.classList.toggle("error", bad);
   if ($<HTMLDialogElement>("#settings-dialog").open)
     $("#settings-status").textContent = message;
+}
+function showExtensionResult(article: Article, sourceUrl: string, githubUrl?: string) {
+  notice.replaceChildren(document.createTextNode('Saved. '));
+  const link = (href: string, label: string) => {
+    const anchor = document.createElement('a'); anchor.href = href; anchor.textContent = label;
+    if (/^https?:/.test(href)) { anchor.target = '_blank'; anchor.rel = 'noopener noreferrer'; }
+    return anchor;
+  };
+  notice.append(link(`/?article=${encodeURIComponent(article.id)}`, 'Read in Potem'), document.createTextNode(' · '));
+  if (githubUrl) notice.append(link(githubUrl, 'Open GitHub'), document.createTextNode(' · '));
+  notice.append(link(sourceUrl, 'Open original'));
+  notice.hidden = false; notice.classList.remove('error');
 }
 function setBusy(value: boolean) {
   state.loading = value;
@@ -99,6 +163,10 @@ async function request<T>(path: string, init: RequestInit = {}): Promise<T> {
 }
 function stashDraft() {
   const url = $<HTMLInputElement>("#add-url").value.trim();
+  if (browserCaptureDraft?.requestId && url === browserCaptureDraft.sourceUrl) {
+    browserCaptureDraft.title = $<HTMLInputElement>("#add-title").value.trim();
+    sessionStorage.setItem('later-extension-capture', JSON.stringify(browserCaptureDraft));
+  }
   if (url)
     sessionStorage.setItem(
       "later-add-draft",
@@ -826,6 +894,14 @@ function openDetail(article: Article) {
   $<HTMLDialogElement>("#detail-dialog").showModal();
   if (extractionIsPending(article.extraction)) startExtractionPolling(article);
 }
+async function openArticleById(id: string) {
+  if (!state.session?.authenticated) return;
+  try {
+    const { article } = await request<{ article: Article }>(`/api/articles/${encodeURIComponent(id)}`);
+    state.selected = article;
+    await openSavedCopy(article);
+  } catch (error) { showNotice(`Couldn’t open the saved article. ${(error as Error).message}`, true); }
+}
 async function openSavedCopy(article: Article) {
   const generation = ++readerLoadGeneration;
   state.selected = article;
@@ -862,6 +938,7 @@ $("#detail-dialog").addEventListener("close", () => {
 async function initialize() {
   try {
     state.session = await request<Session>("/api/session");
+    if (state.session.authenticated) await completeExtensionConnection();
     if (state.session.authenticated && browserCaptureDraft) void loadCaptureGitHubConfiguration();
   } catch (error) {
     showNotice(
@@ -905,16 +982,77 @@ async function initialize() {
     $("#account").textContent = "Your private library";
     $("#logout").hidden = false;
     await load();
+    const articleId = new URL(location.href).searchParams.get('article');
+    if (articleId) void openArticleById(articleId);
   }
   if (!state.session.authenticated) {
     loading.hidden = true;
     empty.hidden = false;
   }
   applyTheme();
+  void finishExtensionSetup();
+}
+async function completeExtensionConnection() {
+  const requestId = connectRequestId || sessionStorage.getItem('later-extension-connect-request');
+  if (!requestId || !/^[a-f0-9]{48}$/.test(requestId)) return;
+  try {
+    const { github } = await request<{ github: GitHubCaptureConfiguration }>('/api/github');
+    const destination = github.configured && github.repository && github.branch
+      ? { repository: github.repository, branch: github.branch, folder: github.folder || '' } : undefined;
+    extensionPost('connection-config', requestId, { authenticated: true, ...(destination ? { destination } : {}) });
+    sessionStorage.removeItem('later-extension-connect-request');
+    showNotice(destination ? 'Potem is connected. Return to the extension settings.' : 'Potem is connected, but GitHub saving is not configured.');
+  } catch (error) {
+    showNotice(`Could not check the Potem destination. ${(error as Error).message}`, true);
+  }
+}
+async function finishExtensionSetup() {
+  const draft = browserCaptureDraft;
+  if (!draft?.requestId || !state.session?.authenticated || extensionAutosaveStarted) return;
+  if (draft.extractionError) {
+    if (draft.mode === 'simple') extensionPost('capture-result', draft.requestId, { result: 'action-required' });
+    return;
+  }
+  if (draft.mode !== 'simple' || !draft.markdown.trim() || !draft.destination) return;
+  extensionAutosaveStarted = true;
+  try {
+    const { github } = await request<{ github: GitHubCaptureConfiguration }>('/api/github');
+    const match = github.configured && github.repository === draft.destination.repository && github.branch === draft.destination.branch && (github.folder || '') === draft.destination.folder;
+    if (!match) {
+      draft.mode = 'review';
+      sessionStorage.setItem('later-extension-capture', JSON.stringify(draft));
+      showNotice('The consented GitHub destination changed. Review this capture or reconnect in extension settings.', true);
+      extensionPost('capture-result', draft.requestId, { result: 'action-required' });
+      return;
+    }
+    $<HTMLInputElement>('#capture-copy-enabled').checked = true;
+    $<HTMLInputElement>('#capture-github-enabled').checked = true;
+    $<HTMLInputElement>('#capture-author').value = draft.author || '';
+    $<HTMLTextAreaElement>('#capture-description').value = draft.description || '';
+    $<HTMLFormElement>('#add-form').requestSubmit();
+  } catch (error) {
+    draft.mode = 'review';
+    sessionStorage.setItem('later-extension-capture', JSON.stringify(draft));
+    showNotice(`Automatic saving needs attention. Review this capture and retry: ${(error as Error).message}`, true);
+    extensionPost('capture-result', draft.requestId, { result: 'action-required' });
+  }
 }
 function recoverDraft() {
+  const extensionDraft = sessionStorage.getItem('later-extension-capture');
+  let restoredExtension = false;
+  if (extensionDraft) try {
+    const draft = JSON.parse(extensionDraft) as BrowserCaptureDraft;
+    if (draft.requestId && (safeHttpUrl(draft.sourceUrl) || draft.extractionError === 'unsupported') && new TextEncoder().encode(draft.markdown || '').byteLength <= 262144) {
+      browserCaptureDraft = draft;
+      restoredExtension = true;
+      sessionStorage.removeItem('later-browser-capture-draft');
+      $<HTMLInputElement>('#add-url').value = safeHttpUrl(draft.sourceUrl) || '';
+      $<HTMLInputElement>('#add-title').value = draft.title;
+      restoreBrowserCaptureDraft();
+    }
+  } catch {}
   const raw = sessionStorage.getItem("later-add-draft");
-  if (raw) try {
+  if (raw && !restoredExtension) try {
     const d = JSON.parse(raw);
     if (!$<HTMLInputElement>("#add-url").value) $<HTMLInputElement>("#add-url").value = d.url || "";
     if (!$<HTMLInputElement>("#add-title").value) $<HTMLInputElement>("#add-title").value = d.title || "";
@@ -923,6 +1061,7 @@ function recoverDraft() {
       $<HTMLDialogElement>("#add-dialog").showModal();
   } catch {}
   try {
+    if (restoredExtension) return;
     const capture = sessionStorage.getItem("later-browser-capture-draft");
     if (!capture) return;
     const draft = JSON.parse(capture) as BrowserCaptureDraft;
@@ -934,16 +1073,49 @@ function recoverDraft() {
 }
 function restoreBrowserCaptureDraft() {
   if (!browserCaptureDraft) return;
-  if ($<HTMLInputElement>("#add-url").value.trim() !== browserCaptureDraft.sourceUrl) return;
-  $<HTMLTextAreaElement>("#capture-markdown").value = browserCaptureDraft.markdown;
+  // Reset shared bookmarklet controls first; extension-specific state below owns them.
   $<HTMLInputElement>("#capture-copy-enabled").checked = true;
   $<HTMLInputElement>("#capture-github-enabled").checked = false;
   $<HTMLElement>("#capture-copy").hidden = false;
   $("#add-url-copy-option").hidden = true;
   $("#add-dialog .add-heading p").textContent = "Review the link and captured Markdown before saving.";
   $("#capture-copy-status").textContent = "Review the captured Markdown. Saving a copy is enabled; uncheck it to save the link only.";
+  const unsupported = browserCaptureDraft.extractionError === 'unsupported' && !safeHttpUrl(browserCaptureDraft.sourceUrl);
+  if (!unsupported && $<HTMLInputElement>("#add-url").value.trim() !== browserCaptureDraft.sourceUrl) return;
+  $<HTMLTextAreaElement>("#capture-markdown").value = browserCaptureDraft.markdown;
+  if (browserCaptureDraft.requestId) {
+    $<HTMLElement>('#capture-author-option').hidden = false;
+    $<HTMLElement>('#capture-description-option').hidden = false;
+    $<HTMLInputElement>('#capture-author').value = browserCaptureDraft.author || '';
+    $<HTMLTextAreaElement>('#capture-description').value = browserCaptureDraft.description || '';
+    $<HTMLInputElement>('#add-url').readOnly = true;
+    if (browserCaptureDraft.extractionError) $('#capture-copy-status').textContent = `Page extraction needs attention (${browserCaptureDraft.extractionError}). Save the link privately or paste Markdown before publishing.`;
+    else $('#capture-copy-status').textContent = 'Review the page, metadata, and Markdown. The source URL is locked to this capture.';
+    const destination = browserCaptureDraft.destination;
+    if (destination) $('#capture-github-status').textContent = `Consented destination: ${destination.repository} · ${destination.branch} · ${destination.folder || '(repository root)'}.`;
+    $<HTMLInputElement>('#capture-github-enabled').checked = Boolean(browserCaptureDraft.publishRequested ?? browserCaptureDraft.mode === 'simple');
+    $<HTMLButtonElement>('#add-form button').hidden = true;
+    if (unsupported) {
+      $('#capture-copy-status').textContent = 'This browser page cannot be captured. Open an HTTP(S) article tab and try again.';
+      $<HTMLButtonElement>('#extension-save-link').hidden = true;
+      $<HTMLButtonElement>('#extension-save-private').hidden = true;
+      $<HTMLButtonElement>('#extension-save-github').hidden = true;
+    }
+    $<HTMLButtonElement>('#extension-save-link').hidden = !browserCaptureDraft.extractionError;
+    if (browserCaptureDraft.extractionError) {
+      $<HTMLInputElement>('#capture-copy-enabled').checked = false;
+      $<HTMLButtonElement>('#extension-save-github').disabled = true;
+    }
+  }
+  $<HTMLElement>('#extension-actions').hidden = !browserCaptureDraft.requestId;
   const retry = $<HTMLButtonElement>("#capture-github-retry");
-  const retryPending = Boolean(browserCaptureDraft.savedArticleId && browserCaptureDraft.savedCopyRevision);
+  const retryPending = Boolean(browserCaptureDraft.savedArticleId && browserCaptureDraft.savedCopyRevision && (!browserCaptureDraft.requestId || browserCaptureDraft.publishRequested));
+  const privateComplete = Boolean(browserCaptureDraft.savedArticleId && browserCaptureDraft.savedCopyRevision && !browserCaptureDraft.publishRequested && ['copy-saved', 'complete'].includes(browserCaptureDraft.stage || ''));
+  if (privateComplete && browserCaptureDraft.requestId) {
+    finishBrowserCaptureDraft();
+    showNotice('The Markdown copy was saved privately in Potem.');
+    return;
+  }
   const urlMatches = $<HTMLInputElement>("#add-url").value.trim() === browserCaptureDraft.sourceUrl;
   retry.hidden = !retryPending || !urlMatches;
   $<HTMLButtonElement>("#capture-github-done").hidden = !retryPending || !urlMatches;
@@ -956,11 +1128,35 @@ function restoreBrowserCaptureDraft() {
   }
   if (state.session?.authenticated) void loadCaptureGitHubConfiguration();
   if (!$<HTMLDialogElement>("#add-dialog").open) $<HTMLDialogElement>("#add-dialog").showModal();
+  renderCapturePreview();
+}
+function renderCapturePreview() {
+  const markdown = $<HTMLTextAreaElement>('#capture-markdown').value;
+  const bytes = new TextEncoder().encode(markdown).byteLength;
+  $('#capture-byte-count').textContent = `${bytes.toLocaleString()} / 262,144 UTF-8 bytes`;
+  const source = browserCaptureDraft?.sourceUrl || $<HTMLInputElement>('#add-url').value;
+  $('#capture-preview').replaceChildren(renderMarkdown(markdown, source));
+}
+function showExtensionConflict(article: Article, copy: ArticleCopy | null, message: string) {
+  const draft = browserCaptureDraft;
+  if (draft?.requestId) {
+    draft.conflict = { article, copy };
+    draft.replacementConfirmed = false;
+    sessionStorage.setItem('later-extension-capture', JSON.stringify(draft));
+  }
+  $('#capture-copy-status').textContent = `${message} Saved title: ${article.title}. Saved author: ${article.author || '—'}. Saved description: ${article.description || '—'}.`;
+  $('#capture-existing-metadata').textContent = `Saved metadata: ${article.title} · ${article.author || 'No author'} · ${article.description || 'No description'}`;
+  $('#capture-existing-preview').replaceChildren(copy ? renderMarkdown(copy.markdown, article.url) : document.createTextNode('No Markdown copy is saved yet.'));
+  $<HTMLDetailsElement>('#capture-existing-copy').hidden = false;
+  $<HTMLDetailsElement>('#capture-existing-copy').open = true;
+  $<HTMLButtonElement>('#extension-confirm-replacement').hidden = false;
+  $<HTMLButtonElement>('#extension-confirm-replacement').textContent = copy ? 'Confirm metadata and replace saved copy' : 'Confirm metadata and save copy';
 }
 function renderCaptureGitHubConfiguration() {
   const checkbox = $<HTMLInputElement>("#capture-github-enabled");
   const status = $("#capture-github-status");
   checkbox.disabled = !captureGitHubConfiguration?.configured || Boolean(browserCaptureDraft?.savedCopyRevision);
+  $<HTMLButtonElement>('#extension-save-github').disabled = !captureGitHubConfiguration?.configured || Boolean(browserCaptureDraft?.savedCopyRevision);
   if (!captureGitHubConfiguration?.configured) {
     status.textContent = browserCaptureDraft?.savedCopyRevision
       ? `The Markdown copy is saved in Potem. GitHub retry is available for that revision. ${captureGitHubConfiguration?.message || "Sign in to check GitHub saving configuration."}`
@@ -990,9 +1186,12 @@ async function loadCaptureGitHubConfiguration() {
   try { await captureGitHubConfigurationPromise; }
   finally { captureGitHubConfigurationPromise = null; }
 }
-function finishBrowserCaptureDraft() {
+function finishBrowserCaptureDraft(result: 'saved' | 'action-required' = 'saved') {
+  if (browserCaptureDraft?.requestId) extensionPost('capture-result', browserCaptureDraft.requestId, { result });
   browserCaptureDraft = null;
   sessionStorage.removeItem("later-browser-capture-draft");
+  sessionStorage.removeItem('later-extension-capture');
+  sessionStorage.removeItem('later-extension-request');
   sessionStorage.removeItem("later-add-draft");
   $<HTMLElement>("#capture-copy").hidden = true;
   $("#add-url-copy-option").hidden = !state.session?.authenticated;
@@ -1001,6 +1200,16 @@ function finishBrowserCaptureDraft() {
   $<HTMLTextAreaElement>("#capture-markdown").disabled = false;
   $<HTMLInputElement>("#add-url").value = "";
   $<HTMLInputElement>("#add-title").value = "";
+  $<HTMLInputElement>('#capture-author').value = '';
+  $<HTMLTextAreaElement>('#capture-description').value = '';
+  $<HTMLElement>('#capture-author-option').hidden = true;
+  $<HTMLElement>('#capture-description-option').hidden = true;
+  $<HTMLInputElement>('#add-url').readOnly = false;
+  $<HTMLButtonElement>('#add-form button').hidden = false;
+  $<HTMLButtonElement>('#extension-confirm-replacement').hidden = true;
+  $<HTMLElement>('#extension-actions').hidden = true;
+  $<HTMLDetailsElement>('#capture-existing-copy').hidden = true;
+  $<HTMLDetailsElement>('#capture-existing-copy').hidden = true;
   $<HTMLInputElement>("#capture-copy-enabled").checked = true;
   $<HTMLInputElement>("#capture-copy-enabled").disabled = false;
   $<HTMLInputElement>("#capture-github-enabled").checked = false;
@@ -1036,7 +1245,7 @@ async function retryBrowserCaptureGitHub() {
     }
     status.textContent = "Saving to GitHub…";
     const result = await request<{ backup: GitHubBackupStatus }>(`/api/articles/${encodeURIComponent(draft.savedArticleId)}/github`, {
-      method: "POST", body: JSON.stringify({ expectedRevision: draft.savedCopyRevision }),
+      method: "POST", body: JSON.stringify({ expectedRevision: draft.savedCopyRevision, ...(draft.mode === 'simple' && draft.destination ? { expectedDestination: draft.destination } : {}) }),
     });
     if (result.backup.state === "outdated") {
       status.textContent = "GitHub received the saved Markdown, but article details changed during the save. Review the article and retry its current revision.";
@@ -1055,6 +1264,8 @@ async function retryBrowserCaptureGitHub() {
     }
     finishBrowserCaptureDraft();
     $<HTMLDialogElement>("#add-dialog").close();
+    draft.stage = 'complete';
+    if (draft.requestId) sessionStorage.setItem('later-extension-capture', JSON.stringify(draft));
     showNotice("Markdown copy saved to Potem and GitHub.");
     await load();
   } catch (error) {
@@ -1081,16 +1292,162 @@ $<HTMLInputElement>("#add-url").addEventListener("input", () => {
     }
   }
 });
-$<HTMLInputElement>("#add-title").addEventListener("input", stashDraft);
+$<HTMLInputElement>("#add-title").addEventListener("input", () => {
+  stashDraft();
+  if (browserCaptureDraft?.requestId) {
+    browserCaptureDraft.title = $<HTMLInputElement>("#add-title").value;
+    sessionStorage.setItem('later-extension-capture', JSON.stringify(browserCaptureDraft));
+  }
+});
 $<HTMLTextAreaElement>("#capture-markdown").addEventListener("input", () => {
   if (!browserCaptureDraft) return;
   browserCaptureDraft.markdown = $<HTMLTextAreaElement>("#capture-markdown").value;
-  sessionStorage.setItem("later-browser-capture-draft", JSON.stringify(browserCaptureDraft));
+  if (browserCaptureDraft.extractionError && safeHttpUrl(browserCaptureDraft.sourceUrl) && browserCaptureDraft.markdown.trim() && new TextEncoder().encode(browserCaptureDraft.markdown).byteLength <= 262144) {
+    browserCaptureDraft.extractionError = undefined;
+    browserCaptureDraft.mode = 'review';
+    browserCaptureDraft.publishRequested = false;
+    $<HTMLInputElement>("#capture-copy-enabled").checked = true;
+    $('#capture-copy-status').textContent = 'Extraction failed, but the pasted Markdown is ready. Review it and explicitly choose how to save it.';
+    $<HTMLButtonElement>('#extension-save-link').hidden = true;
+    renderCaptureGitHubConfiguration();
+  }
+  sessionStorage.setItem(browserCaptureDraft.requestId ? 'later-extension-capture' : 'later-browser-capture-draft', JSON.stringify(browserCaptureDraft));
+  renderCapturePreview();
+});
+$('#capture-author').addEventListener('input', () => {
+  if (!browserCaptureDraft) return;
+  browserCaptureDraft.author = $<HTMLInputElement>('#capture-author').value.trim();
+  if (browserCaptureDraft.requestId) sessionStorage.setItem('later-extension-capture', JSON.stringify(browserCaptureDraft));
+});
+$('#capture-description').addEventListener('input', () => {
+  if (!browserCaptureDraft) return;
+  browserCaptureDraft.description = $<HTMLTextAreaElement>('#capture-description').value.trim();
+  if (browserCaptureDraft.requestId) sessionStorage.setItem('later-extension-capture', JSON.stringify(browserCaptureDraft));
 });
 $("#add-open").addEventListener("click", () => {
   $<HTMLDialogElement>("#add-dialog").showModal();
   $("#add-notice").hidden = true;
   if (state.session?.authenticated) $("#add-url").focus();
+});
+async function confirmExtensionReplacement() {
+  const draft = browserCaptureDraft;
+  const conflict = draft?.conflict;
+  if (!draft?.requestId || !conflict || !draft.savedArticleId) return;
+  const button = $<HTMLButtonElement>('#extension-confirm-replacement');
+  button.disabled = true;
+  $('#capture-copy-status').textContent = 'Checking the saved version before applying your confirmation…';
+  try {
+    const articleUrl = `/api/articles/${encodeURIComponent(draft.savedArticleId)}`;
+    let current = (await request<{ article: Article }>(articleUrl)).article;
+    let currentCopy = (await request<{ copy: ArticleCopy | null }>(`${articleUrl}/copy`)).copy;
+    const expectedOldRevision = conflict.copy?.revision ?? null;
+    const originalStillCurrent = (currentCopy?.revision ?? null) === expectedOldRevision;
+    const intendedTitle = $<HTMLInputElement>('#add-title').value.trim();
+    const intendedAuthor = $<HTMLInputElement>('#capture-author').value.trim();
+    const intendedDescription = $<HTMLTextAreaElement>('#capture-description').value.trim();
+    const intendedMarkdown = $<HTMLTextAreaElement>('#capture-markdown').value;
+    const metadataAlreadyApplied = current.title === intendedTitle && current.author === (intendedAuthor || null) && current.description === (intendedDescription || null);
+    const copyAlreadyApplied = currentCopy?.markdown === intendedMarkdown;
+    if (draft.stage === 'metadata-saving' && metadataAlreadyApplied) draft.stage = 'metadata-saved';
+    if (draft.stage === 'copy-saving' && copyAlreadyApplied) {
+      draft.savedCopyRevision = currentCopy!.revision;
+      draft.stage = 'copy-saved';
+    }
+    if (!draft.replacementConfirmed) {
+      draft.replacementConfirmed = true;
+      draft.stage = 'metadata-saving';
+      sessionStorage.setItem('later-extension-capture', JSON.stringify(draft));
+    }
+    if (draft.stage !== 'metadata-saved' && draft.stage !== 'copy-saving' && draft.stage !== 'copy-saved' && draft.stage !== 'publishing') {
+      if (!originalStillCurrent && !metadataAlreadyApplied) {
+        showExtensionConflict(current, currentCopy, 'The saved article changed while you reviewed it. Check the new saved version before confirming again.');
+        return;
+      }
+      current = (await request<{ article: Article }>(articleUrl, {
+        method: 'PATCH', body: JSON.stringify({ title: intendedTitle, author: intendedAuthor || null, description: intendedDescription || null }),
+      })).article;
+      draft.stage = 'metadata-saved';
+      sessionStorage.setItem('later-extension-capture', JSON.stringify(draft));
+    }
+    if (!copyAlreadyApplied) {
+      currentCopy = (await request<{ copy: ArticleCopy | null }>(`${articleUrl}/copy`)).copy;
+      if ((currentCopy?.revision ?? null) !== expectedOldRevision) {
+        showExtensionConflict(current, currentCopy, 'The saved Markdown changed after you reviewed it. Check the new saved version before replacing it.');
+        return;
+      }
+      draft.stage = 'copy-saving';
+      sessionStorage.setItem('later-extension-capture', JSON.stringify(draft));
+      const saved = await request<{ copy: ArticleCopy }>(`${articleUrl}/copy`, {
+        method: 'PUT', body: JSON.stringify({ markdown: intendedMarkdown, source: 'paste', expectedRevision: currentCopy?.revision ?? null }),
+      });
+      currentCopy = saved.copy;
+      draft.savedCopyRevision = saved.copy.revision;
+      draft.stage = 'copy-saved';
+      sessionStorage.setItem('later-extension-capture', JSON.stringify(draft));
+    } else {
+      draft.savedCopyRevision = currentCopy!.revision;
+      draft.stage = 'copy-saved';
+    }
+    const publish = $<HTMLInputElement>('#capture-github-enabled').checked;
+    draft.publishRequested = publish;
+    sessionStorage.setItem('later-extension-capture', JSON.stringify(draft));
+    let githubUrl: string | undefined;
+    if (publish) {
+      const config = (await request<{ github: GitHubCaptureConfiguration }>('/api/github')).github;
+      const expected = draft.mode === 'simple' ? draft.destination : undefined;
+      if (expected && (!config.configured || config.repository !== expected.repository || config.branch !== expected.branch || (config.folder || '') !== expected.folder)) {
+        throw new Error('The consented GitHub destination changed. The confirmed metadata and Markdown remain saved in Potem.');
+      }
+      draft.stage = 'publishing';
+      sessionStorage.setItem('later-extension-capture', JSON.stringify(draft));
+      const backup = await request<{ backup: GitHubBackupStatus }>(`${articleUrl}/github`, {
+        method: 'POST', body: JSON.stringify({ expectedRevision: draft.savedCopyRevision, ...(expected ? { expectedDestination: expected } : {}) }),
+      });
+      if (backup.backup.state === 'outdated') throw new Error('The copy is saved, but article metadata changed during publishing. Review it and retry.');
+      githubUrl = backup.backup.url;
+      draft.stage = 'complete';
+    }
+    draft.savedArticleId = current.id;
+    draft.savedCopyRevision = currentCopy!.revision;
+    sessionStorage.setItem('later-extension-capture', JSON.stringify(draft));
+    const sourceUrl = draft.sourceUrl;
+    finishBrowserCaptureDraft();
+    $<HTMLDialogElement>('#add-dialog').close();
+    showExtensionResult(current, sourceUrl, githubUrl);
+    await load();
+  } catch (error) {
+    $('#capture-copy-status').textContent = `Confirmed Potem changes are retained. ${(error as Error).message}`;
+    if (draft.savedCopyRevision) {
+      $<HTMLButtonElement>('#capture-github-retry').hidden = false;
+      $<HTMLButtonElement>('#capture-github-done').hidden = false;
+    }
+    extensionPost('capture-result', draft.requestId, { result: 'action-required' });
+  } finally { button.disabled = false; }
+}
+$('#extension-confirm-replacement').addEventListener('click', () => { void confirmExtensionReplacement(); });
+$('#extension-save-private').addEventListener('click', () => {
+  $<HTMLInputElement>('#capture-copy-enabled').checked = !browserCaptureDraft?.extractionError;
+  $<HTMLInputElement>('#capture-github-enabled').checked = false;
+  $<HTMLFormElement>('#add-form').requestSubmit();
+});
+$('#extension-save-link').addEventListener('click', () => {
+  $<HTMLInputElement>('#capture-copy-enabled').checked = false;
+  $<HTMLInputElement>('#capture-github-enabled').checked = false;
+  $<HTMLFormElement>('#add-form').requestSubmit();
+});
+$('#extension-save-github').addEventListener('click', () => {
+  if (!captureGitHubConfiguration?.configured || browserCaptureDraft?.extractionError) return;
+  $<HTMLInputElement>('#capture-copy-enabled').checked = true;
+  $<HTMLInputElement>('#capture-github-enabled').checked = true;
+  $<HTMLFormElement>('#add-form').requestSubmit();
+});
+$('#extension-cancel').addEventListener('click', () => {
+  finishBrowserCaptureDraft('action-required');
+  $<HTMLDialogElement>('#add-dialog').close();
+  showNotice('Capture canceled. Any writes already confirmed in Potem remain saved.');
+});
+$('#add-dialog').addEventListener('cancel', () => {
+  if (browserCaptureDraft?.requestId) extensionPost('capture-result', browserCaptureDraft.requestId, { result: 'action-required' });
 });
 $("#add-form").addEventListener("submit", async (e) => {
   e.preventDefault();
@@ -1104,53 +1461,116 @@ $("#add-form").addEventListener("submit", async (e) => {
   const captured = browserCaptureDraft && url === browserCaptureDraft.sourceUrl
     ? browserCaptureDraft
     : null;
-  if (captured?.savedCopyRevision) return;
+  if (captured?.requestId && captured.savedCopyRevision) {
+    if (captured.publishRequested) {
+      $<HTMLButtonElement>("#capture-github-retry").hidden = false;
+      $<HTMLButtonElement>("#capture-github-done").hidden = false;
+      showNotice('The Potem copy is already saved. Use the explicit GitHub retry to publish that saved revision.', true);
+      extensionPost('capture-result', captured.requestId!, { result: 'action-required' });
+    }
+    return;
+  }
   const button = $<HTMLButtonElement>("#add-form button");
   button.disabled = true;
   const captureFromUrl = !browserCaptureDraft && $<HTMLInputElement>("#add-capture-markdown").checked;
   const addNotice = $("#add-notice");
+  if (captured?.requestId) {
+    captured.publishRequested = Boolean($<HTMLInputElement>("#capture-github-enabled").checked);
+    sessionStorage.setItem('later-extension-capture', JSON.stringify(captured));
+  }
   addNotice.classList.remove("error");
   addNotice.textContent = captureFromUrl ? "Saving the link and queueing Markdown capture…" : "Saving…";
   addNotice.hidden = false;
   try {
+    if (captured?.mode === 'simple') {
+      const consented = captured.destination;
+      const { github } = await request<{ github: GitHubCaptureConfiguration }>('/api/github');
+      if (!consented || !github.configured || github.repository !== consented.repository || github.branch !== consented.branch || (github.folder || '') !== consented.folder) {
+        throw new Error('The consented GitHub destination changed. No save was started; review this capture or reconnect in extension settings.');
+      }
+    }
     invalidateLoads();
     const result = await request<{ article: Article; duplicate: boolean; metadataUpdated?: boolean; extraction?: ExtractionStatus }>(
       "/api/articles",
       {
         method: "POST",
-        body: JSON.stringify({ url, ...(title ? { title } : {}), ...(captureFromUrl ? { captureMarkdown: true } : captured ? { captureMarkdown: false } : {}) }),
+        body: JSON.stringify({
+          url, ...(title ? { title } : {}),
+          ...(captured?.requestId ? { author: $<HTMLInputElement>('#capture-author').value, description: $<HTMLTextAreaElement>('#capture-description').value } : {}),
+          ...(captureFromUrl ? { captureMarkdown: true } : captured ? { captureMarkdown: false } : {}),
+        }),
       },
     );
+    if (captured?.requestId) {
+      captured.savedArticleId = result.article.id;
+      captured.stage = 'link-saved';
+      sessionStorage.setItem('later-extension-capture', JSON.stringify(captured));
+    }
     const copyEnabled = captured && $<HTMLInputElement>("#capture-copy-enabled").checked;
     const alsoSaveToGitHub = Boolean(copyEnabled && $<HTMLInputElement>("#capture-github-enabled").checked);
     let copySaveError = "";
     let githubSaveError = "";
     let githubSaved = false;
+    let githubUrl: string | undefined;
     let savedCopy: ArticleCopy | null = null;
     if (copyEnabled) {
       const markdown = $<HTMLTextAreaElement>("#capture-markdown").value;
       const bytes = new TextEncoder().encode(markdown).byteLength;
       if (!markdown.trim() || bytes > 262144) copySaveError = "The Markdown copy is empty or exceeds the 256 KiB limit.";
       else try {
+        if (captured?.requestId && result.duplicate) {
+          const current = await request<{ copy: ArticleCopy | null }>(`/api/articles/${encodeURIComponent(result.article.id)}/copy`);
+          const intendedAuthor = $<HTMLInputElement>('#capture-author').value.trim() || null;
+          const intendedDescription = $<HTMLTextAreaElement>('#capture-description').value.trim() || null;
+          const metadataMatches = result.article.title === (title || result.article.title) &&
+            result.article.author === intendedAuthor && result.article.description === intendedDescription;
+          if (!metadataMatches || (current.copy && current.copy.markdown !== markdown)) {
+            copySaveError = 'This URL already has a saved version. Review the current metadata and Markdown, then confirm any replacement.';
+            showExtensionConflict(result.article, current.copy, copySaveError);
+            throw new Error(copySaveError);
+          }
+          if (current.copy) {
+            savedCopy = current.copy;
+          }
+        }
+        if (savedCopy) { /* The persisted identical copy is already the safe revision to publish. */ }
+        else {
+        if (captured?.requestId) {
+          captured.stage = 'copy-saving';
+          sessionStorage.setItem('later-extension-capture', JSON.stringify(captured));
+        }
         const saved = await request<{ copy: ArticleCopy }>(`/api/articles/${encodeURIComponent(result.article.id)}/copy`, {
           method: "PUT",
           body: JSON.stringify({ markdown, source: "paste", expectedRevision: null }),
         });
         savedCopy = saved.copy;
+        if (captured?.requestId) {
+          captured.savedCopyRevision = saved.copy.revision;
+          captured.stage = 'copy-saved';
+          sessionStorage.setItem('later-extension-capture', JSON.stringify(captured));
+        }
+        }
       } catch (error) {
-        copySaveError = (error as Error).message;
+        copySaveError ||= (error as Error).message;
       }
     }
     if (savedCopy && captured && alsoSaveToGitHub) {
       captured.savedArticleId = result.article.id;
       captured.savedCopyRevision = savedCopy.revision;
+      captured.stage = 'publishing';
       sessionStorage.setItem("later-browser-capture-draft", JSON.stringify(captured));
+      sessionStorage.setItem('later-extension-capture', JSON.stringify(captured));
       try {
         const backup = await request<{ backup: GitHubBackupStatus }>(`/api/articles/${encodeURIComponent(result.article.id)}/github`, {
-          method: "POST", body: JSON.stringify({ expectedRevision: savedCopy.revision }),
+          method: "POST", body: JSON.stringify({ expectedRevision: savedCopy.revision, ...(captured.mode === 'simple' && captured.destination ? { expectedDestination: captured.destination } : {}) }),
         });
         if (backup.backup.state === "outdated") githubSaveError = "GitHub received the saved copy, but article details changed meanwhile. Review the article and retry its current revision.";
-        else githubSaved = true;
+        else {
+          githubSaved = true;
+          githubUrl = backup.backup.url && safeHttpUrl(backup.backup.url) ? backup.backup.url : undefined;
+          captured.stage = 'complete';
+          sessionStorage.setItem('later-extension-capture', JSON.stringify(captured));
+        }
       } catch (error) {
         githubSaveError = (error as Error).message;
       }
@@ -1189,11 +1609,15 @@ $("#add-form").addEventListener("submit", async (e) => {
       addNotice.textContent = `Link saved. Markdown copy was not changed: ${copySaveError} GitHub was not called. Your draft remains here. Uncheck “Save this Markdown copy” to save the link only.`;
       addNotice.classList.add("error");
       addNotice.hidden = false;
+      if (captured?.requestId) extensionPost('capture-result', captured.requestId, { result: 'action-required' });
     } else if (githubSaveError) {
       const addNotice = $("#add-notice");
       addNotice.textContent = `Link and Markdown copy saved in Potem. GitHub save failed; retry the same saved revision below.`;
       addNotice.classList.add("error");
       addNotice.hidden = false;
+      if (captured?.requestId) extensionPost('capture-result', captured.requestId, { result: 'action-required' });
+    } else if (captured?.requestId) {
+      showExtensionResult(result.article, captured.sourceUrl, githubUrl);
     } else showNotice(
       copyNotAttached
           ? pendingCopyLeftBehind
@@ -1223,6 +1647,7 @@ $("#add-form").addEventListener("submit", async (e) => {
     addNotice.textContent = `Couldn’t save this link. ${(err as Error).message}`;
     addNotice.classList.add("error");
     addNotice.hidden = false;
+    if (browserCaptureDraft?.requestId) extensionPost('capture-result', browserCaptureDraft.requestId, { result: 'action-required' });
   } finally {
     if (!browserCaptureDraft?.savedCopyRevision) button.disabled = false;
   }
@@ -1497,5 +1922,6 @@ if ("serviceWorker" in navigator)
   addEventListener("load", () =>
     navigator.serviceWorker.register("/sw.js").catch(() => {}),
   );
+if (extensionHandoffId && /^[a-f0-9]{48}$/.test(extensionHandoffId)) extensionPost('ready', extensionHandoffId);
 recoverDraft();
 initialize();

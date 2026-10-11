@@ -178,6 +178,18 @@ describe('GitHub Markdown saving', () => {
     expect((await getArticleCopy(env.DB, article.id))?.markdown).toBe('newer');
   });
 
+  it('rejects a consented destination mismatch before contacting GitHub', async () => {
+    const remote = mockGitHub();
+    const response = await route(request('POST', { expectedRevision: copy.revision, expectedDestination: { repository: 'Pajdzik/Kamilpedia', branch: 'main', folder: '' } }));
+    expect(response.status).toBe(409);
+    expect(await response.json()).toMatchObject({ error: { code: 'destination_changed' } });
+    expect(remote.fetcher).not.toHaveBeenCalled();
+    const rootFolderSettings = { ...env, GITHUB_BACKUP_PATH: '' };
+    const rootRemote = mockGitHub();
+    expect((await route(request('POST', { expectedRevision: copy.revision, expectedDestination: { repository: 'Pajdzik/Kamilpedia', branch: 'main', folder: '' } }), rootFolderSettings)).status).toBe(200);
+    expect(rootRemote.fetcher).toHaveBeenCalled();
+  });
+
   it('does not overwrite unrelated files or blindly retry concurrent GitHub conflicts', async () => {
     const unrelated = mockGitHub('# A manually maintained file');
     expect(await (await route(saveRequest())).json()).toMatchObject({ error: { code: 'github_file_conflict' } });

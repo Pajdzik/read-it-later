@@ -80,6 +80,7 @@ An explicit local authentication bypass works only on the configured loopback or
 | --- | --- |
 | Website | Open Add, paste a URL and optional title, then save the link and queue an optional background Markdown copy |
 | Desktop bookmarklet | Extracts the open page into an editable Markdown draft in `/add`; review and confirm in the website |
+| Chrome/Firefox extension | Implementation in progress; not supported or distributed until cross-browser extension capture validation passes (E08) |
 | iOS Shortcut | POSTs one URL and optional title to `/api/capture` with a save-only bearer token; background extraction defaults on |
 | Installed PWA | Supported browsers open `/add` from shared URL/title/text; review and confirm |
 
@@ -195,7 +196,7 @@ Back up before destructive schema changes. Prefer additive migrations and roll b
 | `wrangler.jsonc` | Worker, assets and environment bindings |
 | `server.ts`, `public/`, `Dockerfile` | Preserved Node.js Markdown-reader prototype |
 
-Supporting documents: [TypeScript migration](docs/typescript-migration.md), [original design](docs/design.md), [implementation tracker](docs/tasks.md), [capture](docs/capture.md), [mobile release validation](docs/mobile-release.md), [CI](docs/ci.md), [deployment and operations](docs/deployment.md), and [prototype](docs/prototype.md). The original design/tracker record the initial implementation scope; this README reflects the current code, including metadata enrichment and production CI deployment.
+Supporting documents: [TypeScript migration](docs/typescript-migration.md), [original design](docs/design.md), [implementation tracker](docs/tasks.md), [capture](docs/capture.md), [browser extension install draft](docs/browser-extension-install.md), [mobile release validation](docs/mobile-release.md), [CI](docs/ci.md), [deployment and operations](docs/deployment.md), and [prototype](docs/prototype.md). The original design/tracker record the initial implementation scope; this README reflects the current code, including metadata enrichment and production CI deployment.
 
 ### Preserved prototype
 
