@@ -2,6 +2,7 @@ import type { Env } from "./contracts";
 import { handleAuth } from "./auth/handler";
 import { handleArticles } from "./articles/handler";
 import { errorResponse, logUnexpectedError } from "./http";
+import { processExtractionJobs } from "./articles/processor";
 
 const securityHeaders = {
   "Cache-Control": "private, no-store",
@@ -18,6 +19,13 @@ function withSecurityHeaders(response: Response): Response {
 }
 
 export default {
+  async scheduled(_controller: ScheduledController, env: Env): Promise<void> {
+    try { await processExtractionJobs(env); }
+    catch {
+      logUnexpectedError("worker.scheduled");
+      throw new Error("Background extraction processing failed");
+    }
+  },
   async fetch(request: Request, env: Env): Promise<Response> {
     const url = new URL(request.url);
     if (url.pathname === "/healthz") {

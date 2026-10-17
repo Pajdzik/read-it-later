@@ -81,8 +81,19 @@ Back up before destructive schema changes. Deploy additive migrations first and 
 
 Inspect Workers request/error/CPU metrics and D1 storage/row metrics. Do not log article URLs, titles, bodies, cookies, bearer tokens or OAuth codes. D1 index updates count toward rows written; search may scan a small personal library. The atomic capture limiter also writes to D1. Free quota exhaustion is an outage until the relevant quota resets or capacity is freed; do not silently enable a paid plan. Use the UI's retry behavior and keep capture drafts. An operator should revisit query/index choices before scaling beyond one owner.
 
-## Later Markdown preservation
+## Background Markdown extraction
 
-Automatic source fetching is deliberately absent from this release. Follow archive tasks A01–A05 before enabling it: verify extraction CPU and safe DNS/egress enforcement, or use browser-clipped Markdown uploads. Neither R2 nor headless browser infrastructure is required by the URL inbox.
+Migration `0006_background_capture.sql` adds durable extraction intent, title origin, and leased jobs. The one-minute Cron Trigger is configured in each environment. `BACKGROUND_CAPTURE_ENABLED` defaults to `false`; the scheduled handler performs no database or source work while paused. Saves still record requested capture and show paused status. Merging this PR does not activate the processor; until activation, website URL capture no longer returns an immediate copy.
+
+Before activation in a chosen environment:
+
+1. Complete A01 with deployed staging evidence for connection-time public-egress enforcement and representative/worst-case Defuddle CPU/memory. Workers Free's scheduled CPU limit is 10 ms; local tests and network latency do not prove fit. Record a deliberate runtime/cost decision if it exceeds the selected plan.
+2. Configure the optional `ARTICLE_FETCHER` **HTTP service binding** to a verified fetching Worker. Its `fetch` accepts the original article URL as the request URL, makes only the requested single HTTP(S) hop, and returns the upstream status/headers/body without following redirects. It must validate all DNS/CNAME/A/AAAA candidates and enforce the public-IP policy on the actual connection, keeping original-host TLS certificate checks. It must not be an unrestricted `fetch` proxy or add cookies/credentials. This repository supplies the client and test fixture boundary, not a deployed protected gateway. Do not bind VPC access that can reach private destinations without an enforced deny policy.
+3. Declare the verified service under the selected environment's `services` array with `binding: "ARTICLE_FETCHER"` and its actual Worker name. Service bindings are environment-specific; do not point staging at production. Regenerate Wrangler types and run checks after configuring it.
+4. Set `BACKGROUND_CAPTURE_ENABLED` to `true` in that same environment only after both gates pass. Validate real scheduled extraction, private reader status, transient retry, manual-copy priority, and iOS/Android capture. Capture-token acknowledgments confirm the request rather than successful conversion.
+
+There is no ordinary-fetch fallback if the binding is absent. A DNS preflight followed by hostname fetch does not pin the connected address. Unsupported sources remain saved links with manual/browser capture available. See [background extraction](background-markdown-extraction.md) for protocol, limits, and acceptance cases.
+
+To pause, set the flag to `false` and deploy the config through the existing workflow. This retains articles, intent, copies, and jobs; accepted jobs resume when enabled. Removing the Cron Trigger also stops dispatch but requires the normal trigger propagation period. Deletion cancels the article's job through the foreign key. Do not restore jobs/leases through library JSON imports, and do not backfill old links without a separate owner action.
 
 If the configured owner ID changes, revoke existing sessions and capture tokens as part of the change; these records are for the single library rather than separate user accounts.

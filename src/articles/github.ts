@@ -164,8 +164,19 @@ function remoteFile(data: Record<string, unknown>, id: string): { sha: string; m
   }
 }
 
-export async function saveGitHubBackup(env: Env, id: string, expectedRevision: string): Promise<{ backup: GitHubBackupStatus; unchanged: boolean }> {
+export async function saveGitHubBackup(
+  env: Env,
+  id: string,
+  expectedRevision: string,
+  expectedDestination?: { repository: string; branch: string; folder: string },
+): Promise<{ backup: GitHubBackupStatus; unchanged: boolean }> {
   const target = targetFor(env, id);
+  if (expectedDestination) {
+    const actualFolder = target.path.slice(0, Math.max(0, target.path.lastIndexOf('/')));
+    if (target.repository !== expectedDestination.repository || target.branch !== expectedDestination.branch || actualFolder !== expectedDestination.folder) {
+      throw new GitHubBackupError(409, 'destination_changed', 'The configured GitHub destination changed. Review setup before saving.');
+    }
+  }
   const article = await getArticle(env.DB, id);
   if (!article) throw new GitHubBackupError(404, 'not_found', 'Article not found.');
   const copy = await getArticleCopy(env.DB, id);
