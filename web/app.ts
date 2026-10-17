@@ -893,6 +893,17 @@ $("#reader-dialog").addEventListener("cancel", (event) => {
   event.preventDefault();
   clearReader();
 });
+$("#reader-dialog").addEventListener("click", (event) => {
+  const dialog = $<HTMLDialogElement>("#reader-dialog");
+  if (event.target !== dialog) return;
+
+  const bounds = dialog.getBoundingClientRect();
+  const clickedOutside = event.clientX < bounds.left || event.clientX > bounds.right ||
+    event.clientY < bounds.top || event.clientY > bounds.bottom;
+  if (clickedOutside) {
+    clearReader();
+  }
+});
 function openDetail(article: Article) {
   clearReader();
   renderDetail(article);
