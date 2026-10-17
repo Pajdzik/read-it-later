@@ -615,6 +615,17 @@ $("#reader-dialog").addEventListener("cancel", (event) => {
   event.preventDefault();
   clearReader();
 });
+document.addEventListener("pointerdown", (event) => {
+  const dialog = $<HTMLDialogElement>("#reader-dialog");
+  if (!dialog.open) return;
+
+  const bounds = dialog.getBoundingClientRect();
+  const clickedOutside = event.clientX < bounds.left || event.clientX > bounds.right ||
+    event.clientY < bounds.top || event.clientY > bounds.bottom;
+  if (clickedOutside) {
+    clearReader();
+  }
+}, true);
 function openDetail(article: Article) {
   clearReader();
   renderDetail(article);
