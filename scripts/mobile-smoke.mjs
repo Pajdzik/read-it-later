@@ -346,6 +346,8 @@ async function runProfile(name, browserType, device) {
   // overflow. Paste the copy through article details, then open the title.
   await article.getByRole("button", { name: "Edit", exact: true }).tap();
   const detail = page.locator("#detail-content");
+  await detail.locator(".copy-editor > .copy-status")
+    .filter({ hasText: /^Saved .*captured or pasted Markdown/ }).waitFor();
   await detail.getByRole("textbox", { name: "Markdown copy" }).fill(`# Wide reader check\n\n${"word-without-breaks-".repeat(24)}\n\n| left | ${"column-header-".repeat(8)} |\n| --- | --- |\n| text | ${"wide-cell-".repeat(24)} |`);
   page.once("dialog", (dialog) => dialog.accept());
   const updatedCopyResponsePromise = page.waitForResponse((response) =>
