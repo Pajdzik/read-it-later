@@ -1,0 +1,9 @@
+:root { color-scheme: light; font: 16px/1.5 system-ui, sans-serif; color: #29291f; background: #f7f7f2; }
+* { box-sizing: border-box; } body { margin: 0; padding: 2rem; }
+main { max-width: 34rem; margin: 2rem auto; padding: 2rem; background: white; border: 1px solid #deded5; border-radius: 1rem; }
+.brand { color: #29291f; font-weight: 700; text-decoration: none; font-size: 1.2rem; } .brand span { color: #737451; margin-right: .35rem; }
+h1 { margin: 1.4rem 0 .2rem; font-size: 1.7rem; } .muted { color: #65655b; }
+label, select { display: block; } select { width: 100%; margin: .45rem 0 1rem; padding: .75rem; border: 1px solid #b9b9ad; border-radius: .5rem; font: inherit; }
+button { padding: .7rem 1rem; border: 0; border-radius: .5rem; background: #696c47; color: white; font: inherit; font-weight: 650; cursor: pointer; } button.secondary { background: #eeeee8; color: #29291f; }
+.destination { padding: .8rem; border-radius: .5rem; background: #f2f2ec; overflow-wrap: anywhere; } .consent { display: flex; gap: .65rem; align-items: flex-start; margin: 1rem 0; } .consent input { margin-top: .3rem; }
+#status { min-height: 1.5rem; } @media (max-width: 520px) { body { padding: .5rem; } main { margin: .5rem auto; padding: 1.25rem; } }
