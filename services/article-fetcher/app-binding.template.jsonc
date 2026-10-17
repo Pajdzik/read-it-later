@@ -1,0 +1,7 @@
+// Optional snippet: merge into the selected environment's `services` array
+// only after deploying its private adapter. Do not copy this placeholder into
+// the default production config.
+{
+  "binding": "ARTICLE_FETCHER",
+  "service": "replace-with-the-matching-environment-adapter-worker-name"
+}
