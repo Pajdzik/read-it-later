@@ -348,7 +348,15 @@ async function runProfile(name, browserType, device) {
   const detail = page.locator("#detail-content");
   await detail.getByRole("textbox", { name: "Markdown copy" }).fill(`# Wide reader check\n\n${"word-without-breaks-".repeat(24)}\n\n| left | ${"column-header-".repeat(8)} |\n| --- | --- |\n| text | ${"wide-cell-".repeat(24)} |`);
   page.once("dialog", (dialog) => dialog.accept());
+  const updatedCopyResponsePromise = page.waitForResponse((response) =>
+    new URL(response.url()).pathname === `/api/articles/${encodeURIComponent(articleId)}/copy` &&
+    response.request().method() === "PUT");
   await detail.getByRole("button", { name: "Save Markdown copy" }).tap();
+  const updatedCopyResponse = await updatedCopyResponsePromise;
+  assert.equal(updatedCopyResponse.status(), 200, `${name}: replacing the saved Markdown copy did not complete.`);
+  const updatedCopy = await updatedCopyResponse.json();
+  assert.match(updatedCopy.copy.markdown, /^# Wide reader check/m,
+    `${name}: replacement Markdown was not persisted before opening the reader.`);
   await detail.getByText(/pasted Markdown/).waitFor();
   await detail.getByRole("button", { name: "Read saved copy" }).tap();
   await page.locator("#reader-body").getByRole("heading", { name: "Wide reader check" }).waitFor();
