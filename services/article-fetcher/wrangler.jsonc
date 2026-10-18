@@ -1,0 +1,39 @@
+{
+  "$schema": "../../node_modules/wrangler/config-schema.json",
+  "name": "read-it-later-article-fetcher",
+  "main": "src/worker.ts",
+  "compatibility_date": "2026-10-10",
+  "workers_dev": false,
+  "preview_urls": false,
+  "observability": { "enabled": true },
+  "vpc_services": [
+    {
+      "binding": "PROTECTED_GATEWAY",
+      "service_id": "replace-with-default-article-fetch-gateway-vpc-service-id"
+    }
+  ],
+  "env": {
+    "staging": {
+      "name": "read-it-later-article-fetcher-staging",
+      "workers_dev": false,
+      "preview_urls": false,
+      "vpc_services": [
+        {
+          "binding": "PROTECTED_GATEWAY",
+          "service_id": "replace-with-staging-article-fetch-gateway-vpc-service-id"
+        }
+      ]
+    },
+    "production": {
+      "name": "read-it-later-article-fetcher-production",
+      "workers_dev": false,
+      "preview_urls": false,
+      "vpc_services": [
+        {
+          "binding": "PROTECTED_GATEWAY",
+          "service_id": "replace-with-production-article-fetch-gateway-vpc-service-id"
+        }
+      ]
+    }
+  }
+}

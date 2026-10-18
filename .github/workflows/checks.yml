@@ -46,8 +46,20 @@ jobs:
       - name: Check TypeScript across all runtimes
         run: pnpm check
 
+      - name: Check fetch gateway and adapter types
+        run: pnpm check:fetch-gateway
+
+      - name: Dry-run staging adapter build
+        run: pnpm build:fetcher:staging
+
+      - name: Dry-run production adapter build
+        run: pnpm build:fetcher:production
+
       - name: Run Worker and D1 tests
         run: pnpm test
+
+      - name: Run fetch gateway and adapter tests
+        run: pnpm test:fetch-gateway
 
       - name: Build for deployment (dry run)
         run: pnpm build

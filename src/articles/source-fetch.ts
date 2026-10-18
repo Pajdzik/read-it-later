@@ -1,5 +1,6 @@
 import type { Env } from "../contracts";
 import { parseArticleMetadata, type ArticleMetadata } from "./metadata";
+import { validateArticleUrl } from "./url-policy";
 
 const MAX_HTML_BYTES = 512 * 1024;
 const HOP_TIMEOUT_MS = 5_000;
@@ -25,56 +26,12 @@ function fail(code: string, retryable = false, retryAfterSeconds?: number): neve
   throw new SourceFetchError(code, retryable, retryAfterSeconds);
 }
 
-function isPrivateIpv4(host: string): boolean {
-  const parts = host.split(".");
-  if (parts.length !== 4 || parts.some((part) => !/^\d{1,3}$/.test(part) || Number(part) > 255)) return false;
-  const [a, b, c, d] = parts.map(Number);
-  return a === 0 || a === 10 || a === 127 || a >= 224 ||
-    (a === 100 && b >= 64 && b <= 127) ||
-    (a === 169 && b === 254) ||
-    (a === 172 && b >= 16 && b <= 31) ||
-    (a === 192 && (b === 168 || (b === 0 && c === 0) || (b === 0 && c === 2) || (b === 88 && c === 99))) ||
-    (a === 198 && (b === 18 || b === 19 || (b === 51 && c === 100))) ||
-    (a === 203 && b === 0 && c === 113) ||
-    (a === 255 && b === 255 && c === 255 && d === 255);
-}
-
-const RESTRICTED_SUFFIXES = [
-  ".localhost", ".local", ".internal", ".lan", ".home", ".home.arpa",
-  ".test", ".invalid", ".example", ".onion", ".arpa", ".svc", ".cluster.local",
-];
-
 function validateTarget(raw: string, env: Env): URL {
-  let target: URL;
-  try {
-    target = new URL(raw);
-  } catch {
-    return fail("invalid_url");
-  }
-  if (target.protocol !== "https:" && target.protocol !== "http:") fail("unsafe_destination");
-  if (target.username || target.password) fail("unsafe_destination");
-  if (target.port && target.port !== "80" && target.port !== "443") fail("unsafe_destination");
-
-  const host = target.hostname.toLowerCase().replace(/\.$/, "");
-  if (!host || host === "localhost" || !host.includes(".") || RESTRICTED_SUFFIXES.some((suffix) => host === suffix.slice(1) || host.endsWith(suffix))) {
+  try { return validateArticleUrl(raw, env.APP_ORIGIN); }
+  catch (error) {
+    if (error instanceof Error && error.message === "invalid_url") fail("invalid_url");
     fail("unsafe_destination");
   }
-  // URL canonicalizes unusual IPv4 spellings (integer, octal, and hex) before
-  // exposing hostname. Reject private/reserved literals; IPv6 literals are
-  // conservatively rejected so mapped and scoped forms cannot bypass checks.
-  if (host.startsWith("[") || host.includes(":")) fail("unsafe_destination");
-  if (/^\d+(?:\.\d+){3}$/.test(host) && isPrivateIpv4(host)) fail("unsafe_destination");
-  if (/^(?:0x[\da-f]+|\d+)$/i.test(host)) fail("unsafe_destination");
-
-  const configuredOrigin = env.APP_ORIGIN;
-  if (configuredOrigin) {
-    try {
-      if (new URL(configuredOrigin).hostname.toLowerCase().replace(/\.$/, "") === host) fail("unsafe_destination");
-    } catch (error) {
-      if (error instanceof SourceFetchError) throw error;
-    }
-  }
-  return target;
 }
 
 function retryAfter(response: Response, now: number): number | undefined {
@@ -206,6 +163,15 @@ export async function fetchSourcePage(url: string, env: Env): Promise<{ html: st
       clearTimeout(timeoutId!);
       if (error instanceof SourceFetchError) throw error;
       fail(Date.now() >= deadline || controller.signal.aborted ? "timeout" : "network_error", true);
+    }
+
+    const protectedError = response.headers.get("x-article-fetcher-error");
+    if (protectedError) {
+      await response.body?.cancel().catch(() => undefined);
+      clearTimeout(timeoutId!);
+      const codes = new Set(["unsafe_destination", "dns_error", "network_error", "timeout", "source_too_large", "unsupported_content", "empty_source"]);
+      if (codes.has(protectedError)) fail(protectedError, ["dns_error", "network_error", "timeout"].includes(protectedError));
+      fail("network_error", true);
     }
 
     if ([301, 302, 303, 307, 308].includes(response.status)) {
