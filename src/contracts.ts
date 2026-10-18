@@ -10,6 +10,17 @@ export interface Env {
   GITHUB_BACKUP_BRANCH?: string;
   GITHUB_BACKUP_PATH?: string;
   GITHUB_BACKUP_TOKEN?: string;
+  BACKGROUND_CAPTURE_ENABLED?: string;
+  /** Must enforce public destinations at connection time; never an unrestricted fetch proxy. */
+  ARTICLE_FETCHER?: Fetcher;
+}
+
+export interface ExtractionStatus {
+  state: "none" | "queued" | "running" | "retry_wait" | "ready" | "failed";
+  attempts: number;
+  errorCode: string | null;
+  nextAttemptAt: string | null;
+  paused: boolean;
 }
 
 export interface Article {

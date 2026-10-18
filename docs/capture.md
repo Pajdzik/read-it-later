@@ -4,16 +4,16 @@ Potem accepts links from the Add form, desktop bookmarklet, iOS Shortcut, and (i
 
 ## Paste a URL
 
-Open **Add**, paste the article URL, and choose **Save link**. **Save a Markdown copy of the article** starts checked: Potem extracts the source HTML, saves a private copy, and opens it in the reader. Uncheck the option to save only the link. After reloading, open the article and choose **Read saved copy** or **Download Markdown**.
+Open **Add**, paste the article URL, and choose **Save link**. **Save a Markdown copy of the article** starts checked: Potem saves the link and queues private Markdown extraction in the background. The confirmation means the request was saved; it does not mean extraction has finished. You can close the tab after the link-save confirmation. Uncheck the option to save only the link. Articles show a compact capture status; open a pending article to see its status and the original link. When Markdown is ready, open the article to read or download it.
 
-If the source blocks access, requires JavaScript/login, is not HTML, or exceeds the capture limits, the URL remains saved and a message explains that Markdown was not saved. Adding the same URL again retries a missing copy without duplicating the article or replacing an existing copy. For pages accessible only in your browser, use the bookmarklet or paste/upload Markdown in article details. See [capture limits and behavior](url-markdown-capture.md).
+If the source blocks access, requires JavaScript/login, is not HTML, or exceeds the capture limits, the URL remains saved and capture reports a failure. Open article details to retry or paste/upload a browser-captured copy. A paused runtime keeps links savable and shows **Capture paused**. Re-saving a duplicate does not restart a failed capture. See [capture limits and behavior](url-markdown-capture.md).
 
 ## Desktop bookmarklet
 
 1. Sign in to Potem and open **Capture help** (or `/capture.html`).
 2. Drag **Save to Potem** into the browser bookmarks bar.
 3. On an article page, activate that bookmark. It opens `/add` with the current page URL and title prefilled, then extracts the visible document to an editable Markdown draft in the Potem tab.
-4. Review the URL, title, and Markdown, then press **Save link**. The link is saved first and Potem then attempts to save the copy. The **Save this Markdown copy** checkbox starts checked; uncheck it to save only the link. Existing copies are protected from replacement. If copy saving fails, the link stays saved and the draft remains available; retry or save link-only.
+4. Review the URL, title, and Markdown, then press **Save link**. The bookmarklet explicitly saves link-only first, then saves the reviewed browser Markdown through the existing copy endpoint. Existing copies are protected from replacement. If copy saving fails, the link stays saved and the draft remains available; retry or save link-only.
 
 To also create the Markdown file in GitHub, check **Also save to GitHub** before **Save link**. This checkbox starts unchecked, and the configured destination appears below it. The production repository, `Pajdzik/Kamilpedia`, is public. Potem saves the local Markdown first; only a successful copy save can be sent to GitHub. If GitHub fails, **Retry GitHub save for saved copy** retries the saved version without another local copy write. **Done** leaves the saved copy in Potem; article details provide the existing GitHub retry later. A changed saved copy must be reviewed in article details before retrying. Restoring the capture draft does not check the GitHub publishing option automatically.
 
@@ -30,7 +30,7 @@ Create a capture token under **Settings → Capture tokens**. The plaintext toke
 3. Add **Get Contents of URL**. Set the URL to `https://YOUR-APP-ORIGIN/api/capture`, method to `POST`, and request body to JSON.
 4. Add the `Authorization` header with value `Bearer YOUR_CAPTURE_TOKEN`.
 5. Send JSON with `url` set to the single URL from step 2. Add `title` only when the Shortcut Input has a non-empty name; omit the key when it is blank.
-6. Show the response. A successful response includes `duplicate`; true means the link was already present. A failed request should be shown as an error.
+6. Show the response. A successful response includes `duplicate` and `extractionRequested`. The response confirms the link and background request were saved; it does not confirm extraction finished. A failed request should be shown as an error. Add `"captureMarkdown": false` to save link-only.
 
 Replace the origin with the deployed Potem origin and token with the one-time value from Settings. Do not put a capture token in a bookmarklet, URL, or shared shortcut. Revoke a lost token in Settings and create another. The capture token can add links only; it cannot read or change the library.
 
