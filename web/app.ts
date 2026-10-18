@@ -893,9 +893,9 @@ $("#reader-dialog").addEventListener("cancel", (event) => {
   event.preventDefault();
   clearReader();
 });
-$("#reader-dialog").addEventListener("click", (event) => {
+document.addEventListener("pointerdown", (event) => {
   const dialog = $<HTMLDialogElement>("#reader-dialog");
-  if (event.target !== dialog) return;
+  if (!dialog.open) return;
 
   const bounds = dialog.getBoundingClientRect();
   const clickedOutside = event.clientX < bounds.left || event.clientX > bounds.right ||
@@ -903,7 +903,7 @@ $("#reader-dialog").addEventListener("click", (event) => {
   if (clickedOutside) {
     clearReader();
   }
-});
+}, true);
 function openDetail(article: Article) {
   clearReader();
   renderDetail(article);
