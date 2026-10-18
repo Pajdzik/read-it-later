@@ -121,7 +121,11 @@ jobs:
         run: pnpm exec wrangler d1 migrations apply read-later-production --remote --env production
 
       - name: Build website assets
-        run: pnpm build:web
+        env:
+          BUILD_COMMIT_SHA: ${{ github.sha }}
+        run: |
+          export BUILD_TIMESTAMP="$(date -u +%Y-%m-%dT%H:%M:%SZ)"
+          pnpm build:web
 
       - name: Deploy production Worker
         env:

@@ -85,8 +85,25 @@
       </section>
       <footer class="footer">
         <span>Small steps, good reads.</span>
+        <button id="build-info-open" class="build-info-button" type="button" aria-haspopup="dialog">Local build</button>
       </footer>
     </main>
+    <dialog id="build-info-dialog" class="dialog build-info-dialog" aria-labelledby="build-info-heading">
+      <form method="dialog" class="dialog-close">
+        <button class="icon-button" aria-label="Close build details">×</button>
+      </form>
+      <p class="eyebrow">Build details</p>
+      <h2 id="build-info-heading">Build information</h2>
+      <p id="build-info-local" class="muted" hidden>This is a local build. Build metadata is unavailable.</p>
+      <dl id="build-info-metadata" class="build-info-metadata">
+        <div><dt>Commit</dt><dd id="build-info-commit"></dd></div>
+        <div><dt>Built</dt><dd id="build-info-time"></dd></div>
+      </dl>
+      <div class="build-info-actions">
+        <button id="build-info-copy" class="button secondary" type="button">Copy build details</button>
+        <span id="build-info-copy-status" class="muted" role="status" aria-live="polite"></span>
+      </div>
+    </dialog>
     <dialog id="add-dialog" class="dialog add-dialog" aria-labelledby="add-heading">
       <form method="dialog" class="dialog-close">
         <button class="icon-button" aria-label="Close">×</button>

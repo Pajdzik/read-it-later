@@ -1,5 +1,39 @@
 import { markdownDownload, markdownDownloadName, renderMarkdown } from "./markdown.js";
 
+declare const __BUILD_INFO__: { commitSha: string; builtAt: string } | null;
+
+const buildInfo = typeof __BUILD_INFO__ === "undefined" ? null : __BUILD_INFO__;
+const buildInfoButton = document.querySelector<HTMLButtonElement>("#build-info-open");
+const buildInfoDialog = document.querySelector<HTMLDialogElement>("#build-info-dialog");
+if (buildInfoButton && buildInfoDialog) {
+  const validBuild = buildInfo && buildInfo.commitSha && buildInfo.builtAt && !Number.isNaN(Date.parse(buildInfo.builtAt));
+  if (validBuild) {
+    const builtAt = new Date(buildInfo.builtAt);
+    const shortDate = new Intl.DateTimeFormat(undefined, { month: "short", day: "numeric" }).format(builtAt);
+    const fullDate = new Intl.DateTimeFormat(undefined, { dateStyle: "long", timeStyle: "long" }).format(builtAt);
+    buildInfoButton.textContent = `Build ${shortDate} · ${buildInfo.commitSha.slice(0, 7)}`;
+    document.querySelector("#build-info-commit")!.textContent = buildInfo.commitSha;
+    document.querySelector("#build-info-time")!.textContent = fullDate;
+    const details = `Commit: ${buildInfo.commitSha}\nBuilt: ${fullDate}`;
+    document.querySelector("#build-info-copy")!.addEventListener("click", async () => {
+      const status = document.querySelector<HTMLElement>("#build-info-copy-status")!;
+      try {
+        if (!navigator.clipboard?.writeText) throw new Error("Clipboard unavailable");
+        await navigator.clipboard.writeText(details);
+        status.textContent = "Build details copied.";
+      } catch {
+        status.textContent = "Couldn’t copy build details. Select and copy them manually.";
+      }
+    });
+  } else {
+    buildInfoButton.textContent = "Local build";
+    document.querySelector("#build-info-metadata")!.setAttribute("hidden", "");
+    document.querySelector("#build-info-local")!.removeAttribute("hidden");
+    document.querySelector("#build-info-copy")!.setAttribute("hidden", "");
+  }
+  buildInfoButton.addEventListener("click", () => buildInfoDialog.showModal());
+}
+
 type Article = {
   id: string;
   url: string;
