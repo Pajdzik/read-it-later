@@ -52,6 +52,8 @@ let browserCaptureDraft: BrowserCaptureDraft | null = null;
 let captureGitHubConfiguration: GitHubCaptureConfiguration | null = null;
 let captureGitHubConfigurationPromise: Promise<void> | null = null;
 let readerLoadGeneration = 0;
+let readerArticleId: string | null = null;
+let readerMarkReadPending = false;
 let extractionPollTimer = 0;
 let extractionPollStartedAt = 0;
 let extractionPollGeneration = 0;
@@ -787,6 +789,7 @@ async function renderCopyEditor(article: Article) {
 }
 function openReader(article: Article, copy: ArticleCopy) {
   if (state.selected?.id !== article.id) return;
+  readerArticleId = article.id;
   const title = $("#reader-title");
   const author = $("#reader-author");
   const metadata = $("#reader-metadata");
@@ -797,16 +800,30 @@ function openReader(article: Article, copy: ArticleCopy) {
   author.hidden = !article.author;
   metadata.textContent = `Captured ${dateLabel(copy.capturedAt)} · ${copy.source === "upload" ? "uploaded file" : "captured or pasted Markdown"} · ${sourceHost(article.url)}`;
   $("#reader-pending").hidden = true;
+  $("#reader-footer").hidden = false;
+  const markRead = $<HTMLButtonElement>("#reader-mark-read");
+  markRead.disabled = false;
+  markRead.textContent = article.readAt ? "Done reading" : "Mark as read";
+  const readerStatus = $("#reader-status");
+  readerStatus.textContent = "";
+  readerStatus.hidden = true;
   $("#reader-image-note").hidden = false;
   body.hidden = false;
   original.href = safeHttpUrl(article.url) || "#";
   body.replaceChildren(renderMarkdown(copy.markdown, article.url));
   const dialog = $<HTMLDialogElement>("#reader-dialog");
-  if (!dialog.open) dialog.showModal();
+  if (!dialog.open) {
+    dialog.showModal();
+    title.tabIndex = -1;
+    title.focus({ preventScroll: true });
+  }
+  dialog.scrollTop = 0;
+  body.scrollTop = 0;
   stopExtractionPolling();
 }
 function renderPendingReader(article: Article) {
   state.selected = article;
+  readerArticleId = article.id;
   $("#reader-title").textContent = article.title;
   $("#reader-author").hidden = true;
   $("#reader-metadata").textContent = `${sourceHost(article.url)} · ${extractionLabel(article.extraction)}`;
@@ -817,13 +834,23 @@ function renderPendingReader(article: Article) {
     : article.extraction?.paused ? "Capture is paused. Your link is saved; you can add Markdown manually in article details."
       : "Markdown is being prepared in the background. You can close this view; the link is already saved.";
   $("#reader-pending").hidden = false;
+  $("#reader-footer").hidden = true;
+  $("#reader-status").textContent = "";
+  $("#reader-status").hidden = true;
   const retry = $<HTMLButtonElement>("#reader-retry");
   retry.hidden = article.extraction?.state !== "failed";
   retry.disabled = false;
   $("#reader-image-note").hidden = true;
   $("#reader-body").hidden = true;
   const dialog = $<HTMLDialogElement>("#reader-dialog");
-  if (!dialog.open) dialog.showModal();
+  if (!dialog.open) {
+    dialog.showModal();
+    const title = $("#reader-title");
+    title.tabIndex = -1;
+    title.focus({ preventScroll: true });
+  }
+  dialog.scrollTop = 0;
+  $("#reader-body").scrollTop = 0;
   startExtractionPolling(article);
 }
 $("#reader-manual-copy").addEventListener("click", () => {
@@ -852,6 +879,8 @@ $("#reader-retry").addEventListener("click", async () => {
 });
 function clearReader() {
   readerLoadGeneration++;
+  readerArticleId = null;
+  readerMarkReadPending = false;
   stopExtractionPolling();
   if (notice.textContent === "Loading Markdown copy…") showNotice("");
   const dialog = document.querySelector<HTMLDialogElement>("#reader-dialog");
@@ -862,6 +891,10 @@ function clearReader() {
   $("#reader-author").textContent = "";
   $("#reader-metadata").textContent = "";
   $("#reader-pending").hidden = true;
+  $("#reader-footer").hidden = true;
+  $("#reader-status").textContent = "";
+  $("#reader-status").hidden = true;
+  $<HTMLButtonElement>("#reader-mark-read").disabled = false;
   $("#reader-body").hidden = false;
   $("#reader-image-note").hidden = false;
   $<HTMLAnchorElement>("#reader-original").removeAttribute("href");
@@ -879,10 +912,65 @@ $("#reader-dialog").addEventListener("close", () => {
   $("#reader-author").textContent = "";
   $("#reader-metadata").textContent = "";
   $("#reader-pending").hidden = true;
+  $("#reader-footer").hidden = true;
+  $("#reader-status").textContent = "";
+  $("#reader-status").hidden = true;
+  $<HTMLButtonElement>("#reader-mark-read").disabled = false;
+  readerArticleId = null;
+  readerMarkReadPending = false;
   $<HTMLAnchorElement>("#reader-original").removeAttribute("href");
   if (!$<HTMLDialogElement>("#detail-dialog").open) {
     stopExtractionPolling();
     state.selected = null;
+  }
+});
+async function refreshListAfterReaderRead() {
+  const focused = document.activeElement as HTMLElement | null;
+  const focusedRow = focused?.closest<HTMLElement>(".article");
+  await load();
+  if (focusedRow && !focused?.isConnected && document.activeElement === document.body) {
+    const row = Array.from(list.querySelectorAll<HTMLElement>(".article"))
+      .find((item) => item.dataset.id === focusedRow.dataset.id);
+    (row?.querySelector<HTMLElement>(".article-title") || $("[data-status][aria-pressed='true']")).focus({ preventScroll: true });
+  }
+}
+$("#reader-mark-read").addEventListener("click", async () => {
+  const article = state.selected;
+  const articleId = readerArticleId;
+  const generation = readerLoadGeneration;
+  const dialog = $<HTMLDialogElement>("#reader-dialog");
+  const button = $<HTMLButtonElement>("#reader-mark-read");
+  const status = $("#reader-status");
+  if (!article || !articleId || article.id !== articleId || !dialog.open || readerMarkReadPending) return;
+  if (article.readAt) {
+    clearReader();
+    return;
+  }
+  readerMarkReadPending = true;
+  button.disabled = true;
+  status.textContent = "Saving read status…";
+  status.hidden = false;
+  try {
+    const result = await request<{ article: Article }>(
+      `/api/articles/${encodeURIComponent(articleId)}`,
+      { method: "PATCH", body: JSON.stringify({ read: true }) },
+    );
+    if (generation === readerLoadGeneration && state.selected?.id === articleId && readerArticleId === articleId && dialog.open) {
+      state.selected = result.article;
+      clearReader();
+      if ($<HTMLDialogElement>("#detail-dialog").open) {
+        renderDetail(result.article);
+        $("#detail-dialog .dialog-close button").focus({ preventScroll: true });
+      }
+    }
+    await refreshListAfterReaderRead();
+  } catch (error) {
+    if (generation !== readerLoadGeneration || state.selected?.id !== articleId || readerArticleId !== articleId || !dialog.open) return;
+    status.textContent = `Couldn’t mark this article as read. ${(error as Error).message}`;
+    status.hidden = false;
+    button.disabled = false;
+  } finally {
+    if (generation === readerLoadGeneration && readerArticleId === articleId) readerMarkReadPending = false;
   }
 });
 $("#reader-dialog .reader-close").addEventListener("submit", (event) => {
