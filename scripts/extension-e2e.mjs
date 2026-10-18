@@ -9,6 +9,7 @@ import os from 'node:os';
 import path from 'node:path';
 import { build } from 'esbuild';
 import { chromium } from 'playwright';
+import { openExtensionOptions } from './extension-test-utils.mjs';
 
 const scratch = await mkdtemp(path.join(os.tmpdir(), 'potem-extension-e2e-'));
 const portServer = net.createServer();
@@ -99,8 +100,7 @@ try {
   });
   const worker = context.serviceWorkers()[0] || await context.waitForEvent('serviceworker');
   const extensionId = new URL(worker.url()).host;
-  const options = await context.newPage();
-  await options.goto(`chrome-extension://${extensionId}/options.html`);
+  const options = await openExtensionOptions(context, extensionId);
   await options.locator('#connect').click();
   await options.waitForFunction(async () => {
     const data = await chrome.storage.local.get('settings');

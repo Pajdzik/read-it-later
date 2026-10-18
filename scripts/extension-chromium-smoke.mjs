@@ -2,6 +2,7 @@ import assert from 'node:assert/strict';
 import { readFile } from 'node:fs/promises';
 import path from 'node:path';
 import { chromium } from 'playwright';
+import { openExtensionOptions } from './extension-test-utils.mjs';
 
 const extensionPath = path.resolve('dist/extension/chrome');
 const manifest = JSON.parse(await readFile(path.join(extensionPath, 'manifest.json'), 'utf8'));
@@ -19,8 +20,7 @@ try {
   const worker = context.serviceWorkers().find((item) => item.url().endsWith('/background.js'));
   assert.ok(worker, 'unpacked MV3 service worker starts in Chromium');
   const extensionId = new URL(worker.url()).host;
-  const options = await context.newPage();
-  await options.goto(`chrome-extension://${extensionId}/options.html`);
+  const options = await openExtensionOptions(context, extensionId);
   await options.waitForFunction(() => document.querySelector('#origin')?.textContent === 'http://127.0.0.1:8787');
   assert.equal(await options.locator('#mode').inputValue(), 'review');
   assert.match(await options.locator('#destination').textContent(), /not configured/);
