@@ -153,7 +153,7 @@ try {
   await page.screenshot({ path: path.join(os.tmpdir(), "potem-anonymous-sign-in-desktop.png") });
   await page.unroute("**/api/session");
   await page.reload();
-  await page.locator("#logout").waitFor();
+  await page.locator("#account").waitFor();
   assert.equal(await signIn.isHidden(), true, "Signed-in owners must not see the sign-in prompt.");
   await page.locator("#add-open").click();
   await page
@@ -228,7 +228,7 @@ try {
     } }) });
   });
   await page.reload();
-  await page.locator("#logout").waitFor();
+  await page.locator("#account").waitFor();
   await title.waitFor();
   await article.getByRole("button", { name: "Edit", exact: true }).click();
   await page.locator("#detail-content .copy-status").getByText(/uploaded file/).waitFor();
@@ -312,7 +312,7 @@ try {
     await route.fulfill({ response, body: JSON.stringify(data) });
   });
   await page.reload();
-  await page.locator("#logout").waitFor();
+  await page.locator("#account").waitFor();
   const entryArticle = page.locator(".article").filter({ hasText: "Reader entry smoke" });
   const entryTitle = entryArticle.getByRole("button", { name: "Reader entry smoke", exact: true });
   await entryTitle.waitFor();
@@ -358,7 +358,7 @@ try {
   await page.unroute("**/api/articles?*");
   await page.setViewportSize({ width: 1440, height: 1000 });
   await page.reload();
-  await page.locator("#logout").waitFor();
+  await page.locator("#account").waitFor();
   await title.waitFor();
   let releasePendingCopy;
   let signalPendingCopy;
@@ -665,6 +665,9 @@ try {
     assert.match(response.headers()["content-type"], /application\/json/);
   }
   await page.locator("#settings-open").click();
+  await page.locator("#logout").waitFor();
+  assert.equal(await page.locator(".top-actions #logout").count(), 0,
+    "Sign out must remain inside Settings.");
   await page.locator("#token-label").fill("Smoke device");
   await page.locator("#token-form button").click();
   await page.locator("#new-token code").waitFor();
@@ -690,7 +693,7 @@ try {
         "Two https://example.com/first https://example.com/second",
       ),
   );
-  await page.locator("#logout").waitFor();
+  await page.locator("#add-url").waitFor();
   assert.equal(
     await page.locator("#add-url").inputValue(),
     "",
@@ -702,7 +705,7 @@ try {
       encodeURIComponent("https://example.com/draft") +
       "&title=Draft",
   );
-  await page.locator("#logout").waitFor();
+  await page.locator("#add-url").waitFor();
   assert.equal(
     await page.locator("#add-url").inputValue(),
     "https://example.com/draft",
@@ -729,7 +732,7 @@ try {
     const popupPromise = source.waitForEvent("popup");
     await source.evaluate((href) => (0, eval)(href.slice("javascript:".length)), bookmarklet);
     const popup = await popupPromise;
-    await popup.locator("#logout").waitFor();
+    await popup.locator("#add-url").waitFor();
     await popup.locator("#add-url").waitFor();
     return { source, popup, unexpectedRequests };
   };
@@ -958,7 +961,7 @@ try {
   const urlPage = await urlContext.newPage();
   urlPage.on("pageerror", (error) => errors.push(error.message));
   await urlPage.goto(base);
-  await urlPage.locator("#logout").waitFor();
+  await urlPage.locator("#account").waitFor();
   const asyncFixture = await urlPage.evaluate(async ({ url }) => {
     const session = await (await fetch("/api/session")).json();
     const response = await fetch("/api/articles", {
