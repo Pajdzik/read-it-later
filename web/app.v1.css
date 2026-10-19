@@ -290,6 +290,20 @@ button {
   padding: 9px 12px;
   background: transparent;
 }
+#capture-description {
+  display: block;
+  flex-basis: 100%;
+  width: 100%;
+  min-width: 0;
+  margin-top: 3px;
+  padding: 9px 12px;
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  background: transparent;
+  color: var(--ink);
+  font: inherit;
+  resize: vertical;
+}
 .sign-in-prompt {
   margin: 14px 0 0;
   color: var(--muted);
@@ -509,6 +523,51 @@ button {
   align-items: center;
   color: var(--muted);
   font-size: 12px;
+}
+.build-info-button {
+  border: 0;
+  border-radius: 6px;
+  padding: 5px 7px;
+  background: transparent;
+  color: var(--muted);
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+.build-info-button:hover,
+.build-info-button:focus-visible {
+  color: var(--ink);
+  background: var(--mint);
+}
+.build-info-dialog h2 {
+  margin: 0 0 16px;
+  font: 500 25px/1.2 Georgia, "Times New Roman", serif;
+}
+.build-info-metadata {
+  margin: 0 0 20px;
+  overflow-wrap: anywhere;
+}
+.build-info-metadata > div {
+  padding: 12px 0;
+  border-top: 1px solid var(--line);
+}
+.build-info-metadata dt {
+  margin-bottom: 3px;
+  color: var(--muted);
+  font-size: 12px;
+}
+.build-info-metadata dd {
+  margin: 0;
+  font-size: 14px;
+}
+.build-info-actions {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 10px;
+}
+.build-info-actions .muted {
+  font-size: 13px;
 }
 .dialog {
   width: min(550px, calc(100% - 30px));
@@ -946,3 +1005,8 @@ button {
       border-color 0.15s ease;
   }
 }
+.extension-actions { display: flex; flex-wrap: wrap; gap: .65rem; margin-top: 1rem; align-items: center; }
+#capture-preview-details { margin: .75rem 0 1rem; border-top: 1px solid var(--line, #deded5); padding-top: .65rem; }
+#capture-preview-details summary { cursor: pointer; color: var(--muted, #65655b); }
+#capture-preview { margin-top: .75rem; max-height: 28rem; overflow: auto; }
+#capture-byte-count { text-align: right; margin: .2rem 0; }

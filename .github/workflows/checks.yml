@@ -20,6 +20,8 @@ jobs:
     steps:
       - name: Check out repository
         uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
 
       - name: Set up pnpm
         uses: pnpm/action-setup@v4
@@ -31,6 +33,12 @@ jobs:
         with:
           node-version: 22
           cache: pnpm
+
+      - name: Detect extension changes
+        id: extension_changes
+        run: |
+          node --test scripts/ci-extension-changes.test.mjs
+          node scripts/ci-extension-changes.mjs
 
       - name: Install dependencies
         run: pnpm install --frozen-lockfile
@@ -52,6 +60,10 @@ jobs:
 
       - name: Run browser smoke test
         run: pnpm test:browser
+
+      - name: Run browser extension checks
+        if: steps.extension_changes.outputs.run == 'true'
+        run: pnpm test:extension
 
       - name: Run mobile browser smoke test
         run: pnpm test:mobile
@@ -109,7 +121,11 @@ jobs:
         run: pnpm exec wrangler d1 migrations apply read-later-production --remote --env production
 
       - name: Build website assets
-        run: pnpm build:web
+        env:
+          BUILD_COMMIT_SHA: ${{ github.sha }}
+        run: |
+          export BUILD_TIMESTAMP="$(date -u +%Y-%m-%dT%H:%M:%SZ)"
+          pnpm build:web
 
       - name: Deploy production Worker
         env:

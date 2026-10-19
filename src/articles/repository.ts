@@ -24,6 +24,8 @@ export interface ListArticlesInput {
 export interface UpdateArticleInput {
   read?: boolean;
   title?: string;
+  author?: string | null;
+  description?: string | null;
 }
 
 export interface SaveArticleCopyInput extends ArticleCopy {}
@@ -256,17 +258,24 @@ export async function updateArticle(
   const title = patch.title?.trim() ?? "";
   const hasRead = patch.read !== undefined;
   const read = patch.read === true;
+  const hasAuthor = patch.author !== undefined;
+  const hasDescription = patch.description !== undefined;
   await db.prepare(`UPDATE articles SET
     title = CASE WHEN ? THEN ? ELSE title END,
     title_origin = CASE WHEN ? THEN 'protected' ELSE title_origin END,
     read_at = CASE WHEN ? THEN CASE WHEN ? THEN COALESCE(read_at, ?) ELSE NULL END ELSE read_at END,
+    author = CASE WHEN ? THEN ? ELSE author END,
+    description = CASE WHEN ? THEN ? ELSE description END,
     updated_at = CASE WHEN
       (? AND (title != ? OR title_origin != 'protected')) OR
-      (? AND ((? AND read_at IS NULL) OR (NOT ? AND read_at IS NOT NULL)))
+      (? AND ((? AND read_at IS NULL) OR (NOT ? AND read_at IS NOT NULL))) OR
+      (? AND author IS NOT ?) OR (? AND description IS NOT ?)
       THEN ? ELSE updated_at END
     WHERE id = ?`)
     .bind(hasTitle ? 1 : 0, title, hasTitle ? 1 : 0, hasRead ? 1 : 0, read ? 1 : 0, now,
-      hasTitle ? 1 : 0, title, hasRead ? 1 : 0, read ? 1 : 0, read ? 1 : 0, now, id).run();
+      hasAuthor ? 1 : 0, patch.author ?? null, hasDescription ? 1 : 0, patch.description ?? null,
+      hasTitle ? 1 : 0, title, hasRead ? 1 : 0, read ? 1 : 0, read ? 1 : 0,
+      hasAuthor ? 1 : 0, patch.author ?? null, hasDescription ? 1 : 0, patch.description ?? null, now, id).run();
   return getArticle(db, id);
 }
 

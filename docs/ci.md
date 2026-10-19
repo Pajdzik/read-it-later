@@ -4,6 +4,8 @@ The `Checks` workflow runs on every push and pull request. It installs the pinne
 
 The production job uses the `production` GitHub Actions environment and requires `CLOUDFLARE_API_TOKEN` and `CLOUDFLARE_ACCOUNT_ID` secrets. The token needs Workers Scripts Edit and D1 Edit permissions for the configured production resources. Pull requests and pushes to other branches never run the production job.
 
+The extension suite (`pnpm test:extension`) runs only when extension sources, extension build/test scripts, package/dependency files, or its CI wiring change. Documentation-only and unrelated website/API changes skip that step; the regular checks still run. Pull requests compare their complete change set against the base branch; pushes compare the previous and new tip, so a documentation-only follow-up push can skip the suite even if its PR still includes extension changes. New branches compare against the default branch. Manual workflow runs always include the extension suite, and unavailable Git history causes it to run rather than silently skip.
+
 ## Find a run
 
 Open the repository's **Actions** tab on GitHub and select **Checks**. Open a run to see each named step and its logs. For a pull request, the same result appears in the pull request's **Checks** section.
@@ -28,6 +30,7 @@ pnpm test
 pnpm build
 pnpm exec playwright install --with-deps chromium webkit
 pnpm test:browser
+pnpm test:extension
 pnpm test:mobile
 pnpm test:prototype
 pnpm test:archive
