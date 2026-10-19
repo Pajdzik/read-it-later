@@ -303,9 +303,21 @@ async function runProfile(name, browserType, device) {
   await page.locator("#reader-dialog .reader-close button").tap();
   assert.equal(await readCopyAction.evaluate((button) => button === document.activeElement), true,
     `${name}: closing the reader should restore focus to the editor action that opened it.`);
+  const mobilePosition = await page.evaluate((id) => JSON.parse(localStorage.getItem(`later-reading-position:${encodeURIComponent(id)}`)), shareArticleId);
+  assert.ok(mobilePosition && mobilePosition.block >= 0, `${name}: mobile scroll should save a stable Markdown block.`);
+  const beforeResize = page.viewportSize();
+  await page.setViewportSize({ width: Math.max(320, beforeResize.width - 32), height: beforeResize.height });
   await readCopyAction.tap();
   await readyReader.locator("#reader-body").getByRole("heading", { name: shareTitle }).waitFor();
-  assert.ok(await readyReader.evaluate((dialog) => dialog.scrollTop <= 1), `${name}: reopening should reset reader scroll to the top.`);
+  await page.evaluate(() => new Promise((resolve) => requestAnimationFrame(() => requestAnimationFrame(resolve))));
+  assert.ok(await readyReader.evaluate((dialog) => dialog.scrollTop > 0), `${name}: reopening should restore the saved reader position: ${JSON.stringify({ mobilePosition, viewport: page.viewportSize() })}.`);
+  const restoredMobileBlock = await readyReader.evaluate((dialog) => {
+    const toolbarBottom = dialog.querySelector(".reader-toolbar").getBoundingClientRect().bottom;
+    return [...dialog.querySelector("#reader-body").children].findIndex((block) => block.getBoundingClientRect().bottom > toolbarBottom);
+  });
+  assert.equal(restoredMobileBlock, mobilePosition.block,
+    `${name}: viewport width change should keep the same paragraph in view.`);
+  await page.setViewportSize(beforeResize);
   assert.equal(await readyReader.locator("details").evaluate((details) => details.open), false,
     `${name}: reopening should collapse About this copy.`);
   await page.locator("#reader-dialog .reader-close button").tap();
