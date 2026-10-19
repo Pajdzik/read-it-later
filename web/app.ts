@@ -86,6 +86,7 @@ let browserCaptureDraft: BrowserCaptureDraft | null = null;
 let captureGitHubConfiguration: GitHubCaptureConfiguration | null = null;
 let captureGitHubConfigurationPromise: Promise<void> | null = null;
 let readerLoadGeneration = 0;
+let readerReturnFocus: HTMLElement | null = null;
 let extractionPollTimer = 0;
 let extractionPollStartedAt = 0;
 let extractionPollGeneration = 0;
@@ -363,7 +364,7 @@ function renderArticle(article: Article) {
   const main = el("div", undefined, "article-main");
   const title = el("button", article.title, "article-title");
   title.type = "button";
-  title.addEventListener("click", () => void openSavedCopy(article));
+  title.addEventListener("click", () => void openSavedCopy(article, title));
   const meta = el(
     "p",
     `${sourceHost(article.url)}${article.author ? ` · By ${article.author}` : ""} · Saved ${dateLabel(article.createdAt)}`,
@@ -377,7 +378,7 @@ function renderArticle(article: Article) {
   if (description) {
     description.type = "button";
     description.setAttribute("aria-label", `Read saved copy of ${article.title}`);
-    description.addEventListener("click", () => void openSavedCopy(article));
+    description.addEventListener("click", () => void openSavedCopy(article, description));
   }
   const link = el("a", "Open original ↗", "action-button subtle original-link");
   link.href = safeHttpUrl(article.url) || "#";
@@ -642,7 +643,7 @@ async function renderCopyEditor(article: Article) {
   };
   readCopy.addEventListener("click", () => {
     if (saved && state.selected?.id === article.id && root.contains(section))
-      openReader(article, saved);
+      openReader(article, saved, readCopy);
   });
   downloadCopy.addEventListener("click", () => {
     if (!saved || state.selected?.id !== article.id || !root.contains(section)) return;
@@ -819,30 +820,51 @@ async function renderCopyEditor(article: Article) {
     save.disabled = true;
   }
 }
-function openReader(article: Article, copy: ArticleCopy) {
+function rememberReaderOpener(opener?: HTMLElement) {
+  if ($<HTMLDialogElement>("#reader-dialog").open) return;
+  const activeElement = document.activeElement;
+  const candidate = opener ?? (activeElement instanceof HTMLElement ? activeElement : null);
+  readerReturnFocus = candidate?.isConnected ? candidate : null;
+}
+function ensureReaderOpener(opener?: HTMLElement) {
+  if ($<HTMLDialogElement>("#reader-dialog").open) return;
+  if (opener || !readerReturnFocus) rememberReaderOpener(opener);
+}
+function openReader(article: Article, copy: ArticleCopy, opener?: HTMLElement) {
   if (state.selected?.id !== article.id) return;
   const title = $("#reader-title");
   const author = $("#reader-author");
   const metadata = $("#reader-metadata");
   const original = $<HTMLAnchorElement>("#reader-original");
   const body = $("#reader-body");
+  const about = $<HTMLDetailsElement>("#reader-about");
   title.textContent = article.title;
   author.textContent = article.author ? `By ${article.author}` : "";
   author.hidden = !article.author;
   metadata.textContent = `Captured ${dateLabel(copy.capturedAt)} · ${copy.source === "upload" ? "uploaded file" : "captured or pasted Markdown"} · ${sourceHost(article.url)}`;
+  about.open = false;
   $("#reader-pending").hidden = true;
   $("#reader-image-note").hidden = false;
   body.hidden = false;
   original.href = safeHttpUrl(article.url) || "#";
   body.replaceChildren(renderMarkdown(copy.markdown, article.url));
   const dialog = $<HTMLDialogElement>("#reader-dialog");
-  if (!dialog.open) dialog.showModal();
+  if (!dialog.open) {
+    ensureReaderOpener(opener);
+    dialog.showModal();
+  }
+  dialog.scrollTop = 0;
+  title.focus({ preventScroll: true });
   stopExtractionPolling();
 }
 function renderPendingReader(article: Article) {
   state.selected = article;
-  $("#reader-title").textContent = article.title;
-  $("#reader-author").hidden = true;
+  const title = $("#reader-title");
+  title.textContent = article.title;
+  $<HTMLDetailsElement>("#reader-about").open = false;
+  const author = $("#reader-author");
+  author.textContent = article.author ? `By ${article.author}` : "";
+  author.hidden = !article.author;
   $("#reader-metadata").textContent = `${sourceHost(article.url)} · ${extractionLabel(article.extraction)}`;
   const original = $<HTMLAnchorElement>("#reader-original");
   original.href = safeHttpUrl(article.url) || "#";
@@ -857,7 +879,12 @@ function renderPendingReader(article: Article) {
   $("#reader-image-note").hidden = true;
   $("#reader-body").hidden = true;
   const dialog = $<HTMLDialogElement>("#reader-dialog");
-  if (!dialog.open) dialog.showModal();
+  if (!dialog.open) {
+    ensureReaderOpener();
+    dialog.showModal();
+  }
+  dialog.scrollTop = 0;
+  title.focus({ preventScroll: true });
   startExtractionPolling(article);
 }
 $("#reader-manual-copy").addEventListener("click", () => {
@@ -891,14 +918,26 @@ function clearReader() {
   const dialog = document.querySelector<HTMLDialogElement>("#reader-dialog");
   if (!dialog) return;
   if (dialog.open) dialog.close();
+  else readerReturnFocus = null;
+  dialog.scrollTop = 0;
   $("#reader-body").replaceChildren();
   $("#reader-title").textContent = "";
   $("#reader-author").textContent = "";
   $("#reader-metadata").textContent = "";
   $("#reader-pending").hidden = true;
+  $<HTMLDetailsElement>("#reader-about").open = false;
+  $("#reader-pending-status").textContent = "";
   $("#reader-body").hidden = false;
   $("#reader-image-note").hidden = false;
   $<HTMLAnchorElement>("#reader-original").removeAttribute("href");
+}
+function restoreReaderFocus() {
+  const opener = readerReturnFocus;
+  readerReturnFocus = null;
+  if (!opener?.isConnected) return;
+  const detailDialog = $<HTMLDialogElement>("#detail-dialog");
+  if (detailDialog.open && !detailDialog.contains(opener)) return;
+  opener.focus({ preventScroll: true });
 }
 function discardPrivateContent() {
   clearReader();
@@ -908,16 +947,25 @@ function discardPrivateContent() {
   state.selected = null;
 }
 $("#reader-dialog").addEventListener("close", () => {
+  const dialog = $<HTMLDialogElement>("#reader-dialog");
+  // A queued close event from clearReader must not erase a reader reopened immediately.
+  if (dialog.open) return;
+  dialog.scrollTop = 0;
   $("#reader-body").replaceChildren();
   $("#reader-title").textContent = "";
   $("#reader-author").textContent = "";
   $("#reader-metadata").textContent = "";
   $("#reader-pending").hidden = true;
+  $("#reader-pending-status").textContent = "";
+  $<HTMLDetailsElement>("#reader-about").open = false;
+  $("#reader-body").hidden = false;
+  $("#reader-image-note").hidden = false;
   $<HTMLAnchorElement>("#reader-original").removeAttribute("href");
   if (!$<HTMLDialogElement>("#detail-dialog").open) {
     stopExtractionPolling();
     state.selected = null;
   }
+  restoreReaderFocus();
 });
 $("#reader-dialog .reader-close").addEventListener("submit", (event) => {
   event.preventDefault();
@@ -952,7 +1000,8 @@ async function openArticleById(id: string) {
     await openSavedCopy(article);
   } catch (error) { showNotice(`Couldn’t open the saved article. ${(error as Error).message}`, true); }
 }
-async function openSavedCopy(article: Article) {
+async function openSavedCopy(article: Article, opener?: HTMLElement) {
+  rememberReaderOpener(opener);
   const generation = ++readerLoadGeneration;
   state.selected = article;
   showNotice("Loading Markdown copy…");
