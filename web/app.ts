@@ -72,6 +72,93 @@ function matchesGitHubDestination(configuration: GitHubCaptureConfiguration, exp
 }
 const $ = <T extends HTMLElement = HTMLElement>(selector: string): T =>
   document.querySelector<T>(selector)!;
+const READING_POSITION_PREFIX = "later-reading-position:";
+const MAX_READER_SCROLL = 10_000_000;
+type ReadingPosition = { revision: string; block: number; fraction: number; scrollTop: number };
+let readerPositionContext: { id: string; revision: string } | null = null;
+let readerPositionTimer = 0;
+let restoringReaderPosition = false;
+let readerPositionRestorePending = false;
+let readerPositionRestoreGeneration = 0;
+function readReadingPosition(context: { id: string; revision: string }): ReadingPosition | null {
+  try {
+    const raw = localStorage.getItem(`${READING_POSITION_PREFIX}${encodeURIComponent(context.id)}`);
+    if (!raw) return null;
+    const value = JSON.parse(raw) as Partial<ReadingPosition>;
+    if (value.revision !== context.revision) {
+      localStorage.removeItem(`${READING_POSITION_PREFIX}${encodeURIComponent(context.id)}`);
+      return null;
+    }
+    if (!Number.isInteger(value.block) || value.block! < -1 || value.block! > 100_000 ||
+        typeof value.fraction !== "number" || !Number.isFinite(value.fraction) || value.fraction < -100 || value.fraction > 100 ||
+        typeof value.scrollTop !== "number" || !Number.isFinite(value.scrollTop) || value.scrollTop < 0 || value.scrollTop > MAX_READER_SCROLL) return null;
+    return value as ReadingPosition;
+  } catch { return null; }
+}
+function saveReadingPosition() {
+  window.clearTimeout(readerPositionTimer);
+  readerPositionTimer = 0;
+  const dialog = $<HTMLDialogElement>("#reader-dialog");
+  const context = readerPositionContext;
+  if (!context || restoringReaderPosition || readerPositionRestorePending || $("#reader-pending").hidden === false) return;
+  const scrollTop = Math.min(MAX_READER_SCROLL, Math.max(0, dialog.scrollTop));
+  const body = $("#reader-body");
+  const toolbar = $(".reader-toolbar");
+  const anchorY = toolbar.getBoundingClientRect().bottom;
+  const children = Array.from(body.children) as HTMLElement[];
+  let block = -1;
+  let fraction = 0;
+  const visible = children.findIndex((child) => child.getBoundingClientRect().bottom > anchorY);
+  if (visible >= 0) {
+    block = visible;
+    const bounds = children[visible].getBoundingClientRect();
+    fraction = bounds.height > 0 ? Math.max(-100, Math.min(100, (anchorY - bounds.top) / bounds.height)) : 0;
+  }
+  try {
+    localStorage.setItem(`${READING_POSITION_PREFIX}${encodeURIComponent(context.id)}`, JSON.stringify({ revision: context.revision, block, fraction, scrollTop }));
+  } catch { /* Reading remains available when browser storage is disabled or full. */ }
+}
+function scheduleReadingPositionSave() {
+  if (!readerPositionContext || restoringReaderPosition) return;
+  window.clearTimeout(readerPositionTimer);
+  readerPositionTimer = window.setTimeout(saveReadingPosition, 300);
+}
+function restoreReadingPosition(context: { id: string; revision: string }) {
+  const generation = ++readerPositionRestoreGeneration;
+  readerPositionRestorePending = false;
+  restoringReaderPosition = false;
+  const position = readReadingPosition(context);
+  if (!position) return;
+  const dialog = $<HTMLDialogElement>("#reader-dialog");
+  restoringReaderPosition = true;
+  readerPositionRestorePending = true;
+  requestAnimationFrame(() => {
+    if (generation !== readerPositionRestoreGeneration) return;
+    if (!dialog.open || readerPositionContext !== context) {
+      readerPositionRestorePending = false;
+      restoringReaderPosition = false;
+      return;
+    }
+    if (position.scrollTop === 0) {
+      dialog.scrollTop = position.scrollTop;
+    } else {
+      const body = $("#reader-body");
+      const block = position.block >= 0 ? body.children.item(position.block) as HTMLElement | null : null;
+      if (block) {
+        const toolbar = $(".reader-toolbar");
+        const bounds = block.getBoundingClientRect();
+        dialog.scrollTop = Math.max(0, Math.min(MAX_READER_SCROLL,
+          dialog.scrollTop + bounds.top + position.fraction * bounds.height - toolbar.getBoundingClientRect().bottom));
+      } else dialog.scrollTop = position.scrollTop;
+    }
+    requestAnimationFrame(() => {
+      if (readerPositionContext === context && generation === readerPositionRestoreGeneration) {
+        readerPositionRestorePending = false;
+        restoringReaderPosition = false;
+      }
+    });
+  });
+}
 function showDialog(dialog: HTMLDialogElement, target: HTMLElement | null = null) {
   dialog.showModal();
   target?.focus({ preventScroll: true });
@@ -82,7 +169,7 @@ const state = {
   query: "",
   cursor: null as string | null,
   loading: false,
-  theme: localStorage.getItem("later-theme") || "system",
+  theme: (() => { try { return localStorage.getItem("later-theme") || "system"; } catch { return "system"; } })(),
   selected: null as Article | null,
 };
 const copyDrafts = new Map<string, { markdown: string; source: "paste" | "upload" }>();
@@ -836,6 +923,7 @@ function ensureReaderOpener(opener?: HTMLElement) {
 }
 function openReader(article: Article, copy: ArticleCopy, opener?: HTMLElement) {
   if (state.selected?.id !== article.id) return;
+  if (readerPositionContext && (readerPositionContext.id !== article.id || readerPositionContext.revision !== copy.revision)) saveReadingPosition();
   const title = $("#reader-title");
   const author = $("#reader-author");
   const metadata = $("#reader-metadata");
@@ -852,16 +940,22 @@ function openReader(article: Article, copy: ArticleCopy, opener?: HTMLElement) {
   body.hidden = false;
   original.href = safeHttpUrl(article.url) || "#";
   body.replaceChildren(renderMarkdown(copy.markdown, article.url));
+  const positionContext = { id: article.id, revision: copy.revision };
+  const readerIsSameCopy = readerPositionContext?.id === positionContext.id && readerPositionContext.revision === positionContext.revision;
+  readerPositionContext = positionContext;
   const dialog = $<HTMLDialogElement>("#reader-dialog");
   if (!dialog.open) {
     ensureReaderOpener(opener);
     showDialog(dialog, title);
   }
-  dialog.scrollTop = 0;
+  if (!readerIsSameCopy) dialog.scrollTop = 0;
   title.focus({ preventScroll: true });
+  restoreReadingPosition(positionContext);
   stopExtractionPolling();
 }
 function renderPendingReader(article: Article) {
+  saveReadingPosition();
+  readerPositionContext = null;
   state.selected = article;
   const title = $("#reader-title");
   title.textContent = article.title;
@@ -916,6 +1010,8 @@ $("#reader-retry").addEventListener("click", async () => {
   }
 });
 function clearReader() {
+  saveReadingPosition();
+  readerPositionContext = null;
   readerLoadGeneration++;
   stopExtractionPolling();
   if (notice.textContent === "Loading Markdown copy…") showNotice("");
@@ -954,6 +1050,8 @@ $("#reader-dialog").addEventListener("close", () => {
   const dialog = $<HTMLDialogElement>("#reader-dialog");
   // A queued close event from clearReader must not erase a reader reopened immediately.
   if (dialog.open) return;
+  saveReadingPosition();
+  readerPositionContext = null;
   dialog.scrollTop = 0;
   $("#reader-body").replaceChildren();
   $("#reader-title").textContent = "";
@@ -990,6 +1088,9 @@ document.addEventListener("pointerdown", (event) => {
     clearReader();
   }
 }, true);
+$("#reader-dialog").addEventListener("scroll", scheduleReadingPositionSave, { passive: true });
+window.addEventListener("pagehide", saveReadingPosition);
+document.addEventListener("visibilitychange", () => { if (document.visibilityState === "hidden") saveReadingPosition(); });
 function openDetail(article: Article) {
   clearReader();
   renderDetail(article);
@@ -1800,7 +1901,7 @@ function applyTheme() {
 }
 $("#theme-toggle").addEventListener("change", (e) => {
   state.theme = (e.target as HTMLSelectElement).value;
-  localStorage.setItem("later-theme", state.theme);
+  try { localStorage.setItem("later-theme", state.theme); } catch { /* Theme selection still applies in memory. */ }
   applyTheme();
 });
 matchMedia("(prefers-color-scheme: dark)").addEventListener("change", () => {

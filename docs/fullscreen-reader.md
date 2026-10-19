@@ -29,7 +29,7 @@ Opening an article replaces the library visually with an edge-to-edge reading su
 
 ## Behavior and validation
 
-Preserve saved-copy rendering, unsaved editor drafts, pending/failed capture actions, stale-request guards, privacy cleanup on close/logout, and the rule that opening a copy does not mark it read. Reset the reader scroll to the top on a fresh open and when pending capture becomes readable. Focus the article title without scrolling; return focus on close. Avoid animations and new dependencies.
+Preserve saved-copy rendering, unsaved editor drafts, pending/failed capture actions, stale-request guards, privacy cleanup on close/logout, and the rule that opening a copy does not mark it read. Restore the saved position when reopening the same article revision; start at the top for a new or replaced copy and when pending capture becomes readable. Focus the article title without scrolling; return focus on close. Avoid animations and new dependencies.
 
 Verify exact viewport coverage at desktop, phone, and landscape sizes; consistent column alignment; no horizontal page or dialog overflow with wide Markdown; a reachable Back control after a long scroll; metadata disclosure behavior; focus and background scroll restoration; both themes; and pending-to-ready capture. Run the existing typecheck, Worker/D1 suite, dry-run build, desktop browser smoke, and Chromium/WebKit mobile smoke. Inspect desktop and phone screenshots before opening the PR.
 
