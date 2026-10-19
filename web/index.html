@@ -173,25 +173,35 @@
       <div id="detail-content"></div>
     </dialog>
     <dialog id="reader-dialog" class="dialog reader-dialog" aria-labelledby="reader-title">
-      <header class="reader-header">
-        <form method="dialog" class="reader-close">
-          <button class="icon-button" aria-label="Close saved copy">×</button>
-        </form>
-        <p class="eyebrow">Saved Markdown copy</p>
-        <h2 id="reader-title"></h2>
-        <p id="reader-author" class="muted" hidden></p>
-        <p id="reader-metadata" class="muted reader-metadata"></p>
-        <a id="reader-original" class="reader-original" target="_blank" rel="noopener noreferrer">Open original ↗</a>
-      </header>
-      <section id="reader-pending" class="reader-pending" hidden aria-live="polite">
-        <p id="reader-pending-status" class="reader-pending-status"></p>
-        <div class="reader-pending-actions">
-          <button id="reader-manual-copy" class="button secondary" type="button">Paste or upload Markdown</button>
-          <button id="reader-retry" class="button secondary" type="button" hidden>Retry capture</button>
+      <nav class="reader-toolbar" aria-label="Saved copy controls">
+        <div class="reader-column reader-toolbar-inner">
+          <form method="dialog" class="reader-close">
+            <button class="reader-back" aria-label="Close saved copy">← <span>Back</span></button>
+          </form>
+          <a id="reader-original" class="reader-original" target="_blank" rel="noopener noreferrer">Open original ↗</a>
         </div>
-      </section>
-      <p id="reader-image-note" class="reader-image-note">Image references are shown as text and still depend on their external source.</p>
-      <article id="reader-body" class="reader-body"></article>
+      </nav>
+      <div class="reader-column reader-content-column">
+        <header class="reader-header">
+          <h2 id="reader-title" tabindex="-1"></h2>
+          <p id="reader-author" class="muted" hidden></p>
+          <details id="reader-about" class="reader-about">
+            <summary>About this copy</summary>
+            <div class="reader-about-content">
+              <p id="reader-metadata" class="muted reader-metadata"></p>
+              <p id="reader-image-note" class="reader-image-note">Image references are shown as text and still depend on their external source.</p>
+            </div>
+          </details>
+        </header>
+        <section id="reader-pending" class="reader-pending" hidden aria-live="polite">
+          <p id="reader-pending-status" class="reader-pending-status"></p>
+          <div class="reader-pending-actions">
+            <button id="reader-manual-copy" class="button secondary" type="button">Paste or upload Markdown</button>
+            <button id="reader-retry" class="button secondary" type="button" hidden>Retry capture</button>
+          </div>
+        </section>
+        <article id="reader-body" class="reader-body"></article>
+      </div>
     </dialog>
     <dialog id="settings-dialog" class="dialog settings-dialog" aria-labelledby="settings-heading">
       <form method="dialog" class="dialog-close">

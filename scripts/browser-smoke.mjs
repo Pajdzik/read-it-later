@@ -281,7 +281,7 @@ try {
     "",
     "## inside",
     "",
-    "Long text: " + "long-text-".repeat(80),
+    ...Array.from({ length: 8 }, (_, index) => `Long section ${index + 1}: ` + "long-text-".repeat(80)),
   ].join("\n");
   await markdown.fill(preservedMarkdown);
   page.once("dialog", (dialog) => dialog.accept());
@@ -389,8 +389,26 @@ try {
   });
   const originalUrl = await article.locator(".original-link").getAttribute("href");
   await page.route(originalUrl, (route) => route.abort());
+  await page.evaluate(() => {
+    const spacer = document.createElement("div");
+    spacer.id = "reader-smoke-scroll-spacer";
+    spacer.style.height = "1600px";
+    document.body.append(spacer);
+    window.scrollTo(0, 160);
+  });
+  await page.waitForFunction(() => window.scrollY > 0);
+  const backgroundScroll = await page.evaluate(() => window.scrollY);
+  assert.ok(backgroundScroll > 0, "Background-scroll coverage requires a nonzero page position.");
   await title.click();
   await reader.getByRole("heading", { name: "Browser smoke article" }).waitFor();
+  assert.equal(await page.evaluate(() => document.activeElement?.id), "reader-title",
+    "Opening the reader should focus its article title.");
+  const readerBounds = await reader.boundingBox();
+  assert.ok(readerBounds && Math.abs(readerBounds.x) <= 1 && Math.abs(readerBounds.y) <= 1 &&
+    Math.abs(readerBounds.width - 1440) <= 1 && Math.abs(readerBounds.height - 1000) <= 1,
+    `Desktop reader should cover the viewport: ${JSON.stringify(readerBounds)}.`);
+  assert.equal(await page.evaluate(() => window.scrollY), backgroundScroll,
+    "Opening the reader should preserve the background page position.");
   const readerBody = reader.locator("#reader-body");
   await readerBody.getByRole("heading", { name: "Preserved copy — Ω" }).waitFor();
   await readerBody.getByRole("link", { name: "Relative" }).waitFor();
@@ -419,6 +437,22 @@ try {
   assert.deepEqual(activeMarkup, [], "Sanitized reader DOM must contain only allowed attributes and safe links.");
   assert.match(await readerBody.textContent(), /<img src=/, "Raw HTML should display as literal text.");
   assert.match(await readerBody.textContent(), /Image reference: Remote marker/);
+  const aboutCopy = reader.locator("details");
+  const aboutSummary = aboutCopy.locator("summary");
+  assert.equal(await aboutSummary.innerText(), "About this copy");
+  assert.equal(await aboutCopy.evaluate((details) => details.open), false,
+    "About this copy should start collapsed for a fresh reader open.");
+  await aboutSummary.click();
+  await aboutCopy.getByText(/Captured .*captured or pasted Markdown/).waitFor();
+  await aboutCopy.locator("#reader-image-note").getByText(/Image references are shown as text/).waitFor();
+  await aboutSummary.click();
+  const alignedBlocks = await Promise.all([
+    reader.locator("#reader-title"), aboutCopy, readerBody,
+  ].map((element) => element.boundingBox()));
+  assert.ok(alignedBlocks.every(Boolean), "Reader title, disclosure, and copy should all be visible.");
+  assert.ok(Math.max(...alignedBlocks.map((bounds) => bounds.x)) - Math.min(...alignedBlocks.map((bounds) => bounds.x)) <= 2 &&
+    Math.max(...alignedBlocks.map((bounds) => bounds.x + bounds.width)) - Math.min(...alignedBlocks.map((bounds) => bounds.x + bounds.width)) <= 2,
+    `Reader blocks should share a column: ${JSON.stringify(alignedBlocks)}.`);
   const validLink = readerBody.getByRole("link", { name: "valid HTTPS link" });
   assert.equal(await validLink.getAttribute("href"), "https://example.net/read");
   assert.equal(imageMarkerRequests, 0, "Markdown images and hostile HTML must not trigger network requests.");
@@ -426,8 +460,44 @@ try {
   await page.screenshot({ path: "/tmp/potem-a03-desktop.png" });
   await page.setViewportSize({ width: 390, height: 844 });
   assert.equal(await page.evaluate(() => document.documentElement.scrollWidth > innerWidth), false, "Reader must fit a 390px viewport.");
+  const phoneReaderBounds = await reader.boundingBox();
+  assert.ok(phoneReaderBounds && Math.abs(phoneReaderBounds.x) <= 1 && Math.abs(phoneReaderBounds.y) <= 1 &&
+    Math.abs(phoneReaderBounds.width - 390) <= 1 && Math.abs(phoneReaderBounds.height - 844) <= 1,
+    `Phone reader should cover the viewport: ${JSON.stringify(phoneReaderBounds)}.`);
+  assert.ok(await reader.evaluate((dialog) => dialog.scrollWidth <= dialog.clientWidth + 1),
+    "Wide copy must not cause horizontal overflow in the reader dialog.");
   await page.screenshot({ path: "/tmp/potem-a03-mobile.png" });
   await page.setViewportSize({ width: 1440, height: 1000 });
+  await reader.evaluate((dialog) => { dialog.scrollTop = dialog.scrollHeight; });
+  await page.waitForTimeout(50);
+  assert.ok(await reader.evaluate((dialog) => dialog.scrollTop > 0), "Long reader content should scroll inside the dialog.");
+  await page.mouse.move(700, 500);
+  await page.mouse.wheel(0, 300);
+  await page.waitForTimeout(100);
+  assert.equal(await page.evaluate(() => window.scrollY), backgroundScroll,
+    "Wheel input at the bottom of the reader must not chain to the background page.");
+  const backBounds = await reader.locator(".reader-close button").boundingBox();
+  assert.ok(backBounds && backBounds.width >= 44 && backBounds.height >= 44 && backBounds.y >= 0 && backBounds.y + backBounds.height <= 1000,
+    `Reader Back control should remain reachable after a long scroll: ${JSON.stringify(backBounds)}.`);
+  await reader.getByRole("button", { name: "Close saved copy" }).click();
+  assert.equal(await page.evaluate(() => window.scrollY), backgroundScroll,
+    "Closing the reader should restore the background page position.");
+  assert.equal(await page.evaluate(() => document.activeElement?.textContent?.trim()), "Browser smoke article",
+    "Closing the reader should return focus to the article that opened it.");
+  await page.mouse.move(700, 500);
+  await page.mouse.wheel(0, 120);
+  await page.waitForTimeout(100);
+  assert.ok(await page.evaluate((before) => window.scrollY > before, backgroundScroll),
+    "The background page should scroll normally again after the reader closes.");
+  await page.evaluate((scrollTop) => {
+    window.scrollTo(0, scrollTop);
+    document.querySelector("#reader-smoke-scroll-spacer")?.remove();
+  }, backgroundScroll);
+  await title.click();
+  await reader.getByRole("heading", { name: "Browser smoke article" }).waitFor();
+  assert.ok(await reader.evaluate((dialog) => dialog.scrollTop <= 1), "A fresh reader open should start at the top.");
+  assert.equal(await reader.locator("details").evaluate((details) => details.open), false,
+    "About this copy should collapse on each fresh reader open.");
   await reader.getByRole("button", { name: "Close saved copy" }).click();
   assert.equal(await reader.locator("#reader-body").textContent(), "", "Closing the reader must discard its private DOM.");
   await article.getByRole("button", { name: "Edit", exact: true }).click();
