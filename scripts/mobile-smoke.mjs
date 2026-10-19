@@ -198,6 +198,8 @@ async function runProfile(name, browserType, device) {
   assert.equal(await page.locator("#add-dialog").evaluate((dialog) => dialog.open), true);
   assert.equal(await page.locator("#add-url").inputValue(), shareUrl);
   assert.equal(await page.locator("#add-title").inputValue(), shareTitle);
+  assert.equal(await page.evaluate(() => document.activeElement?.id), "add-url",
+    `${name}: Add dialog opened with its close button focused.`);
   assert.equal(await page.locator("#add-capture-markdown").isChecked(), true,
     `${name}: capture from URL should default on for a new review form.`);
   assert.equal(new URL(page.url()).search, "", "Share input should be removed from history after recovery.");
@@ -307,6 +309,8 @@ async function runProfile(name, browserType, device) {
   await page.locator("#add-form button").tap();
   await page.getByRole("button", { name: retryTitle, exact: true }).waitFor();
   await page.locator("#settings-open").tap();
+  assert.equal(await page.evaluate(() => document.activeElement?.id), "theme-toggle",
+    `${name}: Settings dialog opened with its close button focused.`);
   await page.locator("#theme-toggle").selectOption("dark");
   await page.locator("#settings-dialog .dialog-close button").tap();
 
@@ -346,6 +350,8 @@ async function runProfile(name, browserType, device) {
   // overflow. Paste the copy through article details, then open the title.
   await article.getByRole("button", { name: "Edit", exact: true }).tap();
   const detail = page.locator("#detail-content");
+  assert.equal(await page.evaluate(() => document.activeElement?.matches("#detail-content input")), true,
+    `${name}: detail dialog opened with its close button focused.`);
   await detail.locator(".copy-editor > .copy-status")
     .filter({ hasText: /^Saved .*captured or pasted Markdown/ }).waitFor();
   await detail.getByRole("textbox", { name: "Markdown copy" }).fill(`# Wide reader check\n\n${"word-without-breaks-".repeat(24)}\n\n| left | ${"column-header-".repeat(8)} |\n| --- | --- |\n| text | ${"wide-cell-".repeat(24)} |`);

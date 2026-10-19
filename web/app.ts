@@ -72,6 +72,10 @@ function matchesGitHubDestination(configuration: GitHubCaptureConfiguration, exp
 }
 const $ = <T extends HTMLElement = HTMLElement>(selector: string): T =>
   document.querySelector<T>(selector)!;
+function showDialog(dialog: HTMLDialogElement, target: HTMLElement | null = null) {
+  dialog.showModal();
+  target?.focus({ preventScroll: true });
+}
 const state = {
   session: null as Session | null,
   status: "unread",
@@ -836,7 +840,11 @@ function openReader(article: Article, copy: ArticleCopy) {
   original.href = safeHttpUrl(article.url) || "#";
   body.replaceChildren(renderMarkdown(copy.markdown, article.url));
   const dialog = $<HTMLDialogElement>("#reader-dialog");
-  if (!dialog.open) dialog.showModal();
+  if (!dialog.open) {
+    const title = $("#reader-title");
+    title.tabIndex = -1;
+    showDialog(dialog, title);
+  }
   stopExtractionPolling();
 }
 function renderPendingReader(article: Article) {
@@ -857,7 +865,11 @@ function renderPendingReader(article: Article) {
   $("#reader-image-note").hidden = true;
   $("#reader-body").hidden = true;
   const dialog = $<HTMLDialogElement>("#reader-dialog");
-  if (!dialog.open) dialog.showModal();
+  if (!dialog.open) {
+    const title = $("#reader-title");
+    title.tabIndex = -1;
+    showDialog(dialog, title);
+  }
   startExtractionPolling(article);
 }
 $("#reader-manual-copy").addEventListener("click", () => {
@@ -941,7 +953,7 @@ document.addEventListener("pointerdown", (event) => {
 function openDetail(article: Article) {
   clearReader();
   renderDetail(article);
-  $<HTMLDialogElement>("#detail-dialog").showModal();
+  showDialog($<HTMLDialogElement>("#detail-dialog"), $<HTMLInputElement>("#detail-content input"));
   if (extractionIsPending(article.extraction)) startExtractionPolling(article);
 }
 async function openArticleById(id: string) {
@@ -1107,7 +1119,7 @@ function recoverDraft() {
     if (!$<HTMLInputElement>("#add-title").value) $<HTMLInputElement>("#add-title").value = d.title || "";
     showNotice("Your unsaved link is back. Save it when you’re ready.");
     if (!$<HTMLDialogElement>("#add-dialog").open)
-      $<HTMLDialogElement>("#add-dialog").showModal();
+      showDialog($<HTMLDialogElement>("#add-dialog"), $<HTMLInputElement>("#add-url"));
   } catch {}
   try {
     if (restoredExtension) return;
@@ -1176,7 +1188,8 @@ function restoreBrowserCaptureDraft() {
     $("#capture-github-status").textContent = "The Markdown copy is saved in Potem. Retry sends that saved revision; editor changes are not included.";
   }
   if (state.session?.authenticated) void loadCaptureGitHubConfiguration();
-  if (!$<HTMLDialogElement>("#add-dialog").open) $<HTMLDialogElement>("#add-dialog").showModal();
+  if (!$<HTMLDialogElement>("#add-dialog").open)
+    showDialog($<HTMLDialogElement>("#add-dialog"), $<HTMLInputElement>("#add-url"));
   renderCapturePreview();
 }
 function renderCapturePreview() {
@@ -1371,9 +1384,8 @@ $('#capture-description').addEventListener('input', () => {
   if (browserCaptureDraft.requestId) sessionStorage.setItem('later-extension-capture', JSON.stringify(browserCaptureDraft));
 });
 $("#add-open").addEventListener("click", () => {
-  $<HTMLDialogElement>("#add-dialog").showModal();
+  showDialog($<HTMLDialogElement>("#add-dialog"), $<HTMLInputElement>("#add-url"));
   $("#add-notice").hidden = true;
-  if (state.session?.authenticated) $("#add-url").focus();
 });
 async function confirmExtensionReplacement() {
   const draft = browserCaptureDraft;
@@ -1760,7 +1772,7 @@ $("#settings-dialog").addEventListener("close", () => {
   box.hidden = true;
 });
 async function openSettings() {
-  $<HTMLDialogElement>("#settings-dialog").showModal();
+  showDialog($<HTMLDialogElement>("#settings-dialog"), $<HTMLSelectElement>("#theme-toggle"));
   if (!state.session?.authenticated) {
     $("#settings-status").textContent =
       "Sign in to manage your capture tokens.";
@@ -1923,7 +1935,7 @@ if (
   addNotice.classList.toggle("error", !url);
   addNotice.hidden = false;
   if (!$<HTMLDialogElement>("#add-dialog").open)
-    $<HTMLDialogElement>("#add-dialog").showModal();
+    showDialog($<HTMLDialogElement>("#add-dialog"), $<HTMLInputElement>("#add-url"));
 }
 const captureChannel = params.get("capture");
 if (location.pathname === "/add" && captureChannel) {
