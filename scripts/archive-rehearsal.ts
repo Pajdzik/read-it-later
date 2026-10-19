@@ -269,7 +269,7 @@ async function verifyReader(base: string, envelope: BackupEnvelope, temporary: s
     const errors: string[] = [];
     page.on("pageerror", error => errors.push(error.message));
     await page.goto(base);
-    await page.locator("#logout").waitFor();
+    await page.locator("#account").waitFor();
     await page.getByRole("button", { name: "All", exact: true }).click();
     for (let index = 0; index < copies.length; index++) {
       const sample = copies[index];
