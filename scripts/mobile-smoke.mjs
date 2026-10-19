@@ -182,7 +182,7 @@ async function runProfile(name, browserType, device) {
   await logoutContext.close();
   await context.unroute("**/api/session");
   await page.goto(base);
-  await page.locator("#account").waitFor();
+  await page.locator("#add-open").waitFor();
 
   // Exercise the manifest's exact GET parameter names. The review dialog must
   // stay open with the candidate URL, and a reload before Save writes nothing.
@@ -325,7 +325,6 @@ async function runProfile(name, browserType, device) {
   }, articleId);
   assert.ok(readAtAfterSave);
   await page.reload();
-  await page.locator("#account").waitFor();
   await page.locator('[data-status="read"]').tap();
   await page.getByRole("button", { name: shareTitle, exact: true }).waitFor();
   await page.locator("#search").fill(shareTitle);
@@ -338,7 +337,6 @@ async function runProfile(name, browserType, device) {
   await article.getByRole("button", { name: "Mark unread" }).tap();
   await article.getByRole("button", { name: "Mark read" }).waitFor();
   await page.reload();
-  await page.locator("#account").waitFor();
   await page.locator('[data-status="unread"]').tap();
   await article.getByRole("button", { name: "Mark read" }).waitFor();
   assert.equal(await page.evaluate(async (id) => {
@@ -387,7 +385,6 @@ async function runProfile(name, browserType, device) {
   }, articleId), null, `${name}: opening the saved title changed read state.`);
   await page.locator("#reader-dialog .reader-close button").tap();
   await page.reload();
-  await page.locator("#account").waitFor();
   await page.locator('[data-status="unread"]').tap();
   await titleButton.waitFor();
   await titleButton.tap();
