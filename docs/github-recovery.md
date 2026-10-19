@@ -1,6 +1,6 @@
 # Offline GitHub Markdown recovery (G01)
 
-Status: implemented and fixture-validated October 2, 2026. Actual backup folders and production imports remain pending owner review.
+Status: implemented and fixture-validated October 18, 2026. Actual backup folders and production imports remain pending owner review.
 
 ## Purpose
 
@@ -17,6 +17,27 @@ URLs keep their service records and copies. The converter works entirely offline
 it reads the selected folder without changing it, loading credentials, contacting
 GitHub or importing into any service.
 
+New recovery output uses the eight-character article ID contract. Already-valid
+short IDs are retained exactly. Legacy IDs map deterministically to short IDs,
+with valid IDs found anywhere in the source reserved before allocation. Repeating
+the same conversion produces the same IDs. IDs from frontmatter are authoritative;
+filenames do not supply identity.
+
+For a one-time conversion that must keep JSON and local GitHub files aligned, use
+`pnpm backup:migrate --output /absolute/new-directory --json /absolute/backup.json --github-dir /absolute/Articles`.
+Either input is optional, but at least one is required. The new output directory
+must not exist and must be separate from the GitHub source tree. The command
+validates JSON with the archive parser and recognized Potem Markdown with the
+GitHub recovery parser, builds one shared ID map across both inputs, reserves all
+existing short IDs first, and rejects an ID associated with inconsistent source
+URLs. It writes version-2 JSON batches, readable `Articles/<title-slug>.md` files,
+and a private `migration-report.json` containing old/new IDs and old/new paths.
+Markdown bodies and all non-ID frontmatter lines stay byte-for-byte unchanged.
+When only Markdown is supplied, its existing format has no read state; the
+report marks `markdownOnlyReadStateUnavailable` and the JSON batch uses `readAt: null`.
+This command only reads local inputs and writes the separate output directory; it
+does not contact GitHub or publish repository changes.
+
 ## Source format and mapping
 
 Accept the format produced by `articleMarkdown` in `src/articles/github.ts`:
@@ -30,7 +51,8 @@ Parse metadata values as JSON scalars; arbitrary YAML, aliases, tags, sequences
 and objects are outside this writer's format and are rejected.
 
 Require all writer fields: `id`, `title`, `url`, `author`, `description`, `savedAt`,
-`capturedAt`, `source`, `revision`. Preserve strings exactly, including quoted
+`capturedAt`, `source`, `revision`. The recovery parser accepts legacy ID strings
+for conversion, while emitted JSON and Markdown use valid short IDs. Preserve strings exactly, including quoted
 Unicode and newlines, and preserve null optional metadata. Validate against the
 existing import limits: nonempty ID up to 128 characters, nonblank title up to
 500, author/description null or nonblank strings up to 200/500, absolute HTTP(S)
@@ -100,7 +122,9 @@ and the GitHub Markdown guide. Actual GitHub folders, production imports and
 deployed/device release checks remain pending.
 
 Implementation evidence: parser and converter fixtures run with
-`pnpm test:github`. The suite bundles the actual `articleMarkdown` writer for a
+`pnpm test:github`; `node --import tsx --test scripts/backup-migrate.test.mjs`
+covers shared JSON/Markdown mappings, short-ID reservation, readable paths,
+byte-exact bodies/source preservation, and identity conflicts. The suite bundles the actual `articleMarkdown` writer for a
 format round trip and runs generated batches through a temporary local
 Worker/D1 instance. The fixture imports two records, skips an existing
 normalized URL, exports and reconciles the persisted fields, then repeats the

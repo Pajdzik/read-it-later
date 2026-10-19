@@ -61,6 +61,12 @@
           </div>
           <span id="result-count" class="muted"></span>
         </div>
+        <section id="last-opened" class="last-opened" aria-label="Last opened" hidden>
+          <span class="last-opened-label">Last opened</span>
+          <a id="last-opened-title" class="last-opened-title" href="#" hidden></a>
+          <button id="last-opened-retry" class="text-button" type="button" hidden>Retry</button>
+          <span id="last-opened-status" class="muted" role="status" aria-live="polite" hidden></span>
+        </section>
         <p
           id="notice"
           role="status"
@@ -189,6 +195,11 @@
               <p id="reader-image-note" class="reader-image-note">Image references are shown as text and still depend on their external source.</p>
             </div>
           </details>
+          <div class="reader-share">
+            <button id="reader-copy-link" class="reader-copy-link" type="button">Copy article link</button>
+            <input id="reader-copy-fallback" class="reader-copy-fallback" type="url" readonly aria-label="Article link to copy" hidden />
+            <span id="reader-copy-status" class="muted" role="status" aria-live="polite"></span>
+          </div>
         </header>
         <section id="reader-pending" class="reader-pending" hidden aria-live="polite">
           <p id="reader-pending-status" class="reader-pending-status"></p>
@@ -244,6 +255,11 @@
         </form>
         <div id="new-token" class="new-token" hidden></div>
         <ul id="tokens" class="token-list"></ul>
+      </section>
+      <section class="settings-section">
+        <h3>GitHub backups</h3>
+        <p>Reconnect existing backup filenames after restoring your library.</p>
+        <button id="github-reconcile" class="button secondary" type="button" hidden>Find existing GitHub backups</button>
       </section>
       <section class="settings-section">
         <h3>Capture help</h3>

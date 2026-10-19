@@ -7,6 +7,7 @@ import os from "node:os";
 import path from "node:path";
 import { pathToFileURL } from "node:url";
 import { parseGitHubMarkdown, convertGitHubMarkdown, MAX_SOURCE_FILE_BYTES } from "./github-convert.ts";
+import { createShortIdMapper } from "./short-id.ts";
 import { splitImportBatches, validateBackupEnvelope } from "./archive-backup.ts";
 
 const temporaryDirs = [];
@@ -87,7 +88,7 @@ test("uses sorted normalized URL winner, then excludes a conflicting ID on a dif
     ["a-winner.md", "eligible", undefined], ["b-conflict.md", "excluded", "a-winner.md"], ["z-duplicate.markdown", "duplicate", "a-winner.md"],
   ]);
   assert.deepEqual(report.outcomes[0].warnings, ["read_state_not_backed_up"]);
-  assert.deepEqual(batches[0].articles[0], parseGitHubMarkdown(writerText()).item);
+  assert.deepEqual(batches[0].articles[0], { ...parseGitHubMarkdown(writerText()).item, id: createShortIdMapper([base.id])(base.id) });
   assert.equal(JSON.stringify(report).includes("example.com"), false);
   assert.equal(JSON.stringify(report).includes("title with"), false);
 });
@@ -153,7 +154,9 @@ test("splits output at limits without splitting records and excludes an individu
   const result = await convertGitHubMarkdown(source, output);
   assert.equal(result.report.eligible, 6); assert.equal(result.report.excluded, 1); assert.equal(result.report.batchCount, 2);
   assert.ok(result.batches.every(batch => batch.articles.length <= 1000 && Buffer.byteLength(JSON.stringify(batch)) <= 1024 * 1024));
-  assert.deepEqual(result.batches.flatMap(batch => batch.articles.map(item => item.id)), ["article-0", "article-1", "article-2", "article-3", "article-4", "article-5"]);
+  const ids = result.batches.flatMap(batch => batch.articles.map(item => item.id));
+  assert.equal(new Set(ids).size, 6);
+  assert.ok(ids.every(id => /^[a-z0-9]{8}$/.test(id)));
   assert.ok(result.report.outcomes.find(item => item.path === "oversized-escaped.md").reasons.includes("import_record_too_large"));
 });
 

@@ -58,7 +58,7 @@ A unique SQL constraint handles concurrent duplicate saves. Duplicates keep thei
 | `article_copies` | Private Markdown, capture time/source, and revision |
 | `article_extraction_jobs` | Durable job generation, attempts, due time, lease, and safe failure code |
 
-There is no users table because the database represents one owner's library. Normal saves generate UUIDs; imports retain opaque IDs. Timestamps use UTC ISO strings. `read_at = NULL` means unread. Marking read twice retains the first read timestamp; marking unread clears it. Concurrent read changes use the last committed write.
+There is no users table because the database represents one owner's library. Normal saves generate eight-character lowercase letter/digit IDs; imports preserve valid short IDs. Legacy UUID or opaque IDs must pass through the offline backup converter before import. Timestamps use UTC ISO strings. `read_at = NULL` means unread. Marking read twice retains the first read timestamp; marking unread clears it. Concurrent read changes use the last committed write.
 
 Lists use descending `(created_at, id)` keyset pagination, with UTF-8-safe opaque cursors and page sizes of 1–100. Title/URL search uses parameterized substring SQL with escaped wildcard characters. Full-text indexing is deferred until the personal library needs it. Filters reset cursors, and the client ignores stale list responses.
 
@@ -88,6 +88,10 @@ An explicit local authentication bypass works only on the configured loopback or
 
 ## API and backups
 
+Saved articles use eight-character IDs and readable reader links such as `/read/k7m2q9x4/why-we-read`. Refresh, bookmarks, and Back/Forward restore the article; **Last opened** remembers the most recently rendered saved copy in this browser. Opening a copy leaves its read/unread state unchanged. GitHub backups use readable title-based filenames with the permanent ID inside frontmatter. See [article URLs and backup migration](docs/article-urls.md).
+
+To retain contents from old test backups, use `pnpm backup:migrate --json /absolute/path/export.json --github-dir /absolute/path/Articles --output /absolute/path/new-directory` (either input may be omitted). It creates converted import batches, readable Markdown filenames, and an ID/path report without modifying the source or publishing to GitHub. Import the converted batches into an empty article library; UUID reader links do not carry over. New backups retain short IDs exactly through restore.
+
 All API payloads are JSON with camelCase fields. Errors use `{error: {code, message}}`, with distinct validation, authentication, authorization, missing-resource, size-limit, rate-limit, and retryable storage errors.
 
 | Route | Purpose |
@@ -103,6 +107,7 @@ All API payloads are JSON with camelCase fields. Errors use `{error: {code, mess
 | `GET /api/articles/:id/copy`, `PUT /api/articles/:id/copy` | Read or save a private Markdown copy with revision checks |
 | `GET /api/articles/:id/extraction`, `POST /api/articles/:id/extraction/retry` | Owner-only capture status and retry of failed extraction |
 | `GET /api/github` | Owner-only GitHub configuration for capture before an article exists; never returns credentials |
+| `POST /api/github/reconcile` | Reconnect recognized GitHub backup filenames to restored articles; owner session and CSRF required |
 | `GET /api/articles/:id/github`, `POST /api/articles/:id/github` | Check the configured GitHub destination or save the persisted Markdown copy there |
 | `GET /api/export`, `POST /api/import` | Download or restore versioned library JSON |
 | `GET`, `POST /api/capture-tokens` | List token metadata or create a token |
@@ -123,7 +128,7 @@ To recover GitHub Markdown backups offline, run `pnpm github:convert --source /a
 
 Pasting a URL in Add queues a Markdown copy by default; the reader displays it when background capture completes. Paused or failed capture keeps the link available. Article details also let the owner paste Markdown or load a UTF-8 `.md`/`.markdown` file, read the saved copy, or download it. Saving is explicit, replacements use revision checks, and each copy is limited to 256 KiB UTF-8. The editor shows capture time, source, and byte count; failed saves keep the draft. The original link and read state remain independent.
 
-Check **Also save to GitHub** in the browser capture dialog or article details to additionally commit the saved Markdown with source/capture frontmatter. Production targets `Pajdzik/Kamilpedia`, branch `main`, at `Articles/<article-id>.md`. Kamilpedia is public, so checked copies are public there. The checkbox starts unchecked and requires a separate server-side `GITHUB_BACKUP_TOKEN` secret with repository Contents write permission. Capture saves the URL, then the Markdown, then optionally the saved copy to GitHub. Link-only saves, changed URLs, and failed copy saves do not publish the captured content. D1 stays authoritative; GitHub failure leaves the D1 copy intact and offers a retry of the saved copy without rewriting it. Destination/status, conflict handling, configuration, and recovery are documented in the [GitHub Markdown guide](docs/github-markdown.md).
+Check **Also save to GitHub** in the browser capture dialog or article details to additionally commit the saved Markdown with source/capture frontmatter. Production targets `Pajdzik/Kamilpedia`, branch `main`, under `Articles/` with a readable title-based filename and the short article ID in frontmatter. Kamilpedia is public, so checked copies are public there. The checkbox starts unchecked and requires a separate server-side `GITHUB_BACKUP_TOKEN` secret with repository Contents write permission. Capture saves the URL, then the Markdown, then optionally the saved copy to GitHub. Link-only saves, changed URLs, and failed copy saves do not publish the captured content. D1 stays authoritative; GitHub failure leaves the D1 copy intact and offers a retry of the saved copy without rewriting it. Destination/status, conflict handling, configuration, and recovery are documented in the [GitHub Markdown guide](docs/github-markdown.md).
 
 Copies are editable Markdown text. Article details can open the last successfully saved revision in a sanitized reader or download it as a UTF-8 Markdown file with quoted YAML frontmatter. The reader remembers a numeric position per article and saved-copy revision in local browser storage; opening it after a reload restores the position only when the user opens that article. This small metadata exception contains no article text, title, or URL; the Markdown copy remains server-side. Raw HTML is shown as text, unsafe links are unlinked, and image references are shown as text because their external sources are not included. Reading and downloading do not change read state or include unsaved editor drafts. R2 is deferred until measured storage needs justify it.
 

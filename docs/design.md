@@ -66,7 +66,7 @@ The owner creates a capture token in Settings after login. Reveal the random tok
 
 ## Data model
 
-One library needs no users table. Use UTC ISO timestamps generated on the server and random UUID article IDs.
+One library needs no users table. Use UTC ISO timestamps generated on the server and random eight-character lowercase letter/digit article IDs, with primary-key collision retries. Article URLs use `/read/:id/:title-slug`; the title is decorative. The [article URL design](article-urls.md) describes reader navigation, remembering the last opened article, backup migration, and readable GitHub filenames.
 
 ```sql
 CREATE TABLE articles (

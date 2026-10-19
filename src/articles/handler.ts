@@ -9,7 +9,8 @@ import {
 import { isResponse, requireSession, validateCaptureToken } from '../auth/core.js';
 import { enqueueExtractionJob, getExtractionStatus, getExtractionStatuses, retryExtractionJob } from './jobs.js';
 import { isBackgroundCapturePaused } from './source-fetch.js';
-import { getGitHubBackupConfiguration, getGitHubBackupStatus, GitHubBackupError, saveGitHubBackup } from './github.js';
+import { getGitHubBackupConfiguration, getGitHubBackupStatus, GitHubBackupError, reconcileGitHubBackupPaths, saveGitHubBackup } from './github.js';
+import { isArticleId } from './identity.js';
 
 const PRIVATE = PRIVATE_HEADERS;
 type ImportArticle = Article;
@@ -23,13 +24,17 @@ export async function handleArticles(request: Request, env: Env): Promise<Respon
   const url = new URL(request.url); const method = request.method.toUpperCase();
   if (url.pathname === '/api/capture' && method === 'POST') return capture(request, env);
   const isArticlePath = url.pathname === '/api/articles' || /^\/api\/articles\/[^/]+(?:\/copy|\/github|\/extraction(?:\/retry)?)?$/.test(url.pathname);
-  if (!isArticlePath && url.pathname !== '/api/export' && url.pathname !== '/api/import' && url.pathname !== '/api/github') return null;
+  if (!isArticlePath && url.pathname !== '/api/export' && url.pathname !== '/api/import' && url.pathname !== '/api/github' && url.pathname !== '/api/github/reconcile') return null;
   const needsWrite = method !== 'GET';
   let session: Awaited<ReturnType<typeof requireSession>>;
   try { session = await requireSession(request, env, needsWrite); } catch (error) { return exceptionResponse(error, 'articles.auth', storageError); }
   if (isResponse(session)) return session;
   try {
     if (url.pathname === '/api/github' && method === 'GET') return jsonResponse({ github: getGitHubBackupConfiguration(env) });
+    if (url.pathname === '/api/github/reconcile' && method === 'POST') {
+      if (request.body) parseObject(await readJson(request), []);
+      return jsonResponse(await reconcileGitHubBackupPaths(env));
+    }
     if (url.pathname === '/api/articles' && method === 'POST') return await createArticle(request, env);
     if (url.pathname === '/api/articles' && method === 'GET') return await listRoute(url, env);
     if (url.pathname === '/api/export' && method === 'GET') return await exportArticles(env);
@@ -38,7 +43,7 @@ export async function handleArticles(request: Request, env: Env): Promise<Respon
     if (extractionRoute) {
       let id: string;
       try { id = decodeURIComponent(extractionRoute[1]); } catch { return fail(400, 'invalid_request', 'Article ID is invalid.'); }
-      if (!id || id.length > 128) return fail(400, 'invalid_request', 'Article ID is invalid.');
+      if (!isArticleId(id)) return fail(400, 'invalid_request', 'Article ID must contain eight lowercase letters or digits.');
       if (method === 'GET' && !extractionRoute[2]) {
         const extraction = await getExtractionStatus(env.DB, id, isBackgroundCapturePaused(env));
         return extraction ? jsonResponse({ extraction }) : fail(404, 'not_found', 'Article not found.');
@@ -61,7 +66,7 @@ export async function handleArticles(request: Request, env: Env): Promise<Respon
     if (githubRoute) {
       let id: string;
       try { id = decodeURIComponent(githubRoute[1]); } catch { return fail(400, 'invalid_request', 'Article ID is invalid.'); }
-      if (!id || id.length > 128) return fail(400, 'invalid_request', 'Article ID is invalid.');
+      if (!isArticleId(id)) return fail(400, 'invalid_request', 'Article ID must contain eight lowercase letters or digits.');
       if (method === 'GET') {
         const article = await getArticle(env.DB, id);
         if (!article) return fail(404, 'not_found', 'Article not found.');
@@ -86,7 +91,7 @@ export async function handleArticles(request: Request, env: Env): Promise<Respon
     if (detail) {
       let id: string;
       try { id = decodeURIComponent(detail[1]); } catch { return fail(400, 'invalid_request', 'Article ID is invalid.'); }
-      if (!id || id.length > 128) return fail(400, 'invalid_request', 'Article ID is invalid.');
+      if (!isArticleId(id)) return fail(400, 'invalid_request', 'Article ID must contain eight lowercase letters or digits.');
       if (method === 'GET') {
         const article = await getArticle(env.DB, id);
         if (!article) return fail(404, 'not_found', 'Article not found.');
@@ -100,7 +105,7 @@ export async function handleArticles(request: Request, env: Env): Promise<Respon
     if (copyRoute) {
       let id: string;
       try { id = decodeURIComponent(copyRoute[1]); } catch { return fail(400, 'invalid_request', 'Article ID is invalid.'); }
-      if (!id || id.length > 128) return fail(400, 'invalid_request', 'Article ID is invalid.');
+      if (!isArticleId(id)) return fail(400, 'invalid_request', 'Article ID must contain eight lowercase letters or digits.');
       if (method === 'GET') {
         if (!(await getArticle(env.DB, id))) return fail(404, 'not_found', 'Article not found.');
         return jsonResponse({ copy: await getArticleCopy(env.DB, id) });
@@ -263,7 +268,7 @@ async function importArticles(request: Request, env: Env): Promise<Response> {
   const normalized: Array<ImportArticle & { normalizedUrl: string; copy?: ArticleCopy }> = [];
   for (const value of input.articles) {
     const item = parseObject(value, ['id', 'url', 'title', 'author', 'description', 'createdAt', 'updatedAt', 'readAt', ...(input.version === 2 ? ['copy'] : [])], ['id', 'url', 'title', 'createdAt', 'updatedAt', 'readAt']);
-    if (typeof item.id !== 'string' || !item.id || item.id.length > 128) throw new ValidationError('article id is invalid');
+    if (!isArticleId(item.id)) throw new ValidationError('article id must contain eight lowercase letters or digits; convert legacy backups before importing');
     if (seenIds.has(item.id)) throw new ValidationError('import contains duplicate article IDs');
     seenIds.add(item.id);
     const url = normalizeArticleUrl(item.url);

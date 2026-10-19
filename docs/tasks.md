@@ -11,6 +11,10 @@ Check off a task only after its acceptance criteria pass. Each chunk should be o
 - [x] P03 Write the service design and check current Cloudflare/MDN documentation.
 - [x] P04 Create this dependency-ordered tracker.
 
+## Article navigation and readable backups
+
+- [x] **R01 — Short article IDs, reader URLs, and readable GitHub backups.** Implemented with Luna subagents per [article URLs](article-urls.md): one eight-character ID in storage/APIs/frontmatter, `/read/:id/:title-slug`, browser-local Last opened, history/sign-in restoration, title-based GitHub filenames with durable path reservations, owner-only reconciliation, and offline legacy-backup conversion. TypeScript checks, 84 Worker/D1 tests, 37 converter/migration tests, desktop browser smoke, Chromium/WebKit mobile emulation, archive restore/read/download, and Chromium extension integration pass locally. Deployment, resetting existing test data, and publishing a migrated GitHub backup set remain separate operations.
+
 ## MVP chunks
 
 | ID | Chunk | Depends on | Suggested owned paths |
