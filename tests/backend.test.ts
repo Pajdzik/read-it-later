@@ -267,10 +267,19 @@ describe('article HTTP handlers', () => {
       Cookie: `read_later_session=${sessionToken}`, Origin: 'https://service.example', 'X-CSRF-Token': csrf, 'Content-Type': 'application/json',
     }, body: JSON.stringify({ label: 'Rate test' }) }), ownerEnv);
     const token2 = (await token2Result!.json() as { id: string; token: string });
-    await env.DB.prepare('INSERT INTO capture_rate_buckets(token_id,window_start,count) VALUES(?,?,60)')
-      .bind(token2.id, Math.floor(Date.now() / 60_000)).run();
-    const limited = await handleArticles(new Request('https://service.example/api/capture', { method: 'POST', headers: { Authorization: `Bearer ${token2.token}`, 'Content-Type': 'application/json' }, body: JSON.stringify({ url: 'https://example.com/rate-limited' }) }), ownerEnv);
-    expect(limited?.status).toBe(429);
+    // Keep bucket setup and requests on the same clock, even at a minute boundary.
+    const windowEnd = Date.UTC(2026, 0, 1, 12, 0, 59, 999);
+    const clock = vi.spyOn(Date, 'now').mockReturnValue(windowEnd);
+    try {
+      await env.DB.prepare('INSERT INTO capture_rate_buckets(token_id,window_start,count) VALUES(?,?,60)')
+        .bind(token2.id, Math.floor(windowEnd / 60_000)).run();
+      const rateRequest = () => new Request('https://service.example/api/capture', { method: 'POST', headers: { Authorization: `Bearer ${token2.token}`, 'Content-Type': 'application/json' }, body: JSON.stringify({ url: 'https://example.com/rate-limited', captureMarkdown: false }) });
+      expect((await handleArticles(rateRequest(), ownerEnv))?.status).toBe(429);
+      clock.mockReturnValue(windowEnd + 1);
+      expect((await handleArticles(rateRequest(), ownerEnv))?.status).toBe(201);
+    } finally {
+      clock.mockRestore();
+    }
   });
 
   it('binds OAuth to its initiating browser, accepts only the configured numeric owner, and consumes state once', async () => {
@@ -366,11 +375,12 @@ describe('article HTTP handlers', () => {
   });
 
   it('exports more than one page and imports idempotently with read state and Unicode intact', async () => {
-    for (let i = 0; i < 105; i++) {
-      await env.DB.prepare('INSERT INTO articles(id,url,normalized_url,title,created_at,updated_at,read_at) VALUES(?,?,?,?,?,?,?)')
+    // Seed both export pages in one D1 round trip rather than 105 serialized writes.
+    await env.DB.batch(Array.from({ length: 105 }, (_, i) =>
+      env.DB.prepare('INSERT INTO articles(id,url,normalized_url,title,created_at,updated_at,read_at) VALUES(?,?,?,?,?,?,?)')
         .bind(`exp-${i}`, `https://example.com/${i}`, `https://example.com/${i}`, i === 0 ? '日本語 📰' : `Title ${i}`,
-          new Date(Date.UTC(2026, 0, 1, 0, 0, i)).toISOString(), new Date(Date.UTC(2026, 0, 1, 0, 0, i)).toISOString(), i === 0 ? '2026-01-02T00:00:00.000Z' : null).run();
-    }
+          new Date(Date.UTC(2026, 0, 1, 0, 0, i)).toISOString(), new Date(Date.UTC(2026, 0, 1, 0, 0, i)).toISOString(), i === 0 ? '2026-01-02T00:00:00.000Z' : null),
+    ));
     await env.DB.prepare('INSERT INTO article_copies(article_id,markdown,captured_at,source,revision) VALUES(?,?,?,?,?)')
       .bind('exp-0', '# Backup 📰\n\nescaped \u0000\t content', '2026-01-04T00:00:00.000Z', 'upload', 'copy-revision-1').run();
     const exported = await route(request('/api/export'));

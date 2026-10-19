@@ -176,6 +176,8 @@ pnpm exec wrangler d1 migrations apply read-later-production --remote --env prod
 pnpm exec wrangler deploy --env production
 ```
 
+Production CI embeds the commit SHA and the UTC time the website assets were built; that timestamp records the build, not the later deployment time. The footer opens build details with the full commit, the build time in your timezone, and a copy action. Local and manual builds with neither `BUILD_COMMIT_SHA` nor `BUILD_TIMESTAMP` are labeled as local builds; supplying incomplete or invalid metadata fails the build.
+
 GitHub Actions runs strict TypeScript checks, Worker/D1 tests, a dry-run build, and browser smoke on pushes and PRs. A push to `main` additionally applies production migrations and deploys after verification passes. The `production` Actions environment needs `CLOUDFLARE_API_TOKEN` and `CLOUDFLARE_ACCOUNT_ID`; OAuth secrets are configured on the Worker separately. PR checks do not deploy production. See [CI](docs/ci.md) and [deployment instructions](docs/deployment.md).
 
 Back up before destructive schema changes. Prefer additive migrations and roll back only to code compatible with the current database; deployment does not automatically reverse migrations. Monitor request errors, CPU, D1 storage, and row usage without logging private URLs, content, tokens, or OAuth codes. Free quota exhaustion must produce recoverable errors rather than silently enabling paid services. Confirm live OAuth, anonymous-access restrictions, device capture, and backup restoration on the deployed origin; local tests cannot replace those checks.

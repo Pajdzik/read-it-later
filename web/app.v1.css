@@ -524,6 +524,51 @@ button {
   color: var(--muted);
   font-size: 12px;
 }
+.build-info-button {
+  border: 0;
+  border-radius: 6px;
+  padding: 5px 7px;
+  background: transparent;
+  color: var(--muted);
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+.build-info-button:hover,
+.build-info-button:focus-visible {
+  color: var(--ink);
+  background: var(--mint);
+}
+.build-info-dialog h2 {
+  margin: 0 0 16px;
+  font: 500 25px/1.2 Georgia, "Times New Roman", serif;
+}
+.build-info-metadata {
+  margin: 0 0 20px;
+  overflow-wrap: anywhere;
+}
+.build-info-metadata > div {
+  padding: 12px 0;
+  border-top: 1px solid var(--line);
+}
+.build-info-metadata dt {
+  margin-bottom: 3px;
+  color: var(--muted);
+  font-size: 12px;
+}
+.build-info-metadata dd {
+  margin: 0;
+  font-size: 14px;
+}
+.build-info-actions {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 10px;
+}
+.build-info-actions .muted {
+  font-size: 13px;
+}
 .dialog {
   width: min(550px, calc(100% - 30px));
   max-height: calc(100% - 32px);
