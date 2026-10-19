@@ -5,6 +5,7 @@ import os from "node:os";
 import path from "node:path";
 import net from "node:net";
 import { convertGitHubMarkdown } from "./github-convert.ts";
+import { migrateBackups } from "./backup-migrate.ts";
 import { validateBackupEnvelope } from "./archive-backup.ts";
 
 const project = process.cwd();
@@ -88,9 +89,9 @@ async function main() {
   const storage = path.join(temporary, "d1"); const configPath = path.join(temporary, "wrangler.jsonc"); const entry = path.join(temporary, "worker.mjs");
   const env = cleanEnvironment(); await mkdir(source);
   const records = [
-    { id: "github-existing-conflict", url: "https://example.invalid/keep?utm_source=github", title: "Incoming Ω\n\"quoted\"", author: "Writer Ω", description: "Description\nline", savedAt: "2024-01-02T03:04:05.000Z", capturedAt: "2024-01-03T04:05:06.000Z", source: "paste", revision: "fixture-one" },
-    { id: "github-fixture-read", url: "https://example.invalid/read?chapter=one", title: "Read \"article\" Ω\nsecond line", author: "Writer\nΩ", description: "Description: \"quoted\"\nsecond line", savedAt: "2024-02-03T04:05:06.000Z", capturedAt: "2024-02-04T05:06:07.000Z", source: "upload", revision: "fixture-two" },
-    { id: "github-fixture-third", url: "https://example.invalid/third", title: "Third article", author: "A Name", description: "Third description", savedAt: "2024-03-04T05:06:07.000Z", capturedAt: "2024-03-05T06:07:08.000Z", source: "paste", revision: "fixture-three" },
+    { id: "legacy-id-one", url: "https://example.invalid/keep?utm_source=github", title: "Incoming Ω\n\"quoted\"", author: "Writer Ω", description: "Description\nline", savedAt: "2024-01-02T03:04:05.000Z", capturedAt: "2024-01-03T04:05:06.000Z", source: "paste", revision: "fixture-one" },
+    { id: "legacy-id-two", url: "https://example.invalid/read?chapter=one", title: "Read \"article\" Ω\nsecond line", author: "Writer\nΩ", description: "Description: \"quoted\"\nsecond line", savedAt: "2024-02-03T04:05:06.000Z", capturedAt: "2024-02-04T05:06:07.000Z", source: "upload", revision: "fixture-two" },
+    { id: "legacy-id-three", url: "https://example.invalid/third", title: "Third article", author: "A Name", description: "Third description", savedAt: "2024-03-04T05:06:07.000Z", capturedAt: "2024-03-05T06:07:08.000Z", source: "paste", revision: "fixture-three" },
   ];
   const bodies = ["# Existing candidate Ω\n\nExact body.\n", "# Read copy\r\n\r\n---\r\nNested frontmatter stays in the body. 📰\r\n", "# Third copy\n\nBody.\n"];
   for (let i = 0; i < records.length; i++) await put(source, `${i + 1}-${i}.md`, markdown(records[i], bodies[i]));
@@ -99,6 +100,15 @@ async function main() {
   assert.deepEqual([converted.report.eligible, converted.report.duplicates, converted.report.excluded], [3, 1, 0]);
   const batches = [];
   for (const name of (await readdir(output)).filter(name => name.startsWith("import-")).sort()) batches.push(JSON.parse(await readFile(path.join(output, name), "utf8")));
+  const migrationSource = path.join(temporary, "migration-articles"); const migrationOutput = path.join(temporary, "migration-output");
+  await mkdir(migrationSource);
+  for (let i = 0; i < records.length; i++) await put(migrationSource, `${i + 1}.md`, markdown(records[i], bodies[i]));
+  const migration = await migrateBackups({ githubDirectory: migrationSource, outputPath: migrationOutput });
+  const migrationBatches = [];
+  for (const name of (await readdir(migrationOutput)).filter(name => name.startsWith("import-")).sort()) migrationBatches.push(JSON.parse(await readFile(path.join(migrationOutput, name), "utf8")));
+  assert.equal(migration.articleCount, 3);
+  assert.ok(migrationPathsContainReadableNames(migration.markdownPaths));
+  assert.deepEqual(migration.idMappings.map(item => item.newId).sort(), converted.batches.flatMap(batch => batch.articles.map(item => item.id)).sort());
   await run(process.execPath, ["--import", "tsx", path.join(project, "scripts/build-web.ts")], project, env);
   const listenPort = await freePort(); const baseUrl = `http://127.0.0.1:${listenPort}`;
   await writeFile(entry, `import actual from ${JSON.stringify(path.join(project, "src/worker.ts"))};\nexport default { fetch(request, env, ctx) { return actual.fetch(request, env, ctx); } };\n`, { mode: 0o600 });
@@ -108,7 +118,7 @@ async function main() {
   try {
     await waitReady(baseUrl, worker);
     const preexisting = { version: 2, exportedAt: "2026-01-02T03:04:05.000Z", articles: [{
-      id: "preexisting-record", url: "https://example.invalid/keep?utm_source=prior", title: "Preserved existing title Ω",
+      id: "preex001", url: "https://example.invalid/keep?utm_source=prior", title: "Preserved existing title Ω",
       author: "Original author", description: "Original description", createdAt: "2020-01-02T03:04:05.000Z",
       updatedAt: "2021-02-03T04:05:06.000Z", readAt: "2022-03-04T05:06:07.000Z",
       copy: { markdown: "Existing copy Ω\n", capturedAt: "2023-04-05T06:07:08.000Z", source: "paste", revision: "existing-copy" },
@@ -118,16 +128,20 @@ async function main() {
     assert.equal(first.reduce((sum, result) => sum + result.imported, 0), 2);
     assert.equal(first.reduce((sum, result) => sum + result.skipped, 0), 1);
     const afterFirst = await exportLibrary(baseUrl);
-    const expected = [preexisting.articles[0], ...converted.batches.flatMap(batch => batch.articles).filter(item => item.id !== "github-existing-conflict")];
+    const expected = [preexisting.articles[0], ...converted.batches.flatMap(batch => batch.articles).filter(item => item.url !== "https://example.invalid/keep?utm_source=github")];
     assert.deepEqual(sorted(afterFirst), expected.sort((a, b) => a.id.localeCompare(b.id)));
-    assert.deepEqual(sorted(afterFirst).find(item => item.id === "preexisting-record"), before.articles[0]);
+    assert.deepEqual(sorted(afterFirst).find(item => item.id === "preex001"), before.articles[0]);
+    const migratedRestore = await importBatches(baseUrl, migrationBatches);
+    assert.ok(migratedRestore.every(result => result.imported === 0));
+    assert.equal(migratedRestore.reduce((sum, result) => sum + result.skipped, 0), 3);
     const repeats = await importBatches(baseUrl, batches);
     assert.ok(repeats.every(result => result.imported === 0));
     assert.equal(repeats.reduce((sum, result) => sum + result.skipped, 0), 3);
     assert.deepEqual(sorted(await exportLibrary(baseUrl)), sorted(afterFirst));
-    process.stdout.write(`${JSON.stringify({ result: "passed", eligible: converted.report.eligible, duplicates: converted.report.duplicates, excluded: converted.report.excluded, firstImport: first, repeatImport: repeats, existingNormalizedUrlPreserved: true, exportedArticleCount: afterFirst.articles.length })}\n`);
+    process.stdout.write(`${JSON.stringify({ result: "passed", eligible: converted.report.eligible, duplicates: converted.report.duplicates, excluded: converted.report.excluded, firstImport: first, repeatImport: repeats, migratedRestore, existingNormalizedUrlPreserved: true, exportedArticleCount: afterFirst.articles.length })}\n`);
   } finally { await stop(worker); }
 }
+function migrationPathsContainReadableNames(paths) { return paths.every(entry => entry.newPath.startsWith("Articles/") && path.posix.basename(entry.newPath).endsWith(".md") && !entry.newPath.includes("\\")); }
 process.once("SIGINT", () => { for (const child of active) try { process.kill(-child.pid, "SIGTERM"); } catch {} });
 process.once("SIGTERM", () => { for (const child of active) try { process.kill(-child.pid, "SIGTERM"); } catch {} });
 try { await main(); }

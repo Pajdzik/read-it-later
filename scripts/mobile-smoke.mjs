@@ -234,11 +234,14 @@ async function runProfile(name, browserType, device) {
   assert.equal(captureSave.extraction?.paused, true, `${name}: local runtime should report its disabled capture processor.`);
   assert.equal(Object.hasOwn(captureSave, "copy"), false, `${name}: save response must not include synchronous Markdown.`);
   await page.locator("#notice").getByText(/Link saved\. Capture is paused/).waitFor();
-  const titleButton = page.getByRole("button", { name: shareTitle, exact: true });
+  const titleButton = page.locator("#articles").getByRole("link", { name: shareTitle, exact: true });
   await titleButton.waitFor();
   const article = page.locator(".article").filter({ hasText: shareTitle });
   await article.locator(".extraction-badge").getByText("Capture paused").waitFor();
   const shareArticleId = await article.getAttribute("data-id");
+  assert.match(shareArticleId || "", /^[a-z0-9]{8}$/, `${name}: newly saved article IDs should be short and URL-safe.`);
+  assert.equal(await titleButton.getAttribute("href"), `/read/${shareArticleId}/${shareTitle.toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-|-$/g, "")}`,
+    `${name}: article title should link to its canonical readable path.`);
   const persistedIntent = await page.evaluate(async (id) => (await (await fetch(`/api/articles/${id}`)).json()).article, shareArticleId);
   assert.equal(persistedIntent.extraction.state, "queued", `${name}: capture intent was not persisted with the article.`);
   assert.equal(persistedIntent.extraction.paused, true, `${name}: disabled processor state was not exposed.`);
@@ -248,6 +251,8 @@ async function runProfile(name, browserType, device) {
   await titleButton.tap();
   const pendingReader = page.locator("#reader-dialog");
   await pendingReader.locator("#reader-pending").waitFor({ state: "visible" });
+  assert.equal(new URL(page.url()).pathname, await titleButton.getAttribute("href"),
+    `${name}: opening a saved link should navigate to its canonical article path.`);
   const pendingReaderBounds = await pendingReader.boundingBox();
   assert.ok(pendingReaderBounds && Math.abs(pendingReaderBounds.x) <= 1 && Math.abs(pendingReaderBounds.y) <= 1 &&
     Math.abs(pendingReaderBounds.width - page.viewportSize().width) <= 1 &&
@@ -301,8 +306,19 @@ async function runProfile(name, browserType, device) {
     `${name}: Back control should remain reachable after long scrolling: ${JSON.stringify(readerBackBounds)}.`);
   assert.ok(await readyReader.evaluate((dialog) => dialog.scrollTop > 0), `${name}: long copy should scroll within the reader.`);
   await page.locator("#reader-dialog .reader-close button").tap();
+  await page.waitForFunction(() => document.activeElement?.textContent?.trim() === "Read saved copy" &&
+    document.activeElement.closest("#detail-content") !== null, null, { timeout: 3000 });
   assert.equal(await readCopyAction.evaluate((button) => button === document.activeElement), true,
-    `${name}: closing the reader should restore focus to the editor action that opened it.`);
+    `${name}: closing the reader should restore focus to the editor action that opened it: ${JSON.stringify(await page.evaluate(() => ({
+      url: location.href,
+      readerOpen: document.querySelector("#reader-dialog")?.open,
+      detailOpen: document.querySelector("#detail-dialog")?.open,
+      activeElement: document.activeElement?.outerHTML?.slice(0, 300),
+    })))}; opener: ${JSON.stringify(await readCopyAction.evaluate((button) => ({
+      connected: button.isConnected,
+      detailContains: document.querySelector("#detail-dialog")?.contains(button),
+      hidden: button.hidden,
+    })))}.`);
   const mobilePosition = await page.evaluate((id) => JSON.parse(localStorage.getItem(`later-reading-position:${encodeURIComponent(id)}`)), shareArticleId);
   assert.ok(mobilePosition && mobilePosition.block >= 0, `${name}: mobile scroll should save a stable Markdown block.`);
   const beforeResize = page.viewportSize();
@@ -325,10 +341,29 @@ async function runProfile(name, browserType, device) {
   await page.locator("#settings-open").tap();
   await page.locator("#theme-toggle").selectOption("light");
   await page.locator("#settings-dialog .dialog-close button").tap();
+  const listRoute = new URL(page.url()).pathname;
   await titleButton.tap();
   await readyReader.locator("#reader-body").getByRole("heading", { name: shareTitle }).waitFor();
+  assert.equal(new URL(page.url()).pathname, await titleButton.getAttribute("href"),
+    `${name}: reopening from the list should use the canonical URL.`);
   await page.screenshot({ path: screenshot("portrait-reader-light") });
   await page.locator("#reader-dialog .reader-close button").tap();
+  try {
+    await page.waitForFunction((expectedPath) => location.pathname === expectedPath, listRoute, { timeout: 5000 });
+  } catch {
+    const state = await page.evaluate(() => ({
+      url: location.href,
+      historyState: history.state,
+      readerOpen: document.querySelector("#reader-dialog")?.open,
+      readerTitle: document.querySelector("#reader-title")?.textContent,
+      readerBody: document.querySelector("#reader-body")?.textContent?.slice(0, 240),
+      detailOpen: document.querySelector("#detail-dialog")?.open,
+      activeElement: document.activeElement?.outerHTML?.slice(0, 240),
+    }));
+    throw new Error(`${name}: list-origin reader did not return to the list route after close: ${JSON.stringify(state)}`);
+  }
+  assert.equal(await page.evaluate((id) => document.activeElement?.dataset.articleId === id, shareArticleId), true,
+    `${name}: closing a list-opened reader should restore focus to its title link.`);
   await page.locator("#settings-open").tap();
   await page.locator("#theme-toggle").selectOption("dark");
   await page.locator("#settings-dialog .dialog-close button").tap();
@@ -345,8 +380,8 @@ async function runProfile(name, browserType, device) {
   assert.equal(duplicateResponse.status(), 200);
   assert.equal((await duplicateResponse.json()).duplicate, true);
   await page.locator("#add-dialog").waitFor({ state: "hidden" });
-  await page.getByRole("button", { name: shareTitle, exact: true }).waitFor();
-  assert.equal(await page.getByRole("button", { name: "Duplicate must not replace title", exact: true }).count(), 0);
+  await page.locator("#articles").getByRole("link", { name: shareTitle, exact: true }).waitFor();
+  assert.equal(await page.locator("#articles").getByRole("link", { name: "Duplicate must not replace title", exact: true }).count(), 0);
 
   // Save failure leaves both URL and title in the dialog for retry.
   await page.locator("#add-open").tap();
@@ -376,7 +411,7 @@ async function runProfile(name, browserType, device) {
   assert.equal(await page.locator("#add-title").inputValue(), retryTitle);
   await context.setOffline(false);
   await page.locator("#add-form button").tap();
-  await page.getByRole("button", { name: retryTitle, exact: true }).waitFor();
+  await page.locator("#articles").getByRole("link", { name: retryTitle, exact: true }).waitFor();
   await page.locator("#settings-open").tap();
   assert.equal(await page.evaluate(() => document.activeElement?.id), "theme-toggle",
     `${name}: Settings dialog opened with its close button focused.`);
@@ -395,9 +430,9 @@ async function runProfile(name, browserType, device) {
   assert.ok(readAtAfterSave);
   await page.reload();
   await page.locator('[data-status="read"]').tap();
-  await page.getByRole("button", { name: shareTitle, exact: true }).waitFor();
+  await page.locator("#articles").getByRole("link", { name: shareTitle, exact: true }).waitFor();
   await page.locator("#search").fill(shareTitle);
-  await page.getByRole("button", { name: shareTitle, exact: true }).waitFor();
+  await page.locator("#articles").getByRole("link", { name: shareTitle, exact: true }).waitFor();
   await page.locator("#search").fill("missing mobile result");
   await page.getByText("Nothing here yet").waitFor();
   await page.locator("#search").fill("");

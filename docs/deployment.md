@@ -51,6 +51,7 @@ Run validation on staging before deploying production. On a push to `main`, the 
 
 ## Release checklist
 
+- [ ] Apply `0007_github_paths.sql` before releasing readable GitHub filenames. For the short-ID testing cutover, migrate retained JSON/Markdown with `pnpm backup:migrate`, then rebuild the disposable article library; the ID format change does not rekey existing rows automatically. After restoring into an existing GitHub destination, use Settings → Find existing GitHub backups before resuming backup writes. Preserve auth/configuration and unrelated repository files. See [article URLs](article-urls.md).
 - [ ] Staging and production bindings are separate and migrations applied to the intended database.
 - [ ] Missing OAuth/owner/origin configuration fails closed.
 - [ ] Anonymous callers cannot list, export, edit or delete library data.

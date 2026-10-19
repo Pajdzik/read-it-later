@@ -4,6 +4,7 @@ import { lstat, mkdir, open, readdir, realpath, rm, stat, writeFile } from "node
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { normalizeSourceUrl } from "./obsidian-convert.ts";
+import { createShortIdMapper } from "./short-id.ts";
 import { MAX_BACKUP_BYTES, splitImportBatches, validateBackupEnvelope, type BackupArticle, type BackupEnvelope } from "./archive-backup.ts";
 
 export const MAX_SOURCE_FILE_BYTES = 1024 * 1024;
@@ -233,12 +234,14 @@ export async function convertGitHubMarkdown(sourcePath: string, outputPath: stri
   const eligible: BackupArticle[] = [];
   const urlWinners = new Map<string, string>();
   const idWinners = new Map<string, { path: string; normalizedUrl: string }>();
+  const sourceIds = new Set<string>();
   const consumed = { bytes: 0 };
   for (const candidate of scan.candidates) {
     let parsed: ParsedMarkdown;
     try {
       const bytes = await readCandidate(source, candidate, consumed);
       parsed = parseGitHubMarkdown(bytes);
+      sourceIds.add(parsed.item.id);
       validateItem(parsed, exportedAt);
     } catch (error) {
       if (failure(error)?.fatal) throw error;
@@ -260,6 +263,8 @@ export async function convertGitHubMarkdown(sourcePath: string, outputPath: stri
     eligible.push(parsed.item);
     outcomes.push({ path: candidate.relative, outcome: "eligible", reasons: [], warnings: ["read_state_not_backed_up"] });
   }
+  const mapId = createShortIdMapper(sourceIds);
+  for (const item of eligible) item.id = mapId(item.id);
   const envelope: BackupEnvelope = { version: 2, exportedAt, articles: eligible };
   validateBackupEnvelope(envelope);
   if (byteLength(JSON.stringify(envelope)) > MAX_BACKUP_BYTES) fail("portable_backup_size_limit_exceeded");

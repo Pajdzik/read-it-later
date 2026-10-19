@@ -50,7 +50,7 @@ function fixture(): BackupEnvelope {
   for (let i = 0; i < 30; i++) {
     const n = String(i).padStart(3, "0");
     const item: BackupArticle = {
-      id: `archive-fixture-${n}`,
+      id: `ar${String(i).padStart(6, "0")}`,
       url: `https://archive-fixture.invalid/articles/${n}`,
       title: `Restore rehearsal ${n} — Ω`,
       author: i % 3 === 0 ? "Writer Ω" : null,
@@ -256,6 +256,7 @@ async function verifyReader(base: string, envelope: BackupEnvelope, temporary: s
     if (sample) copies.push(sample);
   }
   if (!copies.length) return 0;
+  diagnosticStage = "restored reader browser launch";
   const browser = await chromium.launch({ headless: true, ...(process.env.BROWSER_EXECUTABLE ? { executablePath: process.env.BROWSER_EXECUTABLE } : {}) });
   try {
     const context = await browser.newContext({ viewport: { width: 390, height: 844 }, acceptDownloads: true });
@@ -268,8 +269,12 @@ async function verifyReader(base: string, envelope: BackupEnvelope, temporary: s
     const page = await context.newPage();
     const errors: string[] = [];
     page.on("pageerror", error => errors.push(error.message));
+    diagnosticStage = "restored reader app navigation";
     await page.goto(base);
+    diagnosticStage = "restored reader app readiness";
     await page.locator("#add-open").waitFor();
+    await page.locator("#account:not([hidden])").waitFor({ state: "attached" });
+    diagnosticStage = "restored reader list filter";
     await page.getByRole("button", { name: "All", exact: true }).click();
     for (let index = 0; index < copies.length; index++) {
       const sample = copies[index];
@@ -299,19 +304,25 @@ async function verifyReader(base: string, envelope: BackupEnvelope, temporary: s
       const title = row.locator(".article-title");
       const originalReadClass = await row.getAttribute("class");
       const articleBefore = await (await api(base, `/api/articles/${encodeURIComponent(sample.id)}`)).json();
-      await row.getByRole("button", { name: "Edit", exact: true }).click();
-      diagnosticStage = "reader open";
-      const detail = page.locator("#detail-content");
-      await detail.getByRole("button", { name: "Read saved copy", exact: true }).waitFor();
-      const savedActions = detail.getByRole("button", { name: "Read saved copy", exact: true });
-      await savedActions.click();
+      diagnosticStage = "reader title link";
+      const readerHref = await title.getAttribute("href");
+      assert.match(readerHref || "", new RegExp(`/read/${sample.id}(?:/|$)`), "Article title should be a real short-ID reader link.");
+      diagnosticStage = "reader title navigation";
+      await title.click();
       const reader = page.locator("#reader-dialog");
       await reader.locator("#reader-title").waitFor();
+      diagnosticStage = "reader content verification";
       assert.equal(await reader.locator("#reader-title").textContent(), sample.title);
       assert.ok(await reader.locator("#reader-body").evaluate(body => body.childElementCount > 0 || body.textContent.trim().length > 0), "Persisted Markdown should render readable content.");
       await page.keyboard.press("Escape");
       await reader.waitFor({ state: "hidden" });
-      assert.equal(await page.evaluate(() => document.activeElement?.textContent), "Read saved copy", "Escape should return focus to the reader trigger.");
+      await page.waitForFunction(() => !location.pathname.startsWith("/read/"));
+      diagnosticStage = "reader focus restoration";
+      assert.equal(await page.evaluate(() => document.activeElement?.textContent), sample.title, "Escape should return focus to the title link.");
+      diagnosticStage = "reader Markdown download";
+      await row.getByRole("button", { name: "Edit", exact: true }).click();
+      const detail = page.locator("#detail-content");
+      await detail.getByRole("button", { name: "Download Markdown", exact: true }).waitFor();
       const downloadPromise = page.waitForEvent("download");
       diagnosticStage = "Markdown download";
       await detail.getByRole("button", { name: "Download Markdown", exact: true }).click();
@@ -329,6 +340,7 @@ async function verifyReader(base: string, envelope: BackupEnvelope, temporary: s
         "---", "", "",
       ].join("\n");
       assert.equal(content, metadata + sample.copy.markdown, "Downloaded frontmatter and Markdown body should exactly match the persisted copy.");
+      diagnosticStage = "reader detail close";
       await page.locator("#detail-dialog .dialog-close button").click();
       await title.waitFor();
       assert.equal(await row.getAttribute("class"), originalReadClass, "Reading or downloading must not change read state.");

@@ -130,7 +130,7 @@ async function main() {
     await waitReady(base, worker);
     const preexisting = {
       version: 2, exportedAt: "2026-01-02T03:04:05.000Z", articles: [{
-        id: "existing-conflict-id", url: "https://example.invalid/keep?utm_source=prior", title: "Preserved existing title",
+        id: "exist001", url: "https://example.invalid/keep?utm_source=prior", title: "Preserved existing title",
         author: "Existing author", description: "Existing description", createdAt: "2020-01-01T00:00:00.000Z",
         updatedAt: "2021-02-03T04:05:06.000Z", readAt: "2022-03-04T05:06:07.000Z",
         copy: { markdown: "Existing bytes Ω\n", capturedAt: "2026-01-02T03:04:05.000Z", source: "paste", revision: "existing-revision" },
@@ -146,7 +146,7 @@ async function main() {
     for (const item of preexisting.articles) expected.set(item.id, item);
     for (const batch of batches) for (const item of batch.articles) if (item.url.includes("/read") || item.url.includes("/empty")) expected.set(item.id, item);
     assert.deepEqual(sorted(afterFirst), [...expected.values()].sort((a, b) => a.id.localeCompare(b.id)));
-    assert.deepEqual(sorted(afterFirst).find(item => item.id === "existing-conflict-id"), before.articles[0]);
+    assert.deepEqual(sorted(afterFirst).find(item => item.id === "exist001"), before.articles[0]);
     const repeatCounts = await importBatches(base, batches);
     assert.ok(repeatCounts.every(count => count.imported === 0));
     assert.equal(repeatCounts.reduce((sum, count) => sum + count.skipped, 0), 3);
