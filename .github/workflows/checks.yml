@@ -44,13 +44,27 @@ jobs:
         run: pnpm install --frozen-lockfile
 
       - name: Check TypeScript across all runtimes
-        run: pnpm check
+        run: |
+          pnpm check
+          pnpm typecheck:fetcher
 
       - name: Run Worker and D1 tests
         run: pnpm test
 
       - name: Build for deployment (dry run)
         run: pnpm build
+
+      - name: Package the safe fetch probe (dry run)
+        run: pnpm build:fetch-probe
+
+      - name: Test pinned safe fetch and gateway protocol
+        run: pnpm test:fetcher
+
+      - name: Package the safe fetch gateway Worker (dry run)
+        run: pnpm build:fetcher-dry-run
+
+      - name: Build and smoke-test the fetch-only container image
+        run: pnpm test:fetcher:container
 
       - name: Install Playwright Chromium and WebKit
         run: pnpm exec playwright install --with-deps chromium webkit

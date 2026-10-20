@@ -1,80 +1,17 @@
 import type { Env } from "../contracts";
 import { parseArticleMetadata, type ArticleMetadata } from "./metadata";
+import { failSourceFetch as fail, SourceFetchError, validateSourceTarget as validateTarget } from "./source-policy";
+import { FETCH_FAILURE_HEADER, isFetchErrorCode } from "../../fetcher/protocol";
+
+export { SourceFetchError } from "./source-policy";
 
 const MAX_HTML_BYTES = 512 * 1024;
 const HOP_TIMEOUT_MS = 5_000;
 const TOTAL_TIMEOUT_MS = 20_000;
 const MAX_REDIRECTS = 3;
 
-export class SourceFetchError extends Error {
-  constructor(
-    readonly code: string,
-    readonly retryable: boolean,
-    readonly retryAfterSeconds?: number,
-  ) {
-    super(code);
-    this.name = "SourceFetchError";
-  }
-}
-
 export function isBackgroundCapturePaused(env: Env): boolean {
   return env.BACKGROUND_CAPTURE_ENABLED !== "true" || !env.ARTICLE_FETCHER;
-}
-
-function fail(code: string, retryable = false, retryAfterSeconds?: number): never {
-  throw new SourceFetchError(code, retryable, retryAfterSeconds);
-}
-
-function isPrivateIpv4(host: string): boolean {
-  const parts = host.split(".");
-  if (parts.length !== 4 || parts.some((part) => !/^\d{1,3}$/.test(part) || Number(part) > 255)) return false;
-  const [a, b, c, d] = parts.map(Number);
-  return a === 0 || a === 10 || a === 127 || a >= 224 ||
-    (a === 100 && b >= 64 && b <= 127) ||
-    (a === 169 && b === 254) ||
-    (a === 172 && b >= 16 && b <= 31) ||
-    (a === 192 && (b === 168 || (b === 0 && c === 0) || (b === 0 && c === 2) || (b === 88 && c === 99))) ||
-    (a === 198 && (b === 18 || b === 19 || (b === 51 && c === 100))) ||
-    (a === 203 && b === 0 && c === 113) ||
-    (a === 255 && b === 255 && c === 255 && d === 255);
-}
-
-const RESTRICTED_SUFFIXES = [
-  ".localhost", ".local", ".internal", ".lan", ".home", ".home.arpa",
-  ".test", ".invalid", ".example", ".onion", ".arpa", ".svc", ".cluster.local",
-];
-
-function validateTarget(raw: string, env: Env): URL {
-  let target: URL;
-  try {
-    target = new URL(raw);
-  } catch {
-    return fail("invalid_url");
-  }
-  if (target.protocol !== "https:" && target.protocol !== "http:") fail("unsafe_destination");
-  if (target.username || target.password) fail("unsafe_destination");
-  if (target.port && target.port !== "80" && target.port !== "443") fail("unsafe_destination");
-
-  const host = target.hostname.toLowerCase().replace(/\.$/, "");
-  if (!host || host === "localhost" || !host.includes(".") || RESTRICTED_SUFFIXES.some((suffix) => host === suffix.slice(1) || host.endsWith(suffix))) {
-    fail("unsafe_destination");
-  }
-  // URL canonicalizes unusual IPv4 spellings (integer, octal, and hex) before
-  // exposing hostname. Reject private/reserved literals; IPv6 literals are
-  // conservatively rejected so mapped and scoped forms cannot bypass checks.
-  if (host.startsWith("[") || host.includes(":")) fail("unsafe_destination");
-  if (/^\d+(?:\.\d+){3}$/.test(host) && isPrivateIpv4(host)) fail("unsafe_destination");
-  if (/^(?:0x[\da-f]+|\d+)$/i.test(host)) fail("unsafe_destination");
-
-  const configuredOrigin = env.APP_ORIGIN;
-  if (configuredOrigin) {
-    try {
-      if (new URL(configuredOrigin).hostname.toLowerCase().replace(/\.$/, "") === host) fail("unsafe_destination");
-    } catch (error) {
-      if (error instanceof SourceFetchError) throw error;
-    }
-  }
-  return target;
 }
 
 function retryAfter(response: Response, now: number): number | undefined {
@@ -220,6 +157,12 @@ export async function fetchSourcePage(url: string, env: Env): Promise<{ html: st
       if (target.protocol === "https:" && next.protocol === "http:") fail("redirect_downgrade");
       target = next;
       continue;
+    }
+    const gatewayError = response.headers.get(FETCH_FAILURE_HEADER);
+    if (gatewayError && isFetchErrorCode(gatewayError)) {
+      await response.body?.cancel().catch(() => undefined);
+      clearTimeout(timeoutId!);
+      fail(gatewayError, ["dns_error", "timeout", "network_error"].includes(gatewayError));
     }
     if (response.status < 200 || response.status >= 300) {
       await response.body?.cancel().catch(() => undefined);
