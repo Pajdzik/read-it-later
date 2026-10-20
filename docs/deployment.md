@@ -1,12 +1,12 @@
 # Cloudflare deployment and operations
 
-The base app runs on Workers with Workers Static Assets and D1. Optional automatic capture uses a private Cloudflare Container and requires Workers Paid. Deployment requires your own Cloudflare account and a GitHub OAuth app. No deployment or paid service is provisioned by the implementation PRs.
+The base service targets Workers Free with Workers Static Assets and D1. Deployment requires your own Cloudflare account and a GitHub OAuth app. The isolated extraction benchmark does not deploy the production app or provision paid services.
 
 ## Before deployment
 
 1. Use Node 22.12+ and pnpm 12.4.1 and install the dependencies from the committed lockfile.
 2. Run the repository's Worker typecheck, tests and build commands. The prototype's `npm start` is a separate Node server; do not upload it as the Worker.
-3. Workers Free supports the base app with background capture paused. Automatic capture requires an explicit Workers Paid decision (see below). Recheck [Worker limits](https://developers.cloudflare.com/workers/platform/limits/) and [D1 pricing](https://developers.cloudflare.com/d1/platform/pricing/). Static asset requests are [free and unlimited](https://developers.cloudflare.com/workers/static-assets/billing-and-limitations/); dynamic requests and D1 operations have shared account quotas.
+3. The base app can stay on Workers Free with capture paused. The deployed extraction trial found Free CPU-limit failures; testing a larger Worker CPU budget requires enabling Workers Paid explicitly. Recheck [Worker limits](https://developers.cloudflare.com/workers/platform/limits/) and [D1 pricing](https://developers.cloudflare.com/d1/platform/pricing/). Static asset requests are [free and unlimited](https://developers.cloudflare.com/workers/static-assets/billing-and-limitations/); dynamic requests and D1 operations have shared account quotas.
 4. Create separate staging and production D1 databases with Wrangler. Replace the corresponding database IDs in the configuration; local development uses Wrangler's local storage rather than these remote databases. Never reuse production data for tests.
 5. Set each `APP_ORIGIN` in `wrangler.jsonc` to the exact public origin routed to that Worker. Production uses `https://read.pajdzik.pl`; staging uses its configured Workers subdomain. Register a separate GitHub OAuth app for each environment with homepage `<origin>` and callback `<origin>/auth/github/callback`. For production, the callback must be `https://read.pajdzik.pl/auth/github/callback`; the OAuth start and callback must use the same hostname so the browser sends its state-binding cookie. Set `OWNER_GITHUB_ID` to the owner's immutable numeric GitHub user ID rather than their changeable login.
 6. Store OAuth credentials with `wrangler secret put` for the selected environment. Never commit them or put them in frontend variables. The capture Shortcut needs its own revocable capture token, not these OAuth credentials.
@@ -47,7 +47,7 @@ pnpm build:web
 pnpm exec wrangler deploy --env staging
 ```
 
-Run validation on staging before deploying production. On a push to `main`, the `Checks` workflow builds and deploys the private capture service, applies pending production migrations, and deploys the app Worker after CI passes. The GitHub-hosted Ubuntu runner supplies Docker; no local Docker installation is needed for this release path. Configure the repository's `production` Actions environment with `CLOUDFLARE_API_TOKEN` and `CLOUDFLARE_ACCOUNT_ID`; the token needs Workers Scripts Edit, Containers Edit, and D1 Edit permissions scoped to the intended account/resources. Workers access must cover both the app and capture Workers. See [Cloudflare token permissions](https://developers.cloudflare.com/fundamentals/api/reference/permissions/). Never run those commands against placeholder IDs. `pnpm build` is a dry run, not a publication. Local authentication bypass must remain absent from staging/production. Do not configure a fail-open route for an authenticated API.
+Run validation on staging before deploying production. On a push to `main`, the `Checks` workflow applies pending production migrations and deploys the Worker after CI passes. Configure the repository's `production` Actions environment with `CLOUDFLARE_API_TOKEN` and `CLOUDFLARE_ACCOUNT_ID`; the token needs Workers Scripts Edit and D1 Edit permissions for the configured production resources. Never run those commands against placeholder IDs. `pnpm build` is a dry run, not a publication. Local authentication bypass must remain absent from staging/production. Do not configure a fail-open route for an authenticated API.
 
 ## Release checklist
 
@@ -84,42 +84,17 @@ Inspect Workers request/error/CPU metrics and D1 storage/row metrics. Do not log
 
 ## Background Markdown extraction
 
-Migration `0006_background_capture.sql` supplies durable intent, title origin, and fenced D1 jobs. The one-minute Cron Trigger stays in the application Worker. The private executor in `capture/` handles both source fetching and conversion, with no D1 binding, OAuth credentials, GitHub token, or public route. `ARTICLE_EXTRACTOR` binds the app to the matching environment's capture service. `BACKGROUND_CAPTURE_ENABLED` remains `false` in all environments, so saving continues and scheduled capture does no work until activation.
+Migration `0006_background_capture.sql` adds durable extraction intent, title origin, and leased jobs. The one-minute Cron Trigger is configured in each environment. `BACKGROUND_CAPTURE_ENABLED` defaults to `false`; the scheduled handler performs no database or source work while paused. Saves still record requested capture and show paused status. Merging this PR does not activate the processor; until activation, website URL capture no longer returns an immediate copy.
 
-### Cost and capacity
+Before activation in a chosen environment:
 
-This executor requires [Workers Paid](https://developers.cloudflare.com/workers/platform/pricing/), starting at $5 USD/month. [Container pricing](https://developers.cloudflare.com/containers/platform/pricing/) currently includes 25 GiB-hours of memory, 375 vCPU-minutes, and 200 GB-hours of disk monthly, shared across the account. The configured `basic` instance has 1 GiB memory, 1/4 vCPU, and 4 GB disk; maximum instances is one per environment, with a 30-second idle timeout. No container starts on an empty cron tick. CPU is billed for actual use; provisioned memory and disk are billed while awake, including idle time. Other Workers/Durable Objects/D1/logging usage and account workloads also count.
+1. Complete A01 with deployed staging evidence for connection-time public-egress enforcement and representative/worst-case Defuddle CPU/memory. The [Worker-first benchmark](worker-extraction-benchmark.md) confirms extractor compatibility but records actual `exceededCpu` failures under Workers Free. Use `pnpm benchmark:deploy --cpu-ms 30000` after enabling Workers Paid to measure the larger Worker budget before choosing any additional runtime. No Containers are provisioned by this PR. Local tests and network latency do not prove production fit.
+2. Configure the optional `ARTICLE_FETCHER` **HTTP service binding** to a verified fetching Worker. Its `fetch` accepts the original article URL as the request URL, makes only the requested single HTTP(S) hop, and returns the upstream status/headers/body without following redirects. It must validate all DNS/CNAME/A/AAAA candidates and enforce the public-IP policy on the actual connection, keeping original-host TLS certificate checks. It must not be an unrestricted `fetch` proxy or add cookies/credentials. This repository supplies the client and test fixture boundary, not a deployed protected gateway. Do not bind VPC access that can reach private destinations without an enforced deny policy.
+3. Declare the verified service under the selected environment's `services` array with `binding: "ARTICLE_FETCHER"` and its actual Worker name. Service bindings are environment-specific; do not point staging at production. Regenerate Wrangler types and run checks after configuring it.
+4. Set `BACKGROUND_CAPTURE_ENABLED` to `true` in that same environment only after both gates pass. Validate real scheduled extraction, private reader status, transient retry, manual-copy priority, and iOS/Android capture. Capture-token acknowledgments confirm the request rather than successful conversion.
 
-For planning, 30 captures/day × 30 days × 45 seconds awake per isolated capture is 11.25 GiB-hours and 45 GB-hours of disk. The conservative assumption of full 1/4-vCPU utilization throughout is 168.75 vCPU-minutes. Those Container figures fit the included allowance; the expected total for a small personal library is approximately $5/month before tax and other workloads. At 100 captures/day under the same assumptions, Container overage is approximately $0.34/month. These are estimates, not a spending cap; cold starts, retries, staging, and continuous backlog change the result. Measure staging and review account usage after activation. Sleeping limits idle expense; it does not impose a dollar limit.
+There is no ordinary-fetch fallback if the binding is absent. A DNS preflight followed by hostname fetch does not pin the connected address. Unsupported sources remain saved links with manual/browser capture available. See [background extraction](background-markdown-extraction.md) for protocol, limits, and acceptance cases.
 
-### Build and deploy the executor first
-
-The normal production release builds the image in GitHub Actions. Docker runs on the hosted Ubuntu runner, so Docker Desktop is optional for contributors. Local image building and Wrangler's full Container dry run require a local Docker-compatible engine. From the repository root:
-
-```sh
-pnpm typecheck
-pnpm test
-pnpm test:capture
-pnpm check:capture
-```
-
-The native tests use a real Node extraction thread and deterministic DNS fixtures; Worker tests exercise the private response protocol and fenced D1 completion. Neither suite contacts arbitrary article origins. `pnpm build` validates the base app separately. CI runs these capture checks and the full image dry run on pushes and pull requests without deployment credentials. Production publishing runs only on a push to `main` after verification passes, using the protected `production` environment's Cloudflare secrets.
-
-1. Confirm Workers Paid is acceptable for the selected account; do not silently change billing. Replace staging origins in both Wrangler configurations and use an isolated staging D1 database.
-2. Deploy the private executor before an app version that refers to it. Its `workers_dev` and `preview_urls` settings are false. Keep it without routes or custom domains. Do not attach private-network bindings, outbound hostname proxies, or application secrets. Native DNS must produce real destination addresses, and native sockets must retain numeric destination pinning.
-
-```sh
-pnpm exec wrangler deploy --config capture/wrangler.jsonc --env staging
-pnpm build:web
-pnpm exec wrangler deploy --env staging
-```
-
-The first executor deployment can need several minutes for provisioning. The production workflow builds and deploys the executor first, then migrates D1 and deploys the app. If executor deployment fails, subsequent migration/app deployment steps do not run. A standalone app deployment command still does not update the executor. The commands above are an optional manual staging path; they require Docker on the machine running them, while the normal production CI path does not require Docker on your computer. Capture remains paused until the separate activation gate passes.
-
-3. While the flag is still false, validate deployment configuration and private-only access. Temporarily enable staging capture to test real scheduled processing against controlled public, blocked, redirected, dual-stack, mixed public/private DNS, rebinding, oversized, truncated, and slow-stream sources. Check original-host TLS validation and absence of third-party extraction requests. Record cold-start latency, worst-case HTML conversion time/memory, and account usage. The 5-second conversion limit needs measurement on the 1/4-vCPU instance; local desktop speed does not establish this fit.
-4. Verify transient backoff, generation/lease fencing, manual-copy priority, edited-title protection, and reader polling. The app's 90-second service deadline is shorter than the two-minute lease. An expired result cannot commit, even if an executor survives cancellation. Copies remain create-only.
-5. Deploy the production executor using `--config capture/wrangler.jsonc --env production`, then the app with `--env production`. Set `BACKGROUND_CAPTURE_ENABLED=true` in production only after the staging evidence passes. Confirm a real scheduled capture before calling activation complete. Do not interpret a successful token save as extraction success.
-
-To pause, set the app flag to `false` and deploy the normal app configuration. This retains articles, intents, copies, and jobs. Already accepted intents resume when enabled; terminal jobs still need manual retry. Deleting an article cancels its job through the foreign key. Import/restore does not restore jobs or fetch links. Disable the flag before rolling the executor back to an incompatible protocol; the app has no ordinary-fetch fallback.
+To pause, set the flag to `false` and deploy the config through the existing workflow. This retains articles, intent, copies, and jobs; accepted jobs resume when enabled. Removing the Cron Trigger also stops dispatch but requires the normal trigger propagation period. Deletion cancels the article's job through the foreign key. Do not restore jobs/leases through library JSON imports, and do not backfill old links without a separate owner action.
 
 If the configured owner ID changes, revoke existing sessions and capture tokens as part of the change; these records are for the single library rather than separate user accounts.

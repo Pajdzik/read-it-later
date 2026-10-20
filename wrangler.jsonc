@@ -34,7 +34,6 @@
   "env": {
     "staging": {
       "name": "read-it-later-staging",
-      "services": [{ "binding": "ARTICLE_EXTRACTOR", "service": "read-it-later-capture-staging" }],
       "vars": {
         "APP_ORIGIN": "https://read-it-later-staging.<account-subdomain>.workers.dev",
         "OWNER_GITHUB_ID": "replace-with-numeric-github-user-id",
@@ -56,7 +55,6 @@
     },
     "production": {
       "name": "read-it-later-production",
-      "services": [{ "binding": "ARTICLE_EXTRACTOR", "service": "read-it-later-capture-production" }],
       "vars": {
         "APP_ORIGIN": "https://read.pajdzik.pl",
         "OWNER_GITHUB_ID": "1497744",

@@ -8,7 +8,7 @@ import {
 } from './validation.js';
 import { isResponse, requireSession, validateCaptureToken } from '../auth/core.js';
 import { enqueueExtractionJob, getExtractionStatus, getExtractionStatuses, retryExtractionJob } from './jobs.js';
-import { isBackgroundCapturePaused } from './capture-client.js';
+import { isBackgroundCapturePaused } from './source-fetch.js';
 import { getGitHubBackupConfiguration, getGitHubBackupStatus, GitHubBackupError, reconcileGitHubBackupPaths, saveGitHubBackup } from './github.js';
 import { isArticleId } from './identity.js';
 
