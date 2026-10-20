@@ -1,0 +1,10 @@
+{
+  "$schema": "../node_modules/wrangler/config-schema.json",
+  "name": "read-it-later-defuddle-benchmark-20261019",
+  "main": "worker.ts",
+  "compatibility_date": "2026-08-01",
+  "workers_dev": true,
+  "preview_urls": false,
+  "vars": { "BENCHMARK_EXPIRES_AT": "0" },
+  "observability": { "enabled": true, "head_sampling_rate": 1, "traces": { "enabled": true } }
+}

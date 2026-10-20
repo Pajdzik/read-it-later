@@ -44,6 +44,8 @@ Mobile capture tokens request background extraction by default, including existi
 
 Processing is **paused by default** in every environment. Activation requires `BACKGROUND_CAPTURE_ENABLED=true` and an `ARTICLE_FETCHER` service binding that enforces public destinations at connection time. There is no unrestricted source-fetch fallback. The deployed safe-egress and extraction CPU checks remain pending; existing automatic website extraction becomes queued/paused until activation. See [background extraction](docs/background-markdown-extraction.md), [URL Markdown capture](docs/url-markdown-capture.md), and the [deployment gate](docs/deployment.md#background-markdown-extraction).
 
+A [deployed Defuddle Worker benchmark](docs/worker-extraction-benchmark.md) confirms that the extractor runs on Workers, while larger inputs fail under the current Free CPU limit. The next trial is a larger Paid Worker CPU budget. This PR adds no Containers or Docker dependency; production capture remains paused pending runtime and safe-fetch validation.
+
 A unique SQL constraint handles concurrent duplicate saves. Duplicates keep their ID, saved date, and read state. A subsequent save can fill missing author/description or replace the generated fallback title; it preserves an edited title and reports whether metadata changed.
 
 ### Database and state
@@ -132,7 +134,7 @@ Check **Also save to GitHub** in the browser capture dialog or article details t
 
 Copies are editable Markdown text. Article details can open the last successfully saved revision in a sanitized reader or download it as a UTF-8 Markdown file with quoted YAML frontmatter. The reader remembers a numeric position per article and saved-copy revision in local browser storage; opening it after a reload restores the position only when the user opens that article. This small metadata exception contains no article text, title, or URL; the Markdown copy remains server-side. Raw HTML is shown as text, unsafe links are unlinked, and image references are shown as text because their external sources are not included. Reading and downloading do not change read state or include unsaved editor drafts. R2 is deferred until measured storage needs justify it.
 
-The A01 decision and browser-capture boundary are recorded in [markdown-preservation.md](docs/markdown-preservation.md). No deployed server extraction benchmark was run. The [background Markdown extraction design](docs/background-markdown-extraction.md) specifies the implemented D1 jobs for website and mobile saves, including existing iOS Shortcut payloads. Production processing stays paused until connection-time egress protection and deployed runtime costs are proven; local tests do not establish those guarantees. See archive tasks A01–A06 in the [implementation tracker](docs/tasks.md).
+The A01 decision and browser-capture boundary are recorded in [markdown-preservation.md](docs/markdown-preservation.md). A [deployed Worker benchmark](docs/worker-extraction-benchmark.md) now records extractor compatibility and Free CPU-limit failures; a larger Paid Worker budget remains to be tested. The [background Markdown extraction design](docs/background-markdown-extraction.md) specifies the implemented D1 jobs for website and mobile saves, including existing iOS Shortcut payloads. Production processing stays paused until connection-time egress protection and the selected runtime's limits/costs are proven. See archive tasks A01–A06 in the [implementation tracker](docs/tasks.md).
 
 ## Local development
 
