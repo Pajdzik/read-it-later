@@ -1,6 +1,7 @@
 *
 !package.json
 !pnpm-lock.yaml
+!pnpm-workspace.yaml
 !src/
 !src/articles/
 !src/articles/**
