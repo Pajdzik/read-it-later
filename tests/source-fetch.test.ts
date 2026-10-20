@@ -1,14 +1,12 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
-import type { Env } from "../src/contracts";
-import { fetchSourcePage, isBackgroundCapturePaused, SourceFetchError } from "../src/articles/source-fetch";
+import type { SourceFetchEnv } from "../src/articles/source-fetch";
+import { fetchSourcePage, SourceFetchError } from "../src/articles/source-fetch";
 
 type FetchCall = { input: RequestInfo | URL; init?: RequestInit };
-function envWith(fetch: (input: RequestInfo | URL, init?: RequestInit) => Promise<Response>, overrides: Partial<Env> = {}): Env {
+function envWith(fetch: (input: RequestInfo | URL, init?: RequestInit) => Promise<Response>, overrides: Partial<SourceFetchEnv> = {}): SourceFetchEnv {
   return {
-    DB: {} as D1Database,
-    ASSETS: {} as Fetcher,
     BACKGROUND_CAPTURE_ENABLED: "true",
-    ARTICLE_FETCHER: { fetch, connect() { throw new Error("unused"); } } as Fetcher,
+    ARTICLE_FETCHER: { fetch },
     ...overrides,
   };
 }
@@ -30,9 +28,8 @@ describe("bounded source fetching", () => {
     const globalFetch = vi.spyOn(globalThis, "fetch");
     const fetcher = vi.fn(async () => html());
     const disabled = envWith(fetcher, { BACKGROUND_CAPTURE_ENABLED: undefined });
-    expect(isBackgroundCapturePaused(disabled)).toBe(true);
     await expectFetchError(fetchSourcePage("https://news.example.com/post", disabled), "capture_paused");
-    expect(isBackgroundCapturePaused(envWith(fetcher, { ARTICLE_FETCHER: undefined }))).toBe(true);
+    await expectFetchError(fetchSourcePage("https://news.example.com/post", envWith(fetcher, { ARTICLE_FETCHER: undefined })), "capture_paused");
     expect(globalFetch).not.toHaveBeenCalled();
     expect(fetcher).not.toHaveBeenCalled();
     globalFetch.mockRestore();
@@ -47,7 +44,7 @@ describe("bounded source fetching", () => {
     });
     const result = await fetchSourcePage("https://news.example.com/start", env);
     expect(result.url).toBe("https://news.example.com/story");
-    expect(result.metadata.title).toBe("Fixture");
+    expect(result.html).toContain("<title>Fixture</title>");
     expect(calls).toHaveLength(2);
     for (const call of calls) {
       expect(call.init?.redirect).toBe("manual");

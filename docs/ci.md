@@ -1,8 +1,8 @@
 # CI checks
 
-The `Checks` workflow runs on every push and pull request. It installs the pinned pnpm and Node.js versions, checks TypeScript in every runtime, runs unit tests, builds the Worker in dry-run mode, installs Chromium and WebKit for Playwright, runs the desktop browser smoke and Android/iPhone mobile emulation against fresh local Worker/D1 databases, and rehearses archive restoration in a separate temporary local D1 database. After all checks pass on a push to `main`, it applies pending production D1 migrations and deploys the production Worker.
+The `Checks` workflow runs on every push and pull request. It installs the pinned pnpm and Node.js versions, checks TypeScript in every runtime, runs unit tests, builds the Worker in dry-run mode, installs Chromium and WebKit for Playwright, runs the desktop browser smoke and Android/iPhone mobile emulation against fresh local Worker/D1 databases, and rehearses archive restoration in a separate temporary local D1 database. It also tests the native capture executor and builds its Container image/private Worker in dry-run mode using Docker on the hosted Ubuntu runner. After all checks pass on a push to `main`, it builds and deploys the private capture service first, applies pending production D1 migrations, and deploys the app Worker.
 
-The production job uses the `production` GitHub Actions environment and requires `CLOUDFLARE_API_TOKEN` and `CLOUDFLARE_ACCOUNT_ID` secrets. The token needs Workers Scripts Edit and D1 Edit permissions for the configured production resources. Pull requests and pushes to other branches never run the production job.
+The production job uses the `production` GitHub Actions environment and requires `CLOUDFLARE_API_TOKEN` and `CLOUDFLARE_ACCOUNT_ID` secrets. The token needs Workers Scripts Edit, Containers Edit, and D1 Edit permissions for the intended account/resources, including both app and capture Workers. Workers Paid must be enabled. No local Docker installation is required for the CI release path. Pull requests and pushes to other branches never run the production job.
 
 The extension suite (`pnpm test:extension`) runs only when extension sources, extension build/test scripts, package/dependency files, or its CI wiring change. Documentation-only and unrelated website/API changes skip that step; the regular checks still run. Pull requests compare their complete change set against the base branch; pushes compare the previous and new tip, so a documentation-only follow-up push can skip the suite even if its PR still includes extension changes. New branches compare against the default branch. Manual workflow runs always include the extension suite, and unavailable Git history causes it to run rather than silently skip.
 
@@ -27,6 +27,7 @@ pnpm install --frozen-lockfile
 pnpm check
 pnpm typecheck
 pnpm test
+pnpm test:capture
 pnpm build
 pnpm exec playwright install --with-deps chromium webkit
 pnpm test:browser
@@ -41,3 +42,5 @@ pnpm test:github
 `test:archive` includes focused backup-envelope tests and a generated-library restore rehearsal. Its report contains counts and byte measurements only. It blocks external browser requests and verifies restored Markdown reading/download without accessing production or requiring OAuth secrets. To rehearse your own downloaded export, see [archive rehearsal](archive-rehearsal.md).
 
 `test:mobile` creates a temporary Wrangler config, local Worker and fresh D1 directory, then runs touch flows with the Playwright Pixel 7/Chromium and iPhone 13/WebKit profiles. It covers local capture-token success/duplicate/revocation, share-target review and draft recovery, network-failure retry, read-state persistence, mobile layouts, manifest icons, and populated service-worker cache boundaries. It uses dummy local auth settings and a local HTML fixture. Browser emulation does not replace actual-device Share Sheet, install, keyboard, Safari, or Shortcuts checks; see [mobile release validation](mobile-release.md).
+
+`pnpm check:capture` performs the full Container image/private Worker dry run. It requires a Docker engine locally; GitHub Actions runs it on the hosted runner. Capture remains paused until staging validation and explicit activation.

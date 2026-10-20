@@ -1,25 +1,17 @@
-import type { Env } from "../contracts";
-import { parseArticleMetadata, type ArticleMetadata } from "./metadata";
+import { SourceFetchError } from "./capture-protocol";
+export { SourceFetchError } from "./capture-protocol";
+
+/** Internal executor dependency, implemented with native, pinned Node connections. */
+export interface SourceFetchEnv {
+  APP_ORIGIN?: string;
+  BACKGROUND_CAPTURE_ENABLED?: string;
+  ARTICLE_FETCHER?: { fetch(input: string, init: RequestInit): Promise<Response> };
+}
 
 const MAX_HTML_BYTES = 512 * 1024;
 const HOP_TIMEOUT_MS = 5_000;
 const TOTAL_TIMEOUT_MS = 20_000;
 const MAX_REDIRECTS = 3;
-
-export class SourceFetchError extends Error {
-  constructor(
-    readonly code: string,
-    readonly retryable: boolean,
-    readonly retryAfterSeconds?: number,
-  ) {
-    super(code);
-    this.name = "SourceFetchError";
-  }
-}
-
-export function isBackgroundCapturePaused(env: Env): boolean {
-  return env.BACKGROUND_CAPTURE_ENABLED !== "true" || !env.ARTICLE_FETCHER;
-}
 
 function fail(code: string, retryable = false, retryAfterSeconds?: number): never {
   throw new SourceFetchError(code, retryable, retryAfterSeconds);
@@ -44,7 +36,7 @@ const RESTRICTED_SUFFIXES = [
   ".test", ".invalid", ".example", ".onion", ".arpa", ".svc", ".cluster.local",
 ];
 
-function validateTarget(raw: string, env: Env): URL {
+export function validateTarget(raw: string, env: Pick<SourceFetchEnv, "APP_ORIGIN">): URL {
   let target: URL;
   try {
     target = new URL(raw);
@@ -155,13 +147,13 @@ async function readHtml(response: Response, signal: AbortSignal): Promise<string
 }
 
 /**
- * Fetches only through the configured connection-time public-egress gateway.
- * That service must resolve and validate every A/AAAA/CNAME candidate and
- * connect to a validated public address while preserving TLS hostname checks.
+ * Executor-only bounded pipeline. The supplied transport must validate every
+ * resolved address and connect to a selected numeric public address while
+ * preserving the original hostname for TLS checks (capture/pinned-fetch.ts).
  * A Worker-side DNS preflight cannot prove which address an ordinary fetch uses.
  */
-export async function fetchSourcePage(url: string, env: Env): Promise<{ html: string; url: string; metadata: ArticleMetadata }> {
-  if (isBackgroundCapturePaused(env)) fail("capture_paused");
+export async function fetchSourcePage(url: string, env: SourceFetchEnv): Promise<{ html: string; url: string }> {
+  if (env.BACKGROUND_CAPTURE_ENABLED !== "true") fail("capture_paused");
   const fetcher = env.ARTICLE_FETCHER;
   if (!fetcher) fail("capture_paused");
 
@@ -241,8 +233,6 @@ export async function fetchSourcePage(url: string, env: Env): Promise<{ html: st
       fail(Date.now() >= deadline || controller.signal.aborted ? "timeout" : "network_error", true);
     }
     finally { clearTimeout(timeoutId!); }
-    let metadata: ArticleMetadata;
-    try { metadata = parseArticleMetadata(html); } catch { fail("invalid_html"); }
-    return { html, url: target.href, metadata };
+    return { html, url: target.href };
   }
 }

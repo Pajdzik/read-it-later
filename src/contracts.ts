@@ -11,8 +11,8 @@ export interface Env {
   GITHUB_BACKUP_PATH?: string;
   GITHUB_BACKUP_TOKEN?: string;
   BACKGROUND_CAPTURE_ENABLED?: string;
-  /** Must enforce public destinations at connection time; never an unrestricted fetch proxy. */
-  ARTICLE_FETCHER?: Fetcher;
+  /** Private Cloudflare Container capture service; returns Markdown and metadata, never source HTML. */
+  ARTICLE_EXTRACTOR?: Fetcher;
 }
 
 export interface ExtractionStatus {

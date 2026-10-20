@@ -496,6 +496,9 @@ function extractionFailureMessage(code: string | null | undefined) {
     case "source_unavailable": return "The source site could not be reached.";
     case "upstream_http": return "The source site refused the request or is unavailable.";
     case "network_error": return "A network error interrupted capture.";
+    case "capture_busy":
+    case "capture_unavailable":
+    case "invalid_capture_response": return "The capture service is temporarily unavailable.";
     case "timeout": return "The source site took too long to respond.";
     case "unsupported_content":
     case "unsupported_content_type": return "This link does not serve a supported article page.";

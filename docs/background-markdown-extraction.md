@@ -1,6 +1,6 @@
 # Background Markdown extraction
 
-Design and implementation specification, October 6, 2026. The repository now implements durable intents, leased D1 jobs, the gated processor, and website/mobile status flows. Processing defaults to paused; no production activation or deployed fetch/runtime evidence is claimed. The A01 release checks still apply. The sections below retain the proposed architecture and contracts for review.
+Updated October 19, 2026: [Cloudflare Container capture](cloudflare-capture.md) supersedes the fetch/runtime architecture in this original October 6 specification. The app now calls a private `ARTICLE_EXTRACTOR` service for both retrieval and conversion; native Node sockets pin validated public IPs, and Defuddle runs in a bounded Container thread. Existing D1 intent, fencing, retry, API, and reader contracts below remain applicable. Processing stays paused pending deployment and staging validation. The older `ARTICLE_FETCHER` deployment instructions and Workers Free conversion discussion below describe the previous design, not current setup. Use the [current deployment instructions](deployment.md#background-markdown-extraction).
 
 Save the link and a durable extraction request, acknowledge the save, then fetch and convert the article on the server. An iOS Shortcut or mobile browser can close immediately after the acknowledgment. The copy becomes available in the existing reader when extraction completes.
 
