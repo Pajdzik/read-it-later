@@ -49,6 +49,9 @@ jobs:
       - name: Run Worker and D1 tests
         run: pnpm test
 
+      - name: Build fixture-only Defuddle Worker (dry run)
+        run: pnpm build:benchmark
+
       - name: Build for deployment (dry run)
         run: pnpm build
 
