@@ -1,6 +1,6 @@
 # Background Markdown extraction
 
-Design and implementation specification, October 6, 2026. The repository now implements durable intents, leased D1 jobs, the gated processor, and website/mobile status flows. Processing defaults to paused; no production activation or deployed fetch/runtime evidence is claimed. The A01 release checks still apply. The sections below retain the proposed architecture and contracts for review.
+Design and implementation specification, October 6, 2026. Update October 19: a [deployed Worker-first Defuddle trial](worker-extraction-benchmark.md) proves runtime compatibility and records Free-plan CPU failures on larger inputs. Extraction remains in the existing Worker; the proposed Container deployment was removed. Paid Worker resource validation and protected source fetching are still activation gates. Processing defaults to paused. The sections below retain the storage/API/UI contracts for review.
 
 Save the link and a durable extraction request, acknowledge the save, then fetch and convert the article on the server. An iOS Shortcut or mobile browser can close immediately after the acknowledgment. The copy becomes available in the existing reader when extraction completes.
 

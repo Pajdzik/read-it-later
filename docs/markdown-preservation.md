@@ -1,5 +1,7 @@
 # Markdown preservation and browser capture (A01 decision and A02 design)
 
+October 19 update: the [Worker-first Defuddle benchmark](worker-extraction-benchmark.md) now supplies deployed extraction evidence and Free CPU-limit failures. The historical browser/manual decision below remains the safe production fallback while protected fetching and a larger Paid Worker budget are validated.
+
 ## Decision
 
 Update: the ordinary Add form and mobile capture API now record durable [background URL Markdown capture](url-markdown-capture.md), creating copies through leased D1 jobs after the link is saved. The processor stays paused until a protected fetch service and deployed runtime validation satisfy A01; the historical manual/browser decision below records the original boundary. Full deployed DNS/rebinding and performance evidence remains pending.
