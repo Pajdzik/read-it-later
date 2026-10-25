@@ -1167,12 +1167,14 @@ body:has(#reader-dialog[open]) {
     grid-row: 1;
   }
   .search-control .search {
+    display: none;
     position: absolute;
     top: calc(100% + 8px);
     right: 0;
     z-index: 5;
   }
   .search-control.is-open .search {
+    display: flex;
     width: min(280px, calc(100vw - 30px));
     box-shadow: var(--shadow);
   }
