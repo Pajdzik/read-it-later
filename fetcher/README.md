@@ -6,6 +6,8 @@ The gateway Worker is private (`workers_dev: false`, preview URLs disabled, no r
 
 The Node Container checks the source URL and every CNAME/A/AAAA result against the public address policy, then uses a fresh socket request to a numeric address. It keeps the original URL hostname for `Host`, TLS SNI, and certificate identity verification. TLS verification is enabled, redirects are returned to the app for validation, compressed bodies are rejected, and no upstream cookies/authentication are forwarded. It deliberately does not use a proxy, Cloudflare HTTPS interception, Node's global `fetch()`, or a DNS preflight followed by a hostname connection.
 
+The fixed internal POST request uses JSON protocol v2. Responses carry bounded raw bytes and an explicit `x-safe-fetch-protocol: 2` marker, or a stable `x-safe-fetch-error`; mixed protocol versions fail closed. Source pages cannot supply these internal headers. This removes base64 encoding and JSON response decoding. The gateway grants Container readiness up to ten seconds, followed by a separate five-second fetch budget. The app allows the startup allowance only on the first hop and retains its twenty-second overall fetch deadline. Startup cancellation prevents a later readiness result from dispatching the article request.
+
 ## Local checks
 
 ```sh
@@ -21,6 +23,6 @@ The Node tests use local HTTP/TLS fixtures and ephemeral test certificates. The 
 
 ## Manual deployment
 
-Use the repository's manual `Deploy article fetcher` workflow, selecting staging first and supplying that environment's exact app origin. It deploys only the private gateway Worker and Container; it does not change the app's flag or service bindings. The workflow requires the selected GitHub environment's Cloudflare credentials and the existing account's Container/Worker permissions. Review costs and current Container instance limits before running it.
+Use the repository's manual `Deploy capture stack (paused)` workflow, selecting staging first and supplying that environment's exact app origin. It validates the configured owner/database, builds the image input and website, applies D1 migrations, deploys the gateway, then deploys the app with the correct service binding and capture paused. The workflow requires the selected GitHub environment's Cloudflare credentials and Worker, Container, and D1 permissions. It shares the production deployment concurrency group with the existing app workflow. Review costs and current Container instance limits before running it.
 
-After deployment, add `ARTICLE_FETCHER` to the staging app's `services` binding with the exact staged gateway Worker name. Keep production unbound until staging verifies DNS policy, numeric connection pinning, TLS validation, redirect handling, timeouts, and representative target coverage. Remote Container behavior is a release check; local fixtures do not prove Cloudflare's network path. See [the full boundary and probe findings](../docs/worker-safe-fetch.md).
+The workflow's generated binding must be committed to the selected environment's source config before returning to ordinary app-only deployments; those otherwise use the checked-in config. Activation is a later reviewed config change. Keep production disabled until staging verifies DNS policy, numeric connection pinning, TLS validation, redirect handling, cold starts, timeouts, and representative target coverage. Remote Container behavior is a release check; local fixtures do not prove Cloudflare's network path. See [the full boundary and probe findings](../docs/worker-safe-fetch.md).

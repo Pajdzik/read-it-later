@@ -1,6 +1,7 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 import type { Env } from "../src/contracts";
 import { fetchSourcePage, isBackgroundCapturePaused, SourceFetchError } from "../src/articles/source-fetch";
+import { CONTAINER_STARTUP_TIMEOUT_MS, SOURCE_HOP_TIMEOUT_MS, SOURCE_TOTAL_TIMEOUT_MS } from "../src/articles/capture-limits";
 
 type FetchCall = { input: RequestInfo | URL; init?: RequestInit };
 function envWith(fetch: (input: RequestInfo | URL, init?: RequestInit) => Promise<Response>, overrides: Partial<Env> = {}): Env {
@@ -118,12 +119,12 @@ describe("bounded source fetching", () => {
     await expectFetchError(fetchSourcePage("https://news.example.com/post", envWith(async () => oversized)), "source_too_large");
   });
 
-  it("enforces the per-hop timeout even when a fetcher ignores abort", async () => {
+  it("bounds first-hop startup plus fetching even when a fetcher ignores abort", async () => {
     vi.useFakeTimers();
     const env = envWith(() => new Promise<Response>(() => undefined));
     const pending = fetchSourcePage("https://news.example.com/post", env);
     const assertion = expectFetchError(pending, "timeout");
-    await vi.advanceTimersByTimeAsync(5_001);
+    await vi.advanceTimersByTimeAsync(CONTAINER_STARTUP_TIMEOUT_MS + SOURCE_HOP_TIMEOUT_MS + 1);
     await assertion;
   });
 
@@ -136,7 +137,7 @@ describe("bounded source fetching", () => {
     }), { headers: { "Content-Type": "text/html" } });
     const blocked = fetchSourcePage("https://news.example.com/blocked", envWith(async () => blockedBody));
     const blockedAssertion = expectFetchError(blocked, "timeout");
-    await vi.advanceTimersByTimeAsync(5_001);
+    await vi.advanceTimersByTimeAsync(CONTAINER_STARTUP_TIMEOUT_MS + SOURCE_HOP_TIMEOUT_MS + 1);
     await blockedAssertion;
     expect(streamCancelled).toBe(true);
 
@@ -145,7 +146,7 @@ describe("bounded source fetching", () => {
     let lateBodyCancelled = false;
     const late = fetchSourcePage("https://news.example.com/late", envWith(() => lateFetch));
     const lateAssertion = expectFetchError(late, "timeout");
-    await vi.advanceTimersByTimeAsync(5_001);
+    await vi.advanceTimersByTimeAsync(CONTAINER_STARTUP_TIMEOUT_MS + SOURCE_HOP_TIMEOUT_MS + 1);
     await lateAssertion;
     resolveFetch(new Response(new ReadableStream<Uint8Array>({ cancel() { lateBodyCancelled = true; } }), {
       headers: { "Content-Type": "text/html" },
@@ -159,5 +160,44 @@ describe("bounded source fetching", () => {
     const error = new SourceFetchError("unsafe_destination", false);
     expect(error).toBeInstanceOf(Error);
     expect(error.retryable).toBe(false);
+  });
+
+  it("allows a bounded cold start but does not grant startup time again after redirects", async () => {
+    vi.useFakeTimers();
+    const slowFirst = fetchSourcePage("https://news.example.com/story", envWith(() => new Promise<Response>((resolve) => {
+      setTimeout(() => resolve(html()), SOURCE_HOP_TIMEOUT_MS + 100);
+    })));
+    await vi.advanceTimersByTimeAsync(SOURCE_HOP_TIMEOUT_MS + 101);
+    expect((await slowFirst).metadata.title).toBe("Fixture");
+
+    let requests = 0;
+    const redirected = fetchSourcePage("https://news.example.com/start", envWith(async () => {
+      requests++;
+      if (requests === 1) return new Response(null, { status: 302, headers: { Location: "/story" } });
+      return new Promise<Response>(() => undefined);
+    }));
+    const assertion = expectFetchError(redirected, "timeout");
+    await vi.advanceTimersByTimeAsync(SOURCE_HOP_TIMEOUT_MS + 1);
+    await assertion;
+    expect(requests).toBe(2);
+  });
+
+  it("keeps the overall fetch deadline across a cold start and several redirects", async () => {
+    vi.useFakeTimers();
+    let requests = 0;
+    let lastSignal: AbortSignal | undefined;
+    const pending = fetchSourcePage("https://news.example.com/start", envWith((_input, init) => {
+      requests++;
+      lastSignal = init?.signal ?? undefined;
+      const current = requests;
+      return new Promise<Response>((resolve) => setTimeout(() => resolve(current < 4
+        ? new Response(null, { status: 302, headers: { Location: `/hop-${current}` } })
+        : html()), current === 1 ? 9_000 : 4_000));
+    }));
+    const assertion = expectFetchError(pending, "timeout");
+    await vi.advanceTimersByTimeAsync(SOURCE_TOTAL_TIMEOUT_MS + 1);
+    await assertion;
+    expect(requests).toBe(4);
+    expect(lastSignal?.aborted).toBe(true);
   });
 });

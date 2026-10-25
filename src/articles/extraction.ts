@@ -1,4 +1,5 @@
 import { DOMParser, parseHTML } from 'linkedom';
+import type { ArticleDocument } from './metadata';
 
 // The full bundle's Markdown converter expects a DOMParser. Install a fixed,
 // inert parser before loading it; each call creates a separate document.
@@ -13,8 +14,13 @@ if (!('window' in globalThis)) Object.defineProperty(globalThis, 'window', { val
 export class ArticleExtractionError extends Error {}
 
 /** Parse the already fetched HTML without scripts or third-party extraction requests. */
-export async function extractArticleMarkdown(html: string, url: string): Promise<string> {
-  const { document } = parseHTML(html);
+export function parseArticleDocument(html: string): ArticleDocument {
+  return parseHTML(html).document;
+}
+
+/** Extract from either fetched HTML or an already parsed inert document. */
+export async function extractArticleMarkdown(input: string | ArticleDocument, url: string): Promise<string> {
+  const document = typeof input === 'string' ? parseArticleDocument(input) : input;
   const { default: Defuddle } = await import('defuddle/full');
   const result = new Defuddle(document, { url, markdown: true, useAsync: false, removeHiddenElements: false }).parse();
   const markdown = result.content;

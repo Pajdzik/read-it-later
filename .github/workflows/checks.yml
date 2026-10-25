@@ -51,6 +51,9 @@ jobs:
       - name: Run Worker and D1 tests
         run: pnpm test
 
+      - name: Validate the paused capture deployment plan
+        run: pnpm test:capture-deployment
+
       - name: Build fixture-only Defuddle Worker (dry run)
         run: pnpm build:benchmark
 

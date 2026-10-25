@@ -1,13 +1,13 @@
 import type { Env } from "../contracts";
-import { parseArticleMetadata, type ArticleMetadata } from "./metadata";
+import { parseArticleMetadata, type ArticleDocument, type ArticleMetadata } from "./metadata";
+import { parseArticleDocument } from "./extraction";
 import { failSourceFetch as fail, SourceFetchError, validateSourceTarget as validateTarget } from "./source-policy";
 import { FETCH_FAILURE_HEADER, isFetchErrorCode } from "../../fetcher/protocol";
+import { CONTAINER_STARTUP_TIMEOUT_MS, SOURCE_HOP_TIMEOUT_MS, SOURCE_TOTAL_TIMEOUT_MS } from "./capture-limits";
 
 export { SourceFetchError } from "./source-policy";
 
 const MAX_HTML_BYTES = 512 * 1024;
-const HOP_TIMEOUT_MS = 5_000;
-const TOTAL_TIMEOUT_MS = 20_000;
 const MAX_REDIRECTS = 3;
 
 export function isBackgroundCapturePaused(env: Env): boolean {
@@ -97,12 +97,12 @@ async function readHtml(response: Response, signal: AbortSignal): Promise<string
  * connect to a validated public address while preserving TLS hostname checks.
  * A Worker-side DNS preflight cannot prove which address an ordinary fetch uses.
  */
-export async function fetchSourcePage(url: string, env: Env): Promise<{ html: string; url: string; metadata: ArticleMetadata }> {
+export async function fetchSourcePage(url: string, env: Env): Promise<{ html: string; document: ArticleDocument; url: string; metadata: ArticleMetadata }> {
   if (isBackgroundCapturePaused(env)) fail("capture_paused");
   const fetcher = env.ARTICLE_FETCHER;
   if (!fetcher) fail("capture_paused");
 
-  const deadline = Date.now() + TOTAL_TIMEOUT_MS;
+  const deadline = Date.now() + SOURCE_TOTAL_TIMEOUT_MS;
   const visited = new Set<string>();
   let target = validateTarget(url, env);
   for (let redirects = 0; ; redirects++) {
@@ -113,7 +113,9 @@ export async function fetchSourcePage(url: string, env: Env): Promise<{ html: st
     if (remaining <= 0) fail("timeout", true);
 
     const controller = new AbortController();
-    const hopMs = Math.min(HOP_TIMEOUT_MS, remaining);
+    // The gateway enforces its network deadline after readiness; only the first
+    // hop can spend an additional bounded allowance waking the Container.
+    const hopMs = Math.min(SOURCE_HOP_TIMEOUT_MS + (redirects === 0 ? CONTAINER_STARTUP_TIMEOUT_MS : 0), remaining);
     let activeResponse: Response | undefined;
     let timeoutId: ReturnType<typeof setTimeout>;
     const hopTimeout = new Promise<never>((_, reject) => {
@@ -184,8 +186,12 @@ export async function fetchSourcePage(url: string, env: Env): Promise<{ html: st
       fail(Date.now() >= deadline || controller.signal.aborted ? "timeout" : "network_error", true);
     }
     finally { clearTimeout(timeoutId!); }
+    let document: ArticleDocument;
     let metadata: ArticleMetadata;
-    try { metadata = parseArticleMetadata(html); } catch { fail("invalid_html"); }
-    return { html, url: target.href, metadata };
+    try {
+      document = parseArticleDocument(html);
+      metadata = parseArticleMetadata(document);
+    } catch { fail("invalid_html"); }
+    return { html, document, url: target.href, metadata };
   }
 }
