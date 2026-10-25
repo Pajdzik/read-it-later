@@ -351,6 +351,7 @@ async function runProfile(name, browserType, device) {
   page.once("dialog", (dialog) => dialog.accept());
   await detail.getByRole("button", { name: "Save Markdown copy" }).tap();
   await detail.getByText(/pasted Markdown/).waitFor();
+  await detail.getByRole("button", { name: "Read saved copy" }).waitFor({ state: "visible" });
   await detail.getByRole("button", { name: "Read saved copy" }).tap();
   await page.locator("#reader-body").getByRole("heading", { name: "Wide reader check" }).waitFor();
   assert.equal(await page.evaluate(() => document.documentElement.scrollWidth > innerWidth), false,
