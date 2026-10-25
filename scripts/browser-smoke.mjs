@@ -1,4 +1,5 @@
 import { chromium } from "playwright";
+import { expect } from "playwright/test";
 import { spawn } from "node:child_process";
 import { mkdtemp, readFile, rm } from "node:fs/promises";
 import os from "node:os";
@@ -107,6 +108,15 @@ try {
     viewport: { width: 1440, height: 1000 },
   });
   const page = await context.newPage();
+  const waitForList = async (opener) => {
+    await expect(page).toHaveURL(base + "/");
+    // List restoration scrolls before returning focus to the opener.
+    await expect(opener).toBeFocused();
+  };
+  const closeReader = async (opener) => {
+    await page.locator("#reader-dialog").getByRole("button", { name: "Close saved copy" }).click();
+    await waitForList(opener);
+  };
   const errors = [];
   page.on("pageerror", (error) => errors.push(error.message));
   await page.route("**/api/session", async (route) =>
@@ -453,13 +463,13 @@ try {
   assert.equal(await page.evaluate((id) => localStorage.getItem(`later-reading-position:${encodeURIComponent(id)}`), entryFixture.id), null,
     "An obsolete revision position should be cleared when the replacement copy opens.");
   assert.equal(await page.evaluate(async (id) => (await (await fetch(`/api/articles/${id}`)).json()).article.readAt, entryFixture.id), entryReadState, "Opening a lead must not change read state.");
-  await reader.getByRole("button", { name: "Close saved copy" }).click();
+  await closeReader(entryLead);
   await page.evaluate((id) => localStorage.setItem(`later-reading-position:${encodeURIComponent(id)}`, "{"), entryFixture.id);
   await entryTitle.click();
   await reader.getByRole("heading", { name: "Reader entry smoke" }).waitFor();
   await reader.locator("#reader-body").getByText("Rendered from the saved copy.").waitFor();
   assert.ok(await reader.evaluate((dialog) => dialog.scrollTop <= 1), "Corrupt position metadata should fall back to the top.");
-  await reader.getByRole("button", { name: "Close saved copy" }).click();
+  await closeReader(entryTitle);
   await page.evaluate(() => {
     window.__savedStorageMethods = { getItem: Storage.prototype.getItem, setItem: Storage.prototype.setItem };
     Storage.prototype.getItem = () => { throw new Error("storage disabled"); };
@@ -469,7 +479,7 @@ try {
   await reader.getByRole("heading", { name: "Reader entry smoke" }).waitFor();
   await reader.locator("#reader-body").getByText("Rendered from the saved copy.").waitFor();
   assert.ok(await reader.evaluate((dialog) => dialog.scrollTop <= 1), "Disabled storage should not prevent reading.");
-  await reader.getByRole("button", { name: "Close saved copy" }).click();
+  await closeReader(entryTitle);
   await page.evaluate(() => {
     Storage.prototype.getItem = window.__savedStorageMethods.getItem;
     Storage.prototype.setItem = window.__savedStorageMethods.setItem;
@@ -509,6 +519,7 @@ try {
   assert.equal(await page.locator("#reader-dialog").isHidden(), true, "Opening Edit during a pending title read must suppress the stale reader.");
   await page.unroute(`**/api/articles/${articleId}/copy`);
   await page.locator("#detail-dialog .dialog-close button").click();
+  await waitForList(title);
   const readStateBefore = await page.evaluate(async (id) => (await (await fetch(`/api/articles/${id}`)).json()).article.readAt, articleId);
   let imageMarkerRequests = 0;
   page.on("request", (request) => {
@@ -585,7 +596,7 @@ try {
     const toolbarBottom = dialog.querySelector(".reader-toolbar").getBoundingClientRect().bottom;
     return [...dialog.querySelector("#reader-body").children].findIndex((block) => block.getBoundingClientRect().bottom > toolbarBottom);
   });
-  await reader.getByRole("button", { name: "Close saved copy" }).click();
+  await closeReader(title);
   await title.click();
   await reader.getByRole("heading", { name: "Browser smoke article" }).waitFor();
   await page.evaluate(() => new Promise((resolve) => requestAnimationFrame(() => requestAnimationFrame(resolve))));
@@ -620,8 +631,7 @@ try {
   await page.screenshot({ path: "/tmp/potem-a03-mobile.png" });
   await page.setViewportSize({ width: 1440, height: 1000 });
   await reader.evaluate((dialog) => { dialog.scrollTop = dialog.scrollHeight; });
-  await page.waitForTimeout(50);
-  assert.ok(await reader.evaluate((dialog) => dialog.scrollTop > 0), "Long reader content should scroll inside the dialog.");
+  await expect.poll(() => reader.evaluate((dialog) => dialog.scrollTop), { message: "Long reader content should scroll inside the dialog." }).toBeGreaterThan(0);
   await reader.evaluate((dialog) => { dialog.dispatchEvent(new Event("scroll")); window.dispatchEvent(new Event("pagehide")); });
   const pagehidePosition = await page.evaluate((id) => JSON.parse(localStorage.getItem(`later-reading-position:${encodeURIComponent(id)}`)), articleId);
   assert.ok(pagehidePosition?.scrollTop > 0, "pagehide should flush a pending reader position synchronously.");
@@ -634,7 +644,7 @@ try {
   assert.ok(backBounds && backBounds.width >= 44 && backBounds.height >= 44 && backBounds.y >= 0 && backBounds.y + backBounds.height <= 1000,
     `Reader Back control should remain reachable after a long scroll: ${JSON.stringify(backBounds)}.`);
   await reader.evaluate((dialog) => { dialog.scrollTop = 600; window.dispatchEvent(new Event("pagehide")); });
-  await reader.getByRole("button", { name: "Close saved copy" }).click();
+  await closeReader(title);
   assert.equal(await page.evaluate(() => window.scrollY), backgroundScroll,
     "Closing the reader should restore the background page position.");
   assert.equal(await page.evaluate(() => document.activeElement?.textContent?.trim()), "Browser smoke article",
@@ -686,15 +696,17 @@ try {
   assert.equal(await page.evaluate(async (id) => (await (await fetch(`/api/articles/${id}`)).json()).article.readAt, articleId), readStateBefore,
     "Restoring a saved position must not change read state.");
   await reader.evaluate((dialog) => { dialog.scrollTop = 0; });
-  await page.waitForTimeout(400);
+  await expect.poll(() => page.evaluate((id) => JSON.parse(localStorage.getItem(`later-reading-position:${encodeURIComponent(id)}`))?.scrollTop, articleId), { message: "Scrolling to the top should persist a zero position." }).toBe(0);
+  // Reload discarded the in-memory opener; this close only restores the URL.
   await reader.getByRole("button", { name: "Close saved copy" }).click();
+  await expect(page).toHaveURL(base + "/");
   const returnedToTop = await page.evaluate((id) => JSON.parse(localStorage.getItem(`later-reading-position:${encodeURIComponent(id)}`)), articleId);
   assert.equal(returnedToTop.scrollTop, 0, "Scrolling to the top must persist a zero position.");
   await title.click();
   await reader.getByRole("heading", { name: "Browser smoke article" }).waitFor();
   await page.evaluate(() => new Promise((resolve) => requestAnimationFrame(() => requestAnimationFrame(resolve))));
   assert.ok(await reader.evaluate((dialog) => dialog.scrollTop <= 1), "Reopening a saved top position should stay at zero after rendering.");
-  await reader.getByRole("button", { name: "Close saved copy" }).click();
+  await closeReader(title);
   assert.equal(await reader.locator("#reader-body").textContent(), "", "Closing the reader must discard its private DOM.");
   await article.getByRole("button", { name: "Edit", exact: true }).click();
   await detail.locator(".copy-status").getByText(/pasted Markdown/).waitFor();

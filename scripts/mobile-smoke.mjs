@@ -1,4 +1,5 @@
 import { chromium, webkit, devices } from "playwright";
+import { expect } from "playwright/test";
 import { spawn } from "node:child_process";
 import { mkdtemp, mkdir, rm, writeFile } from "node:fs/promises";
 import os from "node:os";
@@ -342,28 +343,18 @@ async function runProfile(name, browserType, device) {
   await page.locator("#theme-toggle").selectOption("light");
   await page.locator("#settings-dialog .dialog-close button").tap();
   const listRoute = new URL(page.url()).pathname;
+  const waitForList = async (opener) => {
+    await expect(page).toHaveURL((url) => url.pathname === listRoute);
+    // The list restores its scroll position before returning focus.
+    await expect(opener).toBeFocused();
+  };
   await titleButton.tap();
   await readyReader.locator("#reader-body").getByRole("heading", { name: shareTitle }).waitFor();
   assert.equal(new URL(page.url()).pathname, await titleButton.getAttribute("href"),
     `${name}: reopening from the list should use the canonical URL.`);
   await page.screenshot({ path: screenshot("portrait-reader-light") });
   await page.locator("#reader-dialog .reader-close button").tap();
-  try {
-    await page.waitForFunction((expectedPath) => location.pathname === expectedPath, listRoute, { timeout: 5000 });
-  } catch {
-    const state = await page.evaluate(() => ({
-      url: location.href,
-      historyState: history.state,
-      readerOpen: document.querySelector("#reader-dialog")?.open,
-      readerTitle: document.querySelector("#reader-title")?.textContent,
-      readerBody: document.querySelector("#reader-body")?.textContent?.slice(0, 240),
-      detailOpen: document.querySelector("#detail-dialog")?.open,
-      activeElement: document.activeElement?.outerHTML?.slice(0, 240),
-    }));
-    throw new Error(`${name}: list-origin reader did not return to the list route after close: ${JSON.stringify(state)}`);
-  }
-  assert.equal(await page.evaluate((id) => document.activeElement?.dataset.articleId === id, shareArticleId), true,
-    `${name}: closing a list-opened reader should restore focus to its title link.`);
+  await waitForList(titleButton);
   await page.locator("#settings-open").tap();
   await page.locator("#theme-toggle").selectOption("dark");
   await page.locator("#settings-dialog .dialog-close button").tap();
@@ -488,6 +479,7 @@ async function runProfile(name, browserType, device) {
     return pageData.items.find((item) => item.id === id)?.readAt;
   }, articleId), null, `${name}: opening the saved title changed read state.`);
   await page.locator("#reader-dialog .reader-close button").tap();
+  await waitForList(detail.getByRole("button", { name: "Read saved copy" }));
   await page.reload();
   await page.locator('[data-status="unread"]').tap();
   await titleButton.waitFor();
@@ -499,6 +491,7 @@ async function runProfile(name, browserType, device) {
     return pageData.items.find((item) => item.id === id)?.readAt;
   }, articleId), null, `${name}: reopening a persisted reader changed read state.`);
   await page.locator("#reader-dialog .reader-close button").tap();
+  await waitForList(titleButton);
 
   // Narrow and short landscape layouts must keep the Add and navigation
   // controls reachable by touch without document-level horizontal scrolling.
@@ -525,6 +518,7 @@ async function runProfile(name, browserType, device) {
     `${name}: Back control must remain reachable in short landscape: ${JSON.stringify(landscapeBackBounds)}.`);
   await page.screenshot({ path: screenshot("landscape-reader-short") });
   await page.locator("#reader-dialog .reader-close button").tap();
+  await waitForList(titleButton);
   await page.locator("#add-open").tap();
   await page.locator("#add-dialog").waitFor({ state: "visible" });
   await page.screenshot({ path: screenshot("landscape-add-review") });
