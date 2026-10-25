@@ -31,7 +31,7 @@ export async function processExtractionJobs(env: Env, now = new Date().toISOStri
     const source = await fetchSourcePage(job.url, env);
     let markdown: string;
     try {
-      markdown = await extractArticleMarkdown(source.html, source.url);
+      markdown = await extractArticleMarkdown(source.document, source.url);
     } catch {
       throw new SourceFetchError("conversion_failed", false);
     }

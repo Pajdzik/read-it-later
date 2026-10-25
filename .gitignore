@@ -10,6 +10,7 @@ node_modules/
 .dev.vars
 .dev.vars.*
 .wrangler/
+.wrangler.capture-deploy.*.jsonc
 dist/
 coverage/
 !.dev.vars.example

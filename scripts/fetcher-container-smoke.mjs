@@ -34,10 +34,10 @@ try {
     method: "POST",
     signal: AbortSignal.timeout(6_000),
     headers: { "content-type": "application/json" },
-    body: JSON.stringify({ version: 1, url: "https://127.0.0.1/" }),
+    body: JSON.stringify({ version: 2, url: "https://127.0.0.1/" }),
   });
-  const result = await response.json();
-  if (response.status !== 200 || result?.version !== 1 || result?.ok !== false || result?.error !== "unsafe_destination") {
+  if (response.status !== 502 || response.headers.get("x-safe-fetch-protocol") !== "2" ||
+      response.headers.get("x-safe-fetch-error") !== "unsafe_destination" || (await response.arrayBuffer()).byteLength !== 0) {
     throw new Error("Safe fetch container failed its fixed private-destination rejection check");
   }
   process.stdout.write("Container image built, health route passed, and private URL was rejected.\n");

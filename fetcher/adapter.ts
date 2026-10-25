@@ -1,5 +1,6 @@
 import {
   FETCH_FAILURE_HEADER,
+  FETCH_PROTOCOL_HEADER,
   MAX_MESSAGE_BYTES,
   MAX_RESPONSE_BYTES,
   MAX_SOURCE_BYTES,
@@ -7,24 +8,11 @@ import {
   PROTOCOL_VERSION,
   isFetchErrorCode,
   type FetchRequestMessage,
-  type FetchResponseMessage,
 } from "./protocol.js";
+import { SOURCE_HOP_TIMEOUT_MS } from "../src/articles/capture-limits.js";
 
 const errorResponse = (code = "network_error") => new Response(null, { status: 502, headers: { [FETCH_FAILURE_HEADER]: code } });
-
-function validateFetchResponse(value: unknown): value is FetchResponseMessage {
-  if (!value || typeof value !== "object") return false;
-  const record = value as Record<string, unknown>;
-  if (record.version !== PROTOCOL_VERSION || typeof record.ok !== "boolean") return false;
-  if (!record.ok) return isFetchErrorCode(record.error);
-  if (!Number.isInteger(record.status) || (record.status as number) < 200 || (record.status as number) > 599) return false;
-  if (!record.headers || typeof record.headers !== "object" || Array.isArray(record.headers)) return false;
-  const headers = record.headers as Record<string, unknown>;
-  if (Object.keys(headers).some((key) => !["content-type", "content-length", "location", "retry-after", "content-encoding"].includes(key) || typeof headers[key] !== "string")) return false;
-  if (typeof record.body !== "string" || record.body.length > Math.ceil(MAX_SOURCE_BYTES / 3) * 4 || record.body.length % 4 !== 0) return false;
-  if (!/^[A-Za-z0-9+/]*={0,2}$/.test(record.body)) return false;
-  try { atob(record.body); return true; } catch { return false; }
-}
+const ALLOWED_RESPONSE_HEADERS = ["content-type", "location", "retry-after"] as const;
 
 async function abortable<T>(promise: Promise<T>, signal: AbortSignal): Promise<T> {
   if (signal.aborted) throw new Error("aborted");
@@ -37,13 +25,17 @@ async function abortable<T>(promise: Promise<T>, signal: AbortSignal): Promise<T
   finally { signal.removeEventListener("abort", onAbort); }
 }
 
-async function readLimited(response: Response, signal: AbortSignal): Promise<Uint8Array> {
+async function readLimited(response: Response, signal: AbortSignal, bodyless: boolean): Promise<Uint8Array<ArrayBuffer>> {
   const declared = response.headers.get("content-length");
-  if (declared && (!/^\d+$/.test(declared) || Number(declared) > MAX_RESPONSE_BYTES)) {
+  if (declared === null && bodyless && response.body === null) return new Uint8Array();
+  if (declared === null || !/^\d+$/.test(declared) || Number(declared) > MAX_RESPONSE_BYTES || (bodyless && Number(declared) !== 0)) {
     void response.body?.cancel().catch(() => undefined);
-    throw new Error("oversized_gateway_response");
+    throw new Error("invalid_or_oversized_gateway_length");
   }
-  if (!response.body) return new Uint8Array();
+  if (!response.body) {
+    if (Number(declared) !== 0) throw new Error("gateway_length_mismatch");
+    return new Uint8Array();
+  }
   const reader = response.body.getReader();
   const onAbort = () => { void reader.cancel().catch(() => undefined); };
   signal.addEventListener("abort", onAbort, { once: true });
@@ -61,6 +53,7 @@ async function readLimited(response: Response, signal: AbortSignal): Promise<Uin
       }
       parts.push(value);
     }
+    if (length !== Number(declared)) throw new Error("gateway_length_mismatch");
   } catch (error) {
     void reader.cancel().catch(() => undefined);
     throw error;
@@ -80,7 +73,7 @@ export async function fetchViaContainer(
   if (new TextEncoder().encode(target).byteLength > MAX_TARGET_BYTES) return errorResponse("invalid_url");
   if (requestSignal.aborted) return errorResponse("timeout");
   const controller = new AbortController();
-  const deadline = setTimeout(() => controller.abort(), 5_000);
+  const deadline = setTimeout(() => controller.abort(), SOURCE_HOP_TIMEOUT_MS);
   const onAbort = () => controller.abort();
   requestSignal.addEventListener("abort", onAbort, { once: true });
   let containerPromise: Promise<Response> | undefined;
@@ -99,28 +92,37 @@ export async function fetchViaContainer(
       if (controller.signal.aborted) void lateResponse.body?.cancel().catch(() => undefined);
     }).catch(() => undefined);
     const response = await abortable(containerPromise, controller.signal);
-    if (!response.ok || response.status !== 200) {
+
+    // The internal version header is mandatory so mixed old/new deployments fail closed.
+    if (response.headers.get(FETCH_PROTOCOL_HEADER) !== String(PROTOCOL_VERSION)) {
       void response.body?.cancel().catch(() => undefined);
       return errorResponse();
     }
-    const bytes = await readLimited(response, controller.signal);
-    let parsed: unknown;
-    try { parsed = JSON.parse(new TextDecoder("utf-8", { fatal: true }).decode(bytes)); }
-    catch { return errorResponse(); }
-    if (!validateFetchResponse(parsed)) return errorResponse();
-    if (!parsed.ok) return errorResponse(parsed.error);
-    let rawBody: string;
-    try { rawBody = atob(parsed.body); } catch { return errorResponse(); }
-    const body = Uint8Array.from(rawBody, (character) => character.charCodeAt(0));
-    if (body.byteLength > MAX_SOURCE_BYTES) return errorResponse("source_too_large");
-    const headers = new Headers();
-    for (const name of ["content-type", "content-length", "location", "retry-after", "content-encoding"]) {
-      const value = parsed.headers[name];
-      if (typeof value === "string") headers.set(name, value);
+    const failure = response.headers.get(FETCH_FAILURE_HEADER);
+    if (failure !== null) {
+      void response.body?.cancel().catch(() => undefined);
+      return errorResponse(isFetchErrorCode(failure) ? failure : "network_error");
     }
-    const responseBody = [204, 205, 304].includes(parsed.status) ? null : body.byteLength ? body : null;
+    if (response.status < 200 || response.status > 599) {
+      void response.body?.cancel().catch(() => undefined);
+      return errorResponse();
+    }
+
+    const bodyless = [204, 205, 304].includes(response.status);
+    const redirectOrFailure = response.status < 200 || response.status >= 300;
+    const bytes = await readLimited(response, controller.signal, bodyless);
+    if (bytes.byteLength > MAX_SOURCE_BYTES) return errorResponse("source_too_large");
+    if ((bodyless || redirectOrFailure) && bytes.byteLength !== 0) return errorResponse();
+    const headers = new Headers();
+    for (const name of ALLOWED_RESPONSE_HEADERS) {
+      const value = response.headers.get(name);
+      if (value !== null) headers.set(name, value);
+    }
+    // Always publish the bytes actually received, never trust a supplied upstream length.
+    if (response.status !== 204) headers.set("content-length", String(bytes.byteLength));
+    const responseBody = !bodyless && bytes.byteLength > 0 ? bytes.buffer : null;
     // The private container URL does not become Response.url.
-    return new Response(responseBody, { status: parsed.status, headers });
+    return new Response(responseBody, { status: response.status, headers });
   } catch {
     return errorResponse(controller.signal.aborted ? "timeout" : "network_error");
   } finally {

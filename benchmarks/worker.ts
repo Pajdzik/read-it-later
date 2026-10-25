@@ -1,4 +1,4 @@
-import { extractArticleMarkdown } from "../src/articles/extraction";
+import { extractArticleMarkdown, parseArticleDocument } from "../src/articles/extraction";
 import { parseArticleMetadata } from "../src/articles/metadata";
 import { extractionFixture, fixtureNames, type FixtureName } from "./fixtures";
 
@@ -17,8 +17,9 @@ export default {
     const inputBytes = new TextEncoder().encode(html).byteLength;
     if (inputBytes > 512 * 1024) throw new Error("benchmark_fixture_too_large");
     try {
-      const metadata = parseArticleMetadata(html);
-      const markdown = await extractArticleMarkdown(html, "https://fixture.example/article");
+      const document = parseArticleDocument(html);
+      const metadata = parseArticleMetadata(document);
+      const markdown = await extractArticleMarkdown(document, "https://fixture.example/article");
       const result = { fixture: name, inputBytes, outputBytes: new TextEncoder().encode(markdown).byteLength,
         formatted: markdown.includes("**important formatting**"), relativeLink: markdown.includes("https://fixture.example/related"), metadata: metadata.title === "Worker extraction fixture", outcome: "extracted" };
       console.info(JSON.stringify({ event: "extraction_benchmark", ...result }));

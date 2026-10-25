@@ -4,6 +4,8 @@ The extractor was deployed as an isolated Cloudflare Worker and exercised direct
 
 ## Result
 
+The recorded deployments below predate the shared-DOM optimization. The current fixture Worker now shares the initial parsed document between metadata and Defuddle, matching the application pipeline. No new deployed performance result is claimed for that change; the recorded versions and measurements remain unchanged.
+
 **The Paid trial completed all 70 requests with the expected outcomes and complete CPU telemetry.** The largest structured fixture used at most 5,641 ms of CPU against the configured 30,000 ms budget. The Free trial below did not reliably support the accepted input range. These results support keeping Defuddle in the Worker; deployed fetcher integration and scheduled application behavior remain staging checks.
 
 ## Paid-plan trial (October 25, 2026 UTC)

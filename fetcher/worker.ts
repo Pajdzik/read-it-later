@@ -2,6 +2,8 @@ import { Container } from "@cloudflare/containers";
 import { validateSourceTarget } from "../src/articles/source-policy.js";
 import { FETCH_FAILURE_HEADER } from "./protocol.js";
 import { fetchViaContainer } from "./adapter.js";
+import { CONTAINER_STARTUP_TIMEOUT_MS } from "../src/articles/capture-limits.js";
+import { ContainerStartupError, waitForContainerReady } from "./startup.js";
 
 type Env = ArticleFetcherBindings;
 
@@ -11,6 +13,18 @@ export class ArticleFetchContainer extends Container<Env> {
   enableInternet = true;
   interceptHttps = false;
   envVars = { APP_ORIGIN: this.env.APP_ORIGIN ?? "" };
+
+  async ensureReady(): Promise<void> {
+    // Keep the AbortSignal inside the Durable Object rather than serializing it over RPC.
+    await waitForContainerReady((signal) => this.startAndWaitForPorts({
+      ports: 8080,
+      cancellationOptions: {
+        abort: signal,
+        instanceGetTimeoutMS: CONTAINER_STARTUP_TIMEOUT_MS,
+        portReadyTimeoutMS: CONTAINER_STARTUP_TIMEOUT_MS,
+      },
+    }), new AbortController().signal);
+  }
 }
 
 function requestError(code: string): Response {
@@ -28,6 +42,11 @@ async function fetchOneHop(request: Request, env: Env): Promise<Response> {
   }
   if (!env.APP_ORIGIN) return requestError("unsafe_destination");
   const stub = env.FETCH_CONTAINER.get(env.FETCH_CONTAINER.idFromName("article-fetcher-v1"));
+  try {
+    await waitForContainerReady(() => stub.ensureReady(), request.signal);
+  } catch (error) {
+    return requestError(error instanceof ContainerStartupError ? error.code : "network_error");
+  }
   return fetchViaContainer(target, request.signal, (internalRequest) => stub.fetch(internalRequest));
 }
 

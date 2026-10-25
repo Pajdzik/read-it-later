@@ -6,8 +6,9 @@ import { checkServerIdentity } from "node:tls";
 import ipaddr from "ipaddr.js";
 import { validateSourceTarget } from "../src/articles/source-policy.js";
 import { MAX_SOURCE_BYTES, type FetchErrorCode } from "./protocol.js";
+import { SOURCE_HOP_TIMEOUT_MS } from "../src/articles/capture-limits.js";
 
-export const MAX_HOP_MS = 5_000;
+export const MAX_HOP_MS = SOURCE_HOP_TIMEOUT_MS;
 export const MAX_HEADER_BYTES = 16 * 1024;
 const MAX_CNAME_DEPTH = 8;
 const ACCEPT = "text/html,application/xhtml+xml;q=0.9";

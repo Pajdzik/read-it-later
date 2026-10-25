@@ -2,14 +2,14 @@ import { createServer, type IncomingMessage, type ServerResponse } from "node:ht
 import { fetchPinnedSource, PinnedFetchFailure } from "./pinned-fetch.js";
 import {
   FETCH_ERROR_CODES,
+  FETCH_FAILURE_HEADER,
+  FETCH_PROTOCOL_HEADER,
   MAX_MESSAGE_BYTES,
-  MAX_RESPONSE_BYTES,
   MAX_SOURCE_BYTES,
   MAX_TARGET_BYTES,
   PROTOCOL_VERSION,
   type FetchErrorCode,
   type FetchRequestMessage,
-  type FetchResponseMessage,
 } from "./protocol.js";
 
 const PORT = Number(process.env.PORT ?? 8080);
@@ -17,14 +17,37 @@ const APP_ORIGIN = process.env.APP_ORIGIN;
 const MAX_ACTIVE_REQUESTS = 1;
 let activeRequests = 0;
 
-function json(response: ServerResponse, status: number, value: FetchResponseMessage): void {
-  const body = Buffer.from(JSON.stringify(value));
+function fail(response: ServerResponse, error: FetchErrorCode, status = 502): void {
   response.writeHead(status, {
-    "content-type": "application/json; charset=utf-8",
-    "content-length": String(body.byteLength),
+    [FETCH_PROTOCOL_HEADER]: String(PROTOCOL_VERSION),
+    [FETCH_FAILURE_HEADER]: error,
+    "content-length": "0",
     "cache-control": "no-store",
     connection: "close",
   });
+  response.end();
+}
+
+function sendFetched(response: ServerResponse, fetched: { status: number; headers: Record<string, string>; body: Uint8Array }): void {
+  if (!Number.isInteger(fetched.status) || fetched.status < 200 || fetched.status > 599 || fetched.body.byteLength > MAX_SOURCE_BYTES) {
+    fail(response, "source_too_large");
+    return;
+  }
+  const bodyless = [204, 205, 304].includes(fetched.status);
+  // The app follows redirects and handles HTTP errors itself; do not carry their upstream bodies.
+  const omitBody = bodyless || fetched.status < 200 || fetched.status >= 300;
+  const body = omitBody ? Buffer.alloc(0) : Buffer.from(fetched.body);
+  const headers: Record<string, string> = {
+    [FETCH_PROTOCOL_HEADER]: String(PROTOCOL_VERSION),
+    "cache-control": "no-store",
+    connection: "close",
+  };
+  if (fetched.status !== 204) headers["content-length"] = String(body.byteLength);
+  for (const name of ["content-type", "location", "retry-after"]) {
+    const value = fetched.headers[name];
+    if (typeof value === "string") headers[name] = value;
+  }
+  response.writeHead(fetched.status, headers);
   response.end(body);
 }
 
@@ -58,7 +81,13 @@ function readJson(request: IncomingMessage, signal: AbortSignal): Promise<FetchR
       try { resolve(JSON.parse(Buffer.concat(chunks, size).toString("utf8")) as FetchRequestMessage); }
       catch { reject(new PinnedFetchFailure("invalid_url")); }
     };
-    const onAbort = () => { cleanup(false); reject(new PinnedFetchFailure("network_error")); };
+    const onAbort = () => {
+      cleanup(false);
+      const reason = signal.reason;
+      reject(reason instanceof PinnedFetchFailure && reason.code === "timeout"
+        ? reason
+        : new PinnedFetchFailure("network_error"));
+    };
     const onError = () => { cleanup(); reject(new PinnedFetchFailure("network_error")); };
     request.on("data", onData);
     request.once("end", onEnd);
@@ -68,7 +97,9 @@ function readJson(request: IncomingMessage, signal: AbortSignal): Promise<FetchR
   });
 }
 
-async function handle(request: IncomingMessage, response: ServerResponse): Promise<void> {
+type FetchSource = typeof fetchPinnedSource;
+
+async function handle(request: IncomingMessage, response: ServerResponse, fetchSource: FetchSource, requestTimeoutMs: number): Promise<void> {
   if (request.method === "GET" && request.url === "/healthz") {
     response.writeHead(200, { "content-type": "text/plain", "content-length": "2", connection: "close" }).end("ok");
     return;
@@ -79,17 +110,17 @@ async function handle(request: IncomingMessage, response: ServerResponse): Promi
   }
   const declaredLength = request.headers["content-length"];
   if (declaredLength && (!/^\d+$/.test(declaredLength) || Number(declaredLength) > MAX_MESSAGE_BYTES)) {
-    json(response, 200, { version: PROTOCOL_VERSION, ok: false, error: "invalid_url" });
+    fail(response, "invalid_url", 413);
     request.destroy();
     return;
   }
   if (activeRequests >= MAX_ACTIVE_REQUESTS) {
-    json(response, 503, { version: PROTOCOL_VERSION, ok: false, error: "network_error" });
+    fail(response, "network_error", 503);
     return;
   }
   activeRequests++;
   const controller = new AbortController();
-  const deadline = setTimeout(() => controller.abort(), 5_000);
+  const deadline = setTimeout(() => controller.abort(new PinnedFetchFailure("timeout")), requestTimeoutMs);
   const abort = () => controller.abort();
   request.once("aborted", abort);
   response.once("close", () => { if (!response.writableEnded) controller.abort(); });
@@ -98,29 +129,11 @@ async function handle(request: IncomingMessage, response: ServerResponse): Promi
     if (message?.version !== PROTOCOL_VERSION || typeof message.url !== "string" || Buffer.byteLength(message.url, "utf8") > MAX_TARGET_BYTES) {
       throw new PinnedFetchFailure("invalid_url");
     }
-    const fetched = await fetchPinnedSource(message.url, APP_ORIGIN, controller.signal);
+    const fetched = await fetchSource(message.url, APP_ORIGIN, controller.signal);
     if (controller.signal.aborted) throw new PinnedFetchFailure("timeout");
-    const body = Buffer.from(fetched.body).toString("base64");
-    const payload: FetchResponseMessage = {
-      version: PROTOCOL_VERSION,
-      ok: true,
-      status: fetched.status,
-      headers: fetched.headers,
-      body,
-    };
-    const encoded = Buffer.from(JSON.stringify(payload));
-    if (encoded.byteLength > MAX_RESPONSE_BYTES || fetched.body.byteLength > MAX_SOURCE_BYTES) {
-      throw new PinnedFetchFailure("source_too_large");
-    }
-    response.writeHead(200, {
-      "content-type": "application/json; charset=utf-8",
-      "content-length": String(encoded.byteLength),
-      "cache-control": "no-store",
-      connection: "close",
-    });
-    response.end(encoded);
+    sendFetched(response, fetched);
   } catch (error) {
-    if (!response.destroyed) json(response, 200, { version: PROTOCOL_VERSION, ok: false, error: stableError(error) });
+    if (!response.destroyed) fail(response, stableError(error));
   } finally {
     clearTimeout(deadline);
     request.removeListener("aborted", abort);
@@ -128,8 +141,12 @@ async function handle(request: IncomingMessage, response: ServerResponse): Promi
   }
 }
 
-export function createFetchServer() {
-  const server = createServer((request, response) => { void handle(request, response); });
+export function createFetchServer(fetchSource = fetchPinnedSource, options: { requestTimeoutMs?: number } = {}) {
+  const requestTimeoutMs = options.requestTimeoutMs ?? 5_000;
+  if (!Number.isInteger(requestTimeoutMs) || requestTimeoutMs < 1 || requestTimeoutMs > 5_000) {
+    throw new RangeError("requestTimeoutMs must be between 1 and 5000");
+  }
+  const server = createServer((request, response) => { void handle(request, response, fetchSource, requestTimeoutMs); });
   server.maxHeadersCount = 32;
   server.headersTimeout = 2_000;
   server.requestTimeout = 6_000;

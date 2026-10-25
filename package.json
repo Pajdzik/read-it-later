@@ -17,6 +17,8 @@
     "build": "pnpm build:web && pnpm build:prototype && CLOUDFLARE_LOAD_DEV_VARS_FROM_DOT_ENV=false wrangler deploy --dry-run --env=\"\" --outdir dist/worker",
     "build:fetch-probe": "CLOUDFLARE_LOAD_DEV_VARS_FROM_DOT_ENV=false wrangler deploy --dry-run --outdir .wrangler/fetch-probe-dry-run --config probes/edge-pinned-fetch/wrangler.jsonc",
     "test:fetcher": "NODE_ENV=test node --import tsx --test fetcher/test/*.test.ts",
+    "test:capture-deployment": "node --import tsx --test scripts/capture-deployment.test.ts",
+    "capture:deploy": "tsx scripts/deploy-capture-stack.ts",
     "build:fetcher": "esbuild fetcher/server.ts --bundle --platform=node --format=esm --target=node22 --outfile=fetcher/dist/server.mjs",
     "build:fetcher-dry-run": "pnpm build:fetcher && CLOUDFLARE_LOAD_DEV_VARS_FROM_DOT_ENV=false wrangler deploy --dry-run --containers-rollout=none --env=\"\" --outdir .wrangler/fetcher-dry-run --config fetcher/wrangler.jsonc",
     "test:fetcher:container": "pnpm build:fetcher && node scripts/fetcher-container-smoke.mjs",
