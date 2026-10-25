@@ -1276,6 +1276,7 @@ $("#add-form").addEventListener("submit", async (e) => {
 const statusOrder = ["unread", "read", "all"] as const;
 function setStatus(status: string) {
   if (!statusOrder.includes(status as (typeof statusOrder)[number])) return;
+  if (searchControl.classList.contains("is-open")) setSearchOpen(false);
   invalidateLoads();
   stopExtractionPolling();
   state.status = status;
