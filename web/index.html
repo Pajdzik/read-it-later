@@ -20,11 +20,6 @@
         ><svg class="brand-mark" viewBox="0 0 64 64" aria-hidden="true" focusable="false"><path d="M14.5 10.5h13v43l-6.5-6-6.5 6v-43ZM36.5 10.5h13v43l-6.5-6-6.5 6v-43Z" fill="currentColor" /></svg
         ><span>potem<span class="brand-dot">.</span></span></a
       >
-      <label class="search">
-        <svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="10.5" cy="10.5" r="6.5" /><path d="m16 16 4 4" /></svg>
-        <span class="sr-only">Search title or URL</span>
-        <input id="search" type="search" placeholder="Search your list" autocomplete="off" />
-      </label>
       <div class="top-actions">
         <span id="account" class="account" hidden></span>
         <button
@@ -36,6 +31,23 @@
         >
           <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 5v14M5 12h14" /></svg>
         </button>
+        <div id="search-control" class="search-control">
+          <button
+            id="search-toggle"
+            class="icon-button"
+            type="button"
+            aria-label="Search"
+            aria-controls="search-field"
+            aria-expanded="false"
+            title="Search"
+          >
+            <svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="10.5" cy="10.5" r="6.5" /><path d="m16 16 4 4" /></svg>
+          </button>
+          <label id="search-field" class="search" aria-hidden="true">
+            <span class="sr-only">Search title or URL</span>
+            <input id="search" type="search" placeholder="Search your list" autocomplete="off" disabled tabindex="-1" />
+          </label>
+        </div>
         <button
           id="settings-open"
           class="icon-button"
@@ -50,7 +62,7 @@
     <main class="shell">
       <section class="library" aria-label="Your articles">
         <div class="list-controls">
-          <div class="tabs" role="group" aria-label="Filter articles">
+          <div id="status-tabs" class="tabs" role="group" aria-label="Filter articles">
             <button type="button" data-status="unread" aria-pressed="true">
               Unread</button
             ><button type="button" data-status="read" aria-pressed="false">
@@ -87,7 +99,6 @@
         </button>
       </section>
       <footer class="footer">
-        <span>Small steps, good reads.</span>
         <button id="build-info-open" class="build-info-button" type="button" aria-haspopup="dialog">Local build</button>
       </footer>
     </main>
@@ -181,7 +192,10 @@
           <form method="dialog" class="reader-close">
             <button class="reader-back" aria-label="Close saved copy">← <span>Back</span></button>
           </form>
-          <a id="reader-original" class="reader-original" target="_blank" rel="noopener noreferrer">Open original ↗</a>
+          <a id="reader-original" class="reader-original reader-action" target="_blank" rel="noopener noreferrer" aria-label="Open original" title="Open original">
+          <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M15 3h6v6m-1-5-9 9" /><path d="M11 5H7a4 4 0 0 0-4 4v8a4 4 0 0 0 4 4h8a4 4 0 0 0 4-4v-4" /></svg>
+        </a>
+          
         </div>
       </nav>
       <div class="reader-column reader-content-column">

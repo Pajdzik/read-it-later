@@ -76,6 +76,7 @@ button {
   padding: 0 max(24px, calc((100vw - 1050px) / 2));
   border-bottom: 1px solid var(--line);
   background: var(--white);
+  position: relative;
 }
 .brand {
   display: flex;
@@ -101,6 +102,12 @@ button {
   display: flex;
   align-items: center;
   gap: 8px;
+}
+.search-control {
+  position: relative;
+  display: flex;
+  align-items: center;
+  gap: 6px;
 }
 .account {
   color: var(--muted);
@@ -131,7 +138,9 @@ button {
   color: var(--green);
 }
 .top-actions svg,
-.search svg {
+.search-control svg,
+.action-button svg,
+.reader-action svg {
   width: 20px;
   height: 20px;
   flex-shrink: 0;
@@ -313,27 +322,42 @@ button {
   padding: 20px 2px 0;
 }
 .search {
-  width: min(100%, 280px);
+  width: 0;
   min-width: 0;
   height: 44px;
   justify-self: end;
   display: flex;
   align-items: center;
-  gap: 9px;
-  border: 1px solid var(--line);
+  overflow: hidden;
+  border: 1px solid transparent;
   border-radius: 9px;
-  padding-left: 10px;
+  padding: 0;
   color: var(--muted);
   background: var(--white);
+  opacity: 0;
+  pointer-events: none;
+  transition: width 0.2s ease, opacity 0.15s ease, padding 0.2s ease, border-color 0.2s ease;
+}
+.search-control.is-open .search {
+  width: min(280px, 28vw);
+  padding: 0 10px;
+  border-color: var(--line);
+  opacity: 1;
+  pointer-events: auto;
 }
 .search:focus-within {
   border-color: var(--focus);
 }
 .search input {
+  width: 100%;
   border: 0;
   background: transparent;
-  padding: 9px 8px;
+  padding: 9px 4px;
   font-size: 13px;
+}
+.search-control.has-query #search-toggle {
+  background: var(--mint);
+  color: var(--green);
 }
 .list-controls {
   margin: 0 0 8px;
@@ -360,8 +384,16 @@ button {
 .tabs {
   display: flex;
   gap: 4px;
+  max-width: 100%;
+  overflow-x: auto;
+  scrollbar-width: none;
+  touch-action: pan-y;
+}
+.tabs::-webkit-scrollbar {
+  display: none;
 }
 .tabs button {
+  flex: 0 0 auto;
   padding: 9px 15px;
   background: transparent;
   border: 0;
@@ -466,8 +498,6 @@ button {
 }
 .original-link {
   text-decoration: none;
-  font-size: 12px;
-  white-space: nowrap;
 }
 .article-actions {
   display: flex;
@@ -483,6 +513,24 @@ button {
   font-size: 12px;
   color: var(--green);
   font-weight: 600;
+}
+.action-button.icon-action {
+  width: 34px;
+  height: 34px;
+  display: grid;
+  place-items: center;
+  flex: 0 0 34px;
+  padding: 0;
+  border-radius: 50%;
+  font-size: 0;
+  line-height: 1;
+}
+.action-button.icon-action svg {
+  width: 17px;
+  height: 17px;
+}
+.action-button.read-action {
+  color: var(--green);
 }
 .action-button:hover {
   border-color: var(--green);
@@ -835,6 +883,21 @@ button {
   font-size: 12px;
   line-height: 1.5;
 }
+.reader-original {
+  margin-top: 8px;
+  text-decoration: none;
+}
+.reader-action {
+  display: grid;
+  place-items: center;
+  padding: 0;
+  color: var(--muted);
+}
+.reader-action:hover {
+  border-color: var(--green);
+  color: var(--green);
+  background: var(--mint);
+}
 .reader-pending {
   margin: 18px 0 24px;
   padding: 16px;
@@ -1087,12 +1150,6 @@ body:has(#reader-dialog[open]) {
   .action-button {
     white-space: nowrap;
   }
-  .footer {
-    align-items: start;
-    gap: 8px;
-    flex-direction: column;
-    margin-top: 28px;
-  }
   .dialog {
     padding: 20px;
   }
@@ -1108,10 +1165,13 @@ body:has(#reader-dialog[open]) {
     grid-column: 2;
     grid-row: 1;
   }
-  .search {
-    grid-column: 1 / -1;
-    grid-row: 2;
-    width: 100%;
+  .search-control.is-open .search {
+    position: absolute;
+    top: calc(100% + 8px);
+    right: 0;
+    z-index: 5;
+    width: min(280px, calc(100vw - 30px));
+    box-shadow: var(--shadow);
   }
 }
 @media (prefers-reduced-motion: no-preference) {
