@@ -1,0 +1,81 @@
+name: Deploy article fetcher
+
+on:
+  workflow_dispatch:
+    inputs:
+      environment:
+        description: Fetcher environment to deploy (does not activate article capture)
+        type: choice
+        options:
+          - staging
+          - production
+        default: staging
+        required: true
+      app_origin:
+        description: Exact HTTPS origin of the app in this environment
+        type: string
+        required: true
+
+permissions:
+  contents: read
+
+concurrency:
+  group: deploy-article-fetcher-${{ inputs.environment }}
+  cancel-in-progress: false
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    environment: ${{ inputs.environment }}
+    env:
+      CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+      CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+      CLOUDFLARE_LOAD_DEV_VARS_FROM_DOT_ENV: "false"
+      FETCHER_ENVIRONMENT: ${{ inputs.environment }}
+      FETCHER_APP_ORIGIN: ${{ inputs.app_origin }}
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+
+      - name: Set up pnpm
+        uses: pnpm/action-setup@v4
+        with:
+          version: 12.4.1
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: pnpm
+
+      - name: Validate deployment inputs
+        run: |
+          test -n "$CLOUDFLARE_API_TOKEN" || { echo "::error::Set the environment's Cloudflare API token with Worker and Container deployment permissions."; exit 1; }
+          test -n "$CLOUDFLARE_ACCOUNT_ID" || { echo "::error::Set CLOUDFLARE_ACCOUNT_ID in the selected environment."; exit 1; }
+          node --input-type=module <<'JS'
+          const value = process.env.FETCHER_APP_ORIGIN;
+          const origin = new URL(value);
+          if (origin.protocol !== 'https:' || origin.origin !== value || origin.username || origin.password || !origin.hostname.includes('.') || origin.hostname.includes('<')) {
+            throw new Error('app_origin must be the exact configured HTTPS app origin, without a path or trailing slash.');
+          }
+          if (!['staging', 'production'].includes(process.env.FETCHER_ENVIRONMENT)) throw new Error('Invalid fetcher environment.');
+          JS
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Check types and test the native fetcher
+        run: |
+          pnpm typecheck
+          pnpm typecheck:fetcher
+          pnpm test:fetcher
+
+      - name: Build fetcher
+        run: pnpm build:fetcher
+
+      - name: Verify Docker daemon on the CI runner
+        run: docker info
+
+      - name: Deploy the private fetcher service
+        run: pnpm exec wrangler deploy --config fetcher/wrangler.jsonc --env "$FETCHER_ENVIRONMENT" --var "APP_ORIGIN:$FETCHER_APP_ORIGIN"

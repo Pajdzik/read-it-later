@@ -1,10 +1,34 @@
 # Defuddle on Cloudflare Workers
 
-Worker-first trial, October 19, 2026. The extractor was deployed as an isolated Cloudflare Worker and exercised directly. This replaces the Container proposal in PR #56; the app's existing Worker-based processor and protected-fetch boundary are retained. No Container, Docker image, extra production service binding, or account-plan change is introduced.
+The extractor was deployed as an isolated Cloudflare Worker and exercised directly on Free (October 19, 2026) and Paid (October 25, 2026 UTC). Extraction remains in the application Worker; the separate fetch-only gateway handles source fetching. Neither benchmark changes production bindings or enables capture. The account owner enabled Workers Paid before the second trial.
 
 ## Result
 
-**Defuddle runs in the deployed Workers runtime. The current Free CPU budget does not reliably support the accepted input range.** The next runtime trial should use Workers Paid's larger CPU budget, with extraction still inside the Worker. Containers have not been shown necessary for extraction.
+**The Paid trial completed all 70 requests with the expected outcomes and complete CPU telemetry.** The largest structured fixture used at most 5,641 ms of CPU against the configured 30,000 ms budget. The Free trial below did not reliably support the accepted input range. These results support keeping Defuddle in the Worker; deployed fetcher integration and scheduled application behavior remain staging checks.
+
+## Paid-plan trial (October 25, 2026 UTC)
+
+The temporary Worker used the same Defuddle 0.19.4, LinkeDOM 0.18.13, metadata parser, extraction function, fixture sources, and `2026-08-01` compatibility date as the Free trial. Cloudflare accepted `cpu_ms: 30000` and reported 6 ms startup time. The measured deployment was `9d5837e1-b6a5-42a7-9fc3-686b8f53d7b8`; it has been deleted.
+
+Ten sequential requests per fixture produced:
+
+| Synthetic fixture | HTML bytes | Expected results | Median CPU (ms) | Maximum CPU (ms) | Maximum Worker wall time (ms) |
+| --- | ---: | --- | ---: | ---: | ---: |
+| Empty baseline | 0 | 10/10 baseline responses | 0 | 1 | 2 |
+| Small formatted article | 1,632 | 10/10 extracted | 68 | 176 | 188 |
+| Typical article layout, links/code/table | 25,110 | 10/10 extracted | 160 | 296 | 310 |
+| Large structured article | 524,035 | 10/10 extracted | 5,355 | 5,641 | 6,590 |
+| Navigation-heavy page | 524,252 | 10/10 extracted | 1,720 | 2,245 | 2,757 |
+| Malformed but readable HTML | 24,557 | 10/10 extracted | 138 | 192 | 203 |
+| Markdown output overflow | 320,186 | 10/10 intentionally rejected | 83 | 121 | 137 |
+
+All 70 HTTP responses were 200, including the benchmark's deliberate policy-rejection response for oversized Markdown. All 70 invocation outcomes were `ok`, with no recorded `exceededCpu` or `exceededMemory` outcome. The [sanitized Paid report](benchmarks/worker-extraction-paid.json) includes every HTTP outcome, CPU/wall measurement, and deployed version.
+
+The live `wrangler tail` stream delivered CPU measurements for only 50/70 requests, so the original runner correctly exited nonzero for incomplete telemetry. A subsequent Workers Logs query, restricted to the benchmark Worker and its unique `x-benchmark-run` header, returned all 70 invocation records. Every record matched a unique fixture/sample and the deployed version; all 50 overlapping CPU, wall-time, and version measurements agreed exactly. The stored-log records complete the report without filling missing values with estimates. Raw request headers and client network metadata are excluded.
+
+These are Cloudflare invocation measurements, not desktop timers or client round-trip latency. Fixture generation, metadata parsing, Defuddle, validation, and JSON serialization are included. The HTTP benchmark's CPU budget matches the [30-second budget for every-minute Paid Cron](https://developers.cloudflare.com/workers/platform/limits/#cpu-time), but the benchmark does not run the scheduled job, source fetcher, or D1 persistence. Peak heap was not measured. Ten sequential requests per shape do not establish a production percentile, cold-start guarantee, concurrency limit, or coverage of every possible 512-KiB page. Keep capture paused until staging verifies the full application path and resource behavior.
+
+## Free-plan trial (October 19, 2026)
 
 The benchmark used Defuddle 0.19.4, LinkeDOM 0.18.13, the existing metadata parser and inert extraction function, and the app's `2026-08-01` compatibility date. Input construction, metadata parsing, Markdown conversion, output validation, and JSON response are included in the measured invocation. Cloudflare reported 5 ms Worker startup time. Runtime measurements below come from `wrangler tail`'s `cpuTime`, not client latency or a desktop timer.
 
@@ -26,7 +50,7 @@ All non-200 responses were HTTP 503. Only **20 of 35** invocation traces were de
 
 Successful extraction preserved bold formatting, absolute URLs resolved from relative links, and title/author metadata. All six fixture shapes additionally pass local Cloudflare-runtime tests, including complete near-512-KiB input and explicit rejection above 256 KiB Markdown. Local tests do not enforce the production CPU policy.
 
-Cloudflare documents a [10 ms Free CPU budget](https://developers.cloudflare.com/workers/platform/limits/#cpu-time) and some flexibility for occasional overruns. The successful above-budget requests are not evidence of a reliable Free fit. Paid every-minute Cron invocations have a 30-second CPU budget; **that plan's full-input CPU and memory fit has not yet been measured**. The 10 ms values on terminated traces are limits, not completed conversion timings. No peak-heap measurement was taken.
+Cloudflare documents a [10 ms Free CPU budget](https://developers.cloudflare.com/workers/platform/limits/#cpu-time) and some flexibility for occasional overruns. The successful above-budget requests are not evidence of a reliable Free fit. The 10 ms values on terminated traces are limits, not completed conversion timings. No peak-heap measurement was taken. The later Paid trial above completes the fixture CPU measurements with a larger budget.
 
 ## Reproduce
 
@@ -65,4 +89,4 @@ CI runs the functional fixture tests and Worker packaging dry run without Docker
 
 ## Remaining capture boundary
 
-The runtime experiment does not relax source-fetch protection. Production remains paused until the existing `ARTICLE_FETCHER` boundary enforces public destinations at connection time, including redirects, while retaining TLS hostname validation. A DNS preflight followed by ordinary hostname fetch does not establish pinning. Source-fetch validation and the Paid Worker runtime trial remain separate activation checks. See [background extraction](background-markdown-extraction.md) and [deployment](deployment.md#background-markdown-extraction).
+The runtime experiments do not relax source-fetch protection. Production remains paused until the existing `ARTICLE_FETCHER` boundary enforces public destinations at connection time, including redirects, while retaining TLS hostname validation. A DNS preflight followed by ordinary hostname fetch does not establish pinning. The Paid fixture CPU trial has passed; source-fetch validation and full scheduled capture remain separate staging checks. See [background extraction](background-markdown-extraction.md) and [deployment](deployment.md#background-markdown-extraction).

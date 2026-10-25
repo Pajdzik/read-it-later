@@ -94,6 +94,13 @@ describe("bounded source fetching", () => {
     });
   });
 
+  it("preserves stable safe-fetch gateway errors and retry policy", async () => {
+    const unsafe = envWith(async () => new Response(null, { status: 502, headers: { "x-safe-fetch-error": "unsafe_destination" } }));
+    await expect(fetchSourcePage("https://news.example.com/post", unsafe)).rejects.toMatchObject({ code: "unsafe_destination", retryable: false });
+    const dns = envWith(async () => new Response(null, { status: 502, headers: { "x-safe-fetch-error": "dns_error" } }));
+    await expect(fetchSourcePage("https://news.example.com/post", dns)).rejects.toMatchObject({ code: "dns_error", retryable: true });
+  });
+
   it("rejects non-HTML, unsupported encoding, malformed, empty, invalid UTF-8, and oversized bodies", async () => {
     await expectFetchError(fetchSourcePage("https://news.example.com/post", envWith(async () => new Response("text", { headers: { "Content-Type": "text/plain" } }))), "unsupported_content");
     await expectFetchError(fetchSourcePage("https://news.example.com/post", envWith(async () => new Response("<html/>", { headers: { "Content-Type": "text/html; charset=utf-16" } }))), "unsupported_encoding");
