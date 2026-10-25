@@ -574,6 +574,7 @@ try {
     .getByRole("button", { name: "Close", exact: true })
     .click();
   await page.unroute("**/api/articles");
+  await page.locator("#search-toggle").click();
   await page.route("**/api/articles?*", (route) =>
     route.fulfill({
       status: 503,

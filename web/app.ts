@@ -334,7 +334,7 @@ function renderArticle(article: Article) {
     "read-action",
   );
   read.addEventListener("click", () => mutateRead(article, !article.readAt));
-  const edit = iconButton("Edit article", "edit", "subtle edit-action");
+  const edit = iconButton("Edit", "edit", "subtle edit-action");
   edit.addEventListener("click", () => openDetail(article));
   actions.append(read, edit, link);
   li.append(main, actions);

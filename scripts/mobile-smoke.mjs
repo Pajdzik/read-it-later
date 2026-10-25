@@ -323,6 +323,7 @@ async function runProfile(name, browserType, device) {
   await page.reload();
   await page.locator("#logout").waitFor();
   await page.locator('[data-status="read"]').tap();
+  await page.locator("#search-toggle").tap();
   await page.getByRole("button", { name: shareTitle, exact: true }).waitFor();
   await page.locator("#search").fill(shareTitle);
   await page.getByRole("button", { name: shareTitle, exact: true }).waitFor();

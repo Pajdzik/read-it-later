@@ -329,7 +329,7 @@ button {
   padding: 0 10px;
   border-color: var(--line);
   opacity: 1;
-  pointer-events: auto;
+  pointer-events: none;
 }
 .search:focus-within {
   border-color: var(--focus);
@@ -339,6 +339,7 @@ button {
   border: 0;
   background: transparent;
   padding: 9px 4px;
+  pointer-events: auto;
   font-size: 13px;
 }
 .search-control.has-query #search-toggle {
@@ -973,11 +974,13 @@ button {
     grid-column: 2;
     grid-row: 1;
   }
-  .search-control.is-open .search {
+  .search-control .search {
     position: absolute;
     top: calc(100% + 8px);
     right: 0;
     z-index: 5;
+  }
+  .search-control.is-open .search {
     width: min(280px, calc(100vw - 30px));
     box-shadow: var(--shadow);
   }
