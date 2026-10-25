@@ -967,12 +967,17 @@ button {
   .topbar {
     height: auto;
     grid-template-columns: 1fr auto;
-    gap: 12px;
+    gap: 8px;
+    padding-inline: 12px;
     padding-block: 12px;
+  }
+  .topbar.search-open {
+    padding-bottom: 64px;
   }
   .top-actions {
     grid-column: 2;
     grid-row: 1;
+    gap: 4px;
   }
   .search-control .search {
     display: none;

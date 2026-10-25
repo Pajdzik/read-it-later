@@ -38,6 +38,7 @@ function updateSearchState() {
 }
 function setSearchOpen(open: boolean, focus = false) {
   searchControl.classList.toggle("is-open", open);
+  searchControl.closest(".topbar")?.classList.toggle("search-open", open);
   searchToggle.setAttribute("aria-expanded", String(open));
   searchField.setAttribute("aria-hidden", String(!open));
   searchInput.disabled = !open;
