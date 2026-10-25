@@ -421,6 +421,7 @@ async function runProfile(name, browserType, device) {
   assert.ok(readAtAfterSave);
   await page.reload();
   await page.locator('[data-status="read"]').tap();
+  await page.locator("#search-toggle").tap();
   await page.locator("#articles").getByRole("link", { name: shareTitle, exact: true }).waitFor();
   await page.locator("#search").fill(shareTitle);
   await page.locator("#articles").getByRole("link", { name: shareTitle, exact: true }).waitFor();
