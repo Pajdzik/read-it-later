@@ -460,6 +460,7 @@ async function runProfile(name, browserType, device) {
   assert.match(updatedCopy.copy.markdown, /^# Wide reader check/m,
     `${name}: replacement Markdown was not persisted before opening the reader.`);
   await detail.getByText(/pasted Markdown/).waitFor();
+  await detail.getByRole("button", { name: "Read saved copy" }).waitFor({ state: "visible" });
   await detail.getByRole("button", { name: "Read saved copy" }).tap();
   await page.locator("#reader-body").getByRole("heading", { name: "Wide reader check" }).waitFor();
   assert.equal(await page.evaluate(() => document.documentElement.scrollWidth > innerWidth), false,
