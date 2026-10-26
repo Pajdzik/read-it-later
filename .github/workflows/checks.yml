@@ -106,7 +106,9 @@ jobs:
 
       - name: Detect extension changes
         id: extension_changes
-        run: node scripts/ci-extension-changes.mjs
+        run: |
+          git config --global --add safe.directory "$GITHUB_WORKSPACE"
+          node scripts/ci-extension-changes.mjs
 
       - name: Install dependencies
         run: pnpm install --frozen-lockfile
