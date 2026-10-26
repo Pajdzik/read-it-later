@@ -47,10 +47,14 @@ function mockGitHub(initial: string | null = null) {
   const writes: Array<Record<string, unknown>> = [];
   const files = new Map<string, { content: string; sha: string }>();
   let listing: Array<{ path: string; type: 'file'; size: number }> = [];
+  let missingListing = false;
   let dropAfterPut = false;
   const fetcher = vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
     const url = new URL(String(input));
-    if (init?.method === 'GET' && !url.pathname.endsWith('.md')) return Response.json(listing);
+    if (init?.method === 'GET' && !url.pathname.endsWith('.md')) {
+      if (missingListing) return new Response(null, { status: 404 });
+      return Response.json(listing);
+    }
     const path = decodeURIComponent(url.pathname.split('/contents/')[1] ?? '');
     const file = files.get(path) ?? (path === 'Articles/why-we-read.md' && content !== null ? { content, sha } : null);
     if (init?.method === 'GET') return file === null ? new Response(null, { status: 404 })
@@ -69,6 +73,7 @@ function mockGitHub(initial: string | null = null) {
   return { fetcher, writes, content: (path = 'Articles/why-we-read.md') => files.get(path)?.content ?? (path === 'Articles/why-we-read.md' ? content : null),
     setFile: (path: string, value: string) => files.set(path, { content: value, sha }),
     setListing: (paths: string[]) => { listing = paths.map((path) => ({ path, type: 'file', size: new TextEncoder().encode(files.get(path)?.content ?? '').byteLength })); },
+    missingListing: () => { missingListing = true; },
     dropAfterNextWrite: () => { dropAfterPut = true; },
     conflictNextWrite: () => { conflictWrites += 1; } };
 }
@@ -259,6 +264,17 @@ describe('GitHub Markdown saving', () => {
     remote.setFile('Articles/also-a-duplicate.md', renamed);
     remote.setListing(['Articles/renamed-by-hand.md', 'Articles/also-a-duplicate.md']);
     expect(await (await route(reconcileRequest())).json()).toMatchObject({ scanned: 2, mapped: 0, conflicts: [{ id: article.id, code: 'github_duplicate_backups' }] });
+  });
+
+  it('reports a missing configured backup folder instead of treating it as an empty scan', async () => {
+    const remote = mockGitHub();
+    remote.missingListing();
+    const response = await route(reconcileRequest());
+    expect(response.status).toBe(503);
+    expect(await response.json()).toMatchObject({ error: {
+      code: 'github_folder_not_found',
+      message: expect.stringContaining('backup folder was not found'),
+    } });
   });
 
   it('protects path reconciliation with owner authentication and CSRF checks', async () => {

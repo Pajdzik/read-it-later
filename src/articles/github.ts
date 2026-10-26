@@ -161,7 +161,15 @@ async function responseJson(response: Response, maximumBytes = MAX_RESPONSE_BYTE
   return parsed;
 }
 
-async function githubRequest(target: Target, signal: AbortSignal, method: 'GET' | 'PUT', body?: unknown, requestUrl = target.apiUrl, maximumBytes = MAX_RESPONSE_BYTES): Promise<unknown | null> {
+async function githubRequest(
+  target: Target,
+  signal: AbortSignal,
+  method: 'GET' | 'PUT',
+  body?: unknown,
+  requestUrl = target.apiUrl,
+  maximumBytes = MAX_RESPONSE_BYTES,
+  missingIsEmpty = true,
+): Promise<unknown | null> {
   try {
     const response = await fetch(method === 'GET' ? `${requestUrl}?ref=${encodeURIComponent(target.branch)}` : requestUrl, {
       method, signal, redirect: 'error',
@@ -172,7 +180,11 @@ async function githubRequest(target: Target, signal: AbortSignal, method: 'GET' 
       },
       ...(body === undefined ? {} : { body: JSON.stringify(body) }),
     });
-    if (method === 'GET' && response.status === 404) { await response.body?.cancel(); return null; }
+    if (method === 'GET' && response.status === 404) {
+      await response.body?.cancel();
+      if (missingIsEmpty) return null;
+      throw new GitHubBackupError(503, 'github_folder_not_found', 'The configured GitHub backup folder was not found on the selected branch. Check the repository, branch, and backup folder.');
+    }
     if (!response.ok) {
       await response.body?.cancel();
       if (response.status === 409 || response.status === 422) throw new GitHubBackupError(409, 'github_conflict', 'GitHub could not commit this file. It may have changed or the branch may reject writes. Retry after checking the destination.');
@@ -231,7 +243,7 @@ export async function reconcileGitHubBackupPaths(env: Env): Promise<{ scanned: n
   const signal = AbortSignal.timeout(10_000);
   const folderPath = target.folder ? target.folder.split('/').map(encodeURIComponent).join('/') : '';
   const listingUrl = `https://api.github.com/repos/${target.repository}/contents${folderPath ? `/${folderPath}` : ''}`;
-  const files = listedFile((await githubRequest(target, signal, 'GET', undefined, listingUrl)) ?? [], target.folder);
+  const files = listedFile((await githubRequest(target, signal, 'GET', undefined, listingUrl, MAX_RESPONSE_BYTES, false)) ?? [], target.folder);
   const matches = new Map<string, Array<{ path: string; url: string | null }>>();
   const conflicts: Array<{ id: string; path: string; code: string }> = [];
   // Four bounded requests at a time keep restore reconciliation within the
