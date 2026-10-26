@@ -38,6 +38,27 @@ function matchesGitHubDestination(configuration: GitHubCaptureConfiguration, exp
 }
 const $ = <T extends HTMLElement = HTMLElement>(selector: string): T =>
   document.querySelector<T>(selector)!;
+const searchControl = $<HTMLElement>("#search-control");
+const searchToggle = $<HTMLButtonElement>("#search-toggle");
+const searchField = $<HTMLElement>("#search-field");
+const searchInput = $<HTMLInputElement>("#search");
+const statusTabs = $<HTMLElement>("#status-tabs");
+function updateSearchState() {
+  const hasQuery = Boolean(searchInput.value.trim());
+  searchControl.classList.toggle("has-query", hasQuery);
+  searchToggle.setAttribute("aria-label", hasQuery ? "Search (active)" : "Search");
+  searchToggle.title = hasQuery ? "Search (active)" : "Search";
+}
+function setSearchOpen(open: boolean, focus = false) {
+  searchControl.classList.toggle("is-open", open);
+  searchControl.closest(".topbar")?.classList.toggle("search-open", open);
+  searchToggle.setAttribute("aria-expanded", String(open));
+  searchField.setAttribute("aria-hidden", String(!open));
+  searchInput.disabled = !open;
+  searchInput.tabIndex = open ? 0 : -1;
+  updateSearchState();
+  if (open && focus) requestAnimationFrame(() => searchInput.focus({ preventScroll: true }));
+}
 const state = {
   session: null as Session | null,
   status: "unread",
@@ -325,6 +346,34 @@ function el<K extends keyof HTMLElementTagNameMap>(
   if (className) node.className = className;
   return node;
 }
+type IconName = "edit" | "external" | "mark-read" | "mark-unread";
+function iconMarkup(name: IconName): string {
+  switch (name) {
+    case "edit":
+      return '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="m4 16.5-.8 3.3 3.3-.8L18.7 6.8a2.3 2.3 0 0 0-3.3-3.3L4 16.5Z" /><path d="m13.9 5.1 5 5" /></svg>';
+    case "external":
+      return '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M15 3h6v6m-1-5-9 9" /><path d="M11 5H7a4 4 0 0 0-4 4v8a4 4 0 0 0 4 4h8a4 4 0 0 0 4-4v-4" /></svg>';
+    case "mark-unread":
+      return '<svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="7" /></svg>';
+    case "mark-read":
+      return '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="m5 12 4.5 4.5L19 7" /></svg>';
+  }
+}
+function iconButton(label: string, icon: IconName, className = "") {
+  const button = el("button", undefined, `action-button icon-action${className ? ` ${className}` : ""}`);
+  button.type = "button";
+  button.setAttribute("aria-label", label);
+  button.title = label;
+  button.innerHTML = iconMarkup(icon);
+  return button;
+}
+function iconLink(label: string, icon: IconName, className = "") {
+  const link = el("a", undefined, `action-button icon-action${className ? ` ${className}` : ""}`);
+  link.setAttribute("aria-label", label);
+  link.title = label;
+  link.innerHTML = iconMarkup(icon);
+  return link;
+}
 function renderArticle(article: Article) {
   const li = el("li", undefined, `article${article.readAt ? " is-read" : ""}`);
   li.dataset.id = article.id;
@@ -347,7 +396,7 @@ function renderArticle(article: Article) {
     description.setAttribute("aria-label", `Read saved copy of ${article.title}`);
     description.addEventListener("click", () => void openSavedCopy(article));
   }
-  const link = el("a", "Open original ↗", "action-button subtle original-link");
+  const link = iconLink("Open original", "external", "subtle original-link");
   link.href = safeHttpUrl(article.url) || "#";
   link.target = "_blank";
   link.rel = "noopener noreferrer";
@@ -355,15 +404,13 @@ function renderArticle(article: Article) {
   main.append(title, meta, extractionBadge);
   if (description) main.append(description);
   const actions = el("div", undefined, "article-actions");
-  const read = el(
-    "button",
+  const read = iconButton(
     article.readAt ? "Mark unread" : "Mark read",
-    "action-button",
+    article.readAt ? "mark-unread" : "mark-read",
+    "read-action",
   );
-  read.type = "button";
   read.addEventListener("click", () => mutateRead(article, !article.readAt));
-  const edit = el("button", "Edit", "action-button subtle");
-  edit.type = "button";
+  const edit = iconButton("Edit", "edit", "subtle edit-action");
   edit.addEventListener("click", () => openDetail(article));
   actions.append(read, edit, link);
   li.append(main, actions);
@@ -1752,26 +1799,64 @@ $("#add-form").addEventListener("submit", async (e) => {
     if (!browserCaptureDraft?.savedCopyRevision) button.disabled = false;
   }
 });
+const statusOrder = ["unread", "read", "all"] as const;
+function setStatus(status: string) {
+  if (!statusOrder.includes(status as (typeof statusOrder)[number])) return;
+  setSearchOpen(false);
+  invalidateLoads();
+  stopExtractionPolling();
+  state.status = status;
+  document
+    .querySelectorAll("[data-status]")
+    .forEach((button) => button.setAttribute("aria-pressed", String((button as HTMLElement).dataset.status === status)));
+  void load();
+}
 document
   .querySelectorAll<HTMLButtonElement>("[data-status]")
-  .forEach((button) =>
-    button.addEventListener("click", () => {
-      invalidateLoads();
-      stopExtractionPolling();
-      state.status = button.dataset.status || "unread";
-      document
-        .querySelectorAll("[data-status]")
-        .forEach((b) => b.setAttribute("aria-pressed", String(b === button)));
-      load();
-    }),
-  );
+  .forEach((button) => button.addEventListener("click", () => setStatus(button.dataset.status || "unread")));
+
+let statusSwipeStart: { x: number; y: number } | null = null;
+statusTabs.addEventListener("touchstart", (event) => {
+  const touch = event.changedTouches[0];
+  if (touch) statusSwipeStart = { x: touch.clientX, y: touch.clientY };
+}, { passive: true });
+statusTabs.addEventListener("touchend", (event) => {
+  if (!statusSwipeStart) return;
+  const touch = event.changedTouches[0];
+  const start = statusSwipeStart;
+  statusSwipeStart = null;
+  if (!touch) return;
+  const dx = touch.clientX - start.x;
+  const dy = touch.clientY - start.y;
+  if (Math.abs(dx) < 48 || Math.abs(dx) <= Math.abs(dy) * 1.25) return;
+  const current = statusOrder.indexOf(state.status as (typeof statusOrder)[number]);
+  const next = Math.max(0, Math.min(statusOrder.length - 1, current + (dx < 0 ? 1 : -1)));
+  if (next !== current) setStatus(statusOrder[next]);
+}, { passive: true });
+statusTabs.addEventListener("touchcancel", () => { statusSwipeStart = null; }, { passive: true });
+
 let searchTimer: number;
-$<HTMLInputElement>("#search").addEventListener("input", (e) => {
+searchToggle.addEventListener("click", () => {
+  const open = searchControl.classList.contains("is-open");
+  setSearchOpen(!open, !open);
+});
+searchInput.addEventListener("keydown", (event) => {
+  if (event.key !== "Escape") return;
+  event.preventDefault();
+  setSearchOpen(false);
+  searchToggle.focus({ preventScroll: true });
+});
+document.addEventListener("click", (event) => {
+  if (!searchControl.classList.contains("is-open") || searchControl.contains(event.target as Node)) return;
+  setSearchOpen(false);
+});
+searchInput.addEventListener("input", (e) => {
   clearTimeout(searchTimer);
   stopExtractionPolling();
   invalidateLoads();
   state.query = (e.target as HTMLInputElement).value.trim();
-  searchTimer = window.setTimeout(() => load(), 250);
+  updateSearchState();
+  searchTimer = window.setTimeout(() => void load(), 250);
 });
 $("#more").addEventListener("click", () => load(false));
 $("#logout").addEventListener("click", async () => {

@@ -253,8 +253,11 @@ async function runProfile(name, browserType, device) {
   const shareDetail = page.locator("#detail-content");
   const markdownDraft = `# ${shareTitle}\n\nManually saved while the background processor is paused. **Important formatting** stays readable.\n\n| Fixture | State |\n| --- | --- |\n| Mobile | paused |`;
   await shareDetail.getByRole("textbox", { name: "Markdown copy" }).fill(markdownDraft);
+  const shareMarkdownSaveResponse = page.waitForResponse((response) =>
+    new URL(response.url()).pathname.endsWith("/copy") && response.request().method() === "PUT");
   await shareDetail.getByRole("button", { name: "Save Markdown copy" }).tap();
-  await shareDetail.getByText(/pasted Markdown/).waitFor();
+  assert.equal((await shareMarkdownSaveResponse).status(), 200);
+  await shareDetail.getByText(new RegExp(`${new TextEncoder().encode(markdownDraft).byteLength.toLocaleString()} UTF-8 bytes`)).waitFor();
   await shareDetail.getByRole("button", { name: "Read saved copy" }).tap();
   await page.locator("#reader-dialog #reader-body").getByRole("heading", { name: shareTitle }).waitFor();
   assert.equal(await page.locator("#reader-dialog #reader-body table tbody tr").count(), 1,
@@ -323,6 +326,7 @@ async function runProfile(name, browserType, device) {
   await page.reload();
   await page.locator("#logout").waitFor();
   await page.locator('[data-status="read"]').tap();
+  await page.locator("#search-toggle").tap();
   await page.getByRole("button", { name: shareTitle, exact: true }).waitFor();
   await page.locator("#search").fill(shareTitle);
   await page.getByRole("button", { name: shareTitle, exact: true }).waitFor();
@@ -330,6 +334,21 @@ async function runProfile(name, browserType, device) {
   await page.getByText("Nothing here yet").waitFor();
   await page.locator("#search").fill("");
   await page.locator('[data-status="unread"]').tap();
+  await page.locator("#search-toggle").tap();
+  await page.locator("#search").waitFor({ state: "visible" });
+  await page.evaluate(() => {
+    const tabs = document.querySelector("#status-tabs");
+    if (!tabs) throw new Error("Status tabs are unavailable.");
+    const emit = (type, clientX) => {
+      const event = new Event(type, { bubbles: true });
+      Object.defineProperty(event, "changedTouches", { value: [{ clientX, clientY: 100 }] });
+      tabs.dispatchEvent(event);
+    };
+    emit("touchstart", 320);
+    emit("touchend", 100);
+  });
+  await page.waitForFunction(() => document.querySelector('[data-status="read"]')?.getAttribute("aria-pressed") === "true");
+  await page.locator("#search").waitFor({ state: "hidden" });
   await page.locator('[data-status="all"]').tap();
   await article.getByRole("button", { name: "Mark unread" }).tap();
   await article.getByRole("button", { name: "Mark read" }).waitFor();
@@ -348,18 +367,20 @@ async function runProfile(name, browserType, device) {
   const detail = page.locator("#detail-content");
   await detail.locator(".copy-editor > .copy-status")
     .filter({ hasText: /^Saved .*captured or pasted Markdown/ }).waitFor();
-  await detail.getByRole("textbox", { name: "Markdown copy" }).fill(`# Wide reader check\n\n${"word-without-breaks-".repeat(24)}\n\n${"A long reader paragraph keeps the document scrollable on a phone. It stays unread until the reader action is chosen. ".repeat(36)}\n\n| left | ${"column-header-".repeat(8)} |\n| --- | --- |\n| text | ${"wide-cell-".repeat(24)} |`);
+  const wideMarkdown = `# Wide reader check\n\n${"word-without-breaks-".repeat(24)}\n\n${"A long reader paragraph keeps the document scrollable on a phone. It stays unread until the reader action is chosen. ".repeat(36)}\n\n| left | ${"column-header-".repeat(8)} |\n| --- | --- |\n| text | ${"wide-cell-".repeat(24)} |`;
+  await detail.getByRole("textbox", { name: "Markdown copy" }).fill(wideMarkdown);
   page.once("dialog", (dialog) => dialog.accept());
-  const updatedCopyResponsePromise = page.waitForResponse((response) =>
+  const wideSaveResponse = page.waitForResponse((response) =>
     new URL(response.url()).pathname === `/api/articles/${encodeURIComponent(articleId)}/copy` &&
     response.request().method() === "PUT");
   await detail.getByRole("button", { name: "Save Markdown copy" }).tap();
-  const updatedCopyResponse = await updatedCopyResponsePromise;
+  const updatedCopyResponse = await wideSaveResponse;
   assert.equal(updatedCopyResponse.status(), 200, `${name}: replacing the saved Markdown copy did not complete.`);
   const updatedCopy = await updatedCopyResponse.json();
   assert.match(updatedCopy.copy.markdown, /^# Wide reader check/m,
     `${name}: replacement Markdown was not persisted before opening the reader.`);
-  await detail.getByText(/pasted Markdown/).waitFor();
+  await detail.getByText(new RegExp(`${new TextEncoder().encode(wideMarkdown).byteLength.toLocaleString()} UTF-8 bytes`)).waitFor();
+  await detail.getByRole("button", { name: "Read saved copy" }).waitFor({ state: "visible" });
   await detail.getByRole("button", { name: "Read saved copy" }).tap();
   await page.locator("#reader-body").getByRole("heading", { name: "Wide reader check" }).waitFor();
   assert.equal(await page.evaluate(() => document.documentElement.scrollWidth > innerWidth), false,
