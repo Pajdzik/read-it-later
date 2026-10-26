@@ -14,7 +14,7 @@ concurrency:
 
 jobs:
   verify:
-    name: Verify
+    name: Verify core
     runs-on: ubuntu-latest
     timeout-minutes: 20
     steps:
@@ -34,11 +34,8 @@ jobs:
           node-version: 22
           cache: pnpm
 
-      - name: Detect extension changes
-        id: extension_changes
-        run: |
-          node --test scripts/ci-extension-changes.test.mjs
-          node scripts/ci-extension-changes.mjs
+      - name: Test extension change detection
+        run: node --test scripts/ci-extension-changes.test.mjs
 
       - name: Install dependencies
         run: pnpm install --frozen-lockfile
@@ -72,8 +69,53 @@ jobs:
       - name: Build and smoke-test the fetch-only container image
         run: pnpm test:fetcher:container
 
-      - name: Install Playwright Chromium and WebKit
-        run: pnpm exec playwright install --with-deps chromium webkit
+      - name: Test Obsidian conversion and local restore
+        run: pnpm test:obsidian
+
+      - name: Test GitHub Markdown recovery and local restore
+        run: pnpm test:github
+
+  browser-checks:
+    name: Browser checks
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        playwright-version: [1.62.1]
+    # The image contains the browser binaries and OS libraries for this exact
+    # Playwright release, so CI never runs apt-based `install --with-deps`.
+    container:
+      image: mcr.microsoft.com/playwright:v${{ matrix.playwright-version }}-noble
+      options: --ipc=host --init
+    timeout-minutes: 20
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Set up pnpm
+        uses: pnpm/action-setup@v4
+        with:
+          version: 12.4.1
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: pnpm
+
+      - name: Detect extension changes
+        id: extension_changes
+        run: node scripts/ci-extension-changes.mjs
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Check Playwright image version matches the project
+        env:
+          EXPECTED_PLAYWRIGHT_VERSION: ${{ matrix.playwright-version }}
+        run: |
+          node -e 'const actual = require("./package.json").devDependencies.playwright; if (actual !== process.env.EXPECTED_PLAYWRIGHT_VERSION) { console.error(`Playwright image is ${process.env.EXPECTED_PLAYWRIGHT_VERSION}, package.json requires ${actual}`); process.exit(1); }'
 
       - name: Run prototype smoke test
         run: pnpm test:prototype
@@ -91,15 +133,18 @@ jobs:
       - name: Rehearse archive restoration
         run: pnpm test:archive
 
-      - name: Test Obsidian conversion and local restore
-        run: pnpm test:obsidian
-
-      - name: Test GitHub Markdown recovery and local restore
-        run: pnpm test:github
+  verify-result:
+    name: Verify
+    if: always()
+    needs: [verify, browser-checks]
+    runs-on: ubuntu-latest
+    steps:
+      - name: Require all verification jobs to pass
+        run: test "${{ needs.verify.result }}" = success && test "${{ needs.browser-checks.result }}" = success
 
   deploy-production:
     name: Deploy production
-    needs: verify
+    needs: verify-result
     if: github.event_name == 'push' && github.ref == 'refs/heads/main'
     runs-on: ubuntu-latest
     timeout-minutes: 15
