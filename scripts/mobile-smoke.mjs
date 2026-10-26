@@ -265,8 +265,15 @@ async function runProfile(name, browserType, device) {
   await pendingReader.getByRole("button", { name: "Paste or upload Markdown" }).tap();
   const shareDetail = page.locator("#detail-content");
   const markdownDraft = `# ${shareTitle}\n\nManually saved while the background processor is paused. **Important formatting** stays readable.\n\n| Fixture | State |\n| --- | --- |\n| Mobile | paused |`;
-  await shareDetail.getByRole("textbox", { name: "Markdown copy" }).fill(`${markdownDraft}\n\n${Array.from({ length: 8 }, (_, index) => `Long section ${index + 1}: ${"mobile-reader-scroll-".repeat(28)}`).join("\n\n")}`);
+  const shareMarkdown = `${markdownDraft}\n\n${Array.from({ length: 8 }, (_, index) => `Long section ${index + 1}: ${"mobile-reader-scroll-".repeat(28)}`).join("\n\n")}`;
+  await shareDetail.getByRole("textbox", { name: "Markdown copy" }).fill(shareMarkdown);
+  const shareMarkdownSaveResponse = page.waitForResponse((response) =>
+    new URL(response.url()).pathname === `/api/articles/${encodeURIComponent(shareArticleId)}/copy` &&
+    response.request().method() === "PUT");
   await shareDetail.getByRole("button", { name: "Save Markdown copy" }).tap();
+  assert.equal((await shareMarkdownSaveResponse).status(), 200,
+    `${name}: manually saving Markdown did not complete.`);
+  await shareDetail.getByText(new RegExp(`${new TextEncoder().encode(shareMarkdown).byteLength.toLocaleString()} UTF-8 bytes`)).waitFor();
   await shareDetail.getByText(/pasted Markdown/).waitFor();
   const readCopyAction = shareDetail.getByRole("button", { name: "Read saved copy" });
   await readCopyAction.tap();
@@ -421,6 +428,7 @@ async function runProfile(name, browserType, device) {
   assert.ok(readAtAfterSave);
   await page.reload();
   await page.locator('[data-status="read"]').tap();
+  await page.locator("#search-toggle").tap();
   await page.locator("#articles").getByRole("link", { name: shareTitle, exact: true }).waitFor();
   await page.locator("#search").fill(shareTitle);
   await page.locator("#articles").getByRole("link", { name: shareTitle, exact: true }).waitFor();
@@ -428,6 +436,21 @@ async function runProfile(name, browserType, device) {
   await page.getByText("Nothing here yet").waitFor();
   await page.locator("#search").fill("");
   await page.locator('[data-status="unread"]').tap();
+  await page.locator("#search-toggle").tap();
+  await page.locator("#search").waitFor({ state: "visible" });
+  await page.evaluate(() => {
+    const tabs = document.querySelector("#status-tabs");
+    if (!tabs) throw new Error("Status tabs are unavailable.");
+    const emit = (type, clientX) => {
+      const event = new Event(type, { bubbles: true });
+      Object.defineProperty(event, "changedTouches", { value: [{ clientX, clientY: 100 }] });
+      tabs.dispatchEvent(event);
+    };
+    emit("touchstart", 320);
+    emit("touchend", 100);
+  });
+  await page.waitForFunction(() => document.querySelector('[data-status="read"]')?.getAttribute("aria-pressed") === "true");
+  await page.locator("#search").waitFor({ state: "hidden" });
   await page.locator('[data-status="all"]').tap();
   await article.getByRole("button", { name: "Mark unread" }).tap();
   await article.getByRole("button", { name: "Mark read" }).waitFor();
@@ -447,7 +470,8 @@ async function runProfile(name, browserType, device) {
     `${name}: detail dialog opened with its close button focused.`);
   await detail.locator(".copy-editor > .copy-status")
     .filter({ hasText: /^Saved .*captured or pasted Markdown/ }).waitFor();
-  await detail.getByRole("textbox", { name: "Markdown copy" }).fill(`# Wide reader check\n\n${"word-without-breaks-".repeat(24)}\n\n| left | ${"column-header-".repeat(8)} |\n| --- | --- |\n| text | ${"wide-cell-".repeat(24)} |`);
+  const wideMarkdown = `# Wide reader check\n\n${"word-without-breaks-".repeat(24)}\n\n| left | ${"column-header-".repeat(8)} |\n| --- | --- |\n| text | ${"wide-cell-".repeat(24)} |`;
+  await detail.getByRole("textbox", { name: "Markdown copy" }).fill(wideMarkdown);
   page.once("dialog", (dialog) => dialog.accept());
   const updatedCopyResponsePromise = page.waitForResponse((response) =>
     new URL(response.url()).pathname === `/api/articles/${encodeURIComponent(articleId)}/copy` &&
@@ -459,6 +483,7 @@ async function runProfile(name, browserType, device) {
   assert.match(updatedCopy.copy.markdown, /^# Wide reader check/m,
     `${name}: replacement Markdown was not persisted before opening the reader.`);
   await detail.getByText(/pasted Markdown/).waitFor();
+  await detail.getByRole("button", { name: "Read saved copy" }).waitFor({ state: "visible" });
   await detail.getByRole("button", { name: "Read saved copy" }).tap();
   await page.locator("#reader-body").getByRole("heading", { name: "Wide reader check" }).waitFor();
   assert.equal(await page.evaluate(() => document.documentElement.scrollWidth > innerWidth), false,
