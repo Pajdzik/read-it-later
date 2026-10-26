@@ -63,7 +63,7 @@
         "GITHUB_BACKUP_REPOSITORY": "Pajdzik/Kamilpedia",
         "GITHUB_BACKUP_BRANCH": "main",
         "GITHUB_BACKUP_PATH": "Articles",
-        "BACKGROUND_CAPTURE_ENABLED": "false"
+        "BACKGROUND_CAPTURE_ENABLED": "true"
       },
       "d1_databases": [
         {
