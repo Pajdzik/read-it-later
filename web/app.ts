@@ -508,6 +508,23 @@ function extractionLabel(extraction?: ExtractionStatus) {
   if (extraction.paused) return "Capture paused";
   return extraction.state === "retry_wait" ? "Capture retrying" : "Capturing Markdown";
 }
+function updateExtractionBadge(badge: HTMLElement, extraction?: ExtractionStatus) {
+  const ready = extraction?.state === "ready";
+  const label = extraction?.paused ? "" : extractionLabel(extraction);
+  badge.classList.toggle("extraction-badge-ready", ready);
+  badge.hidden = !label;
+  if (ready) {
+    badge.setAttribute("role", "img");
+    badge.setAttribute("aria-label", "Markdown ready");
+    badge.title = "Markdown ready";
+    badge.innerHTML = iconMarkup("mark-read");
+    return;
+  }
+  badge.removeAttribute("role");
+  badge.removeAttribute("aria-label");
+  badge.removeAttribute("title");
+  badge.textContent = label;
+}
 function articleMetaLabel(article: Article) {
   const pausedLabel = article.extraction?.paused ? " · Capture paused" : "";
   return `${sourceHost(article.url)}${article.author ? ` · By ${article.author}` : ""} · Saved ${dateLabel(article.createdAt)}${pausedLabel}`;
@@ -562,11 +579,7 @@ function scheduleExtractionPoll(article: Article) {
         const meta = row.querySelector<HTMLElement>(".article-meta");
         if (meta) meta.textContent = articleMetaLabel({ ...article, extraction: result.extraction });
         const badge = row.querySelector<HTMLElement>(".extraction-badge");
-        if (badge) {
-          const label = result.extraction.paused ? "" : extractionLabel(result.extraction);
-          badge.textContent = label;
-          badge.hidden = !label;
-        }
+        if (badge) updateExtractionBadge(badge, result.extraction);
       }
       if (result.extraction.state === "ready") {
         if ($<HTMLDialogElement>("#reader-dialog").open) {
@@ -670,8 +683,8 @@ function renderArticle(article: Article) {
     articleMetaLabel(article),
     "article-meta",
   );
-  const extractionBadge = el("span", article.extraction?.paused ? "" : extractionLabel(article.extraction), "extraction-badge");
-  extractionBadge.hidden = !extractionBadge.textContent;
+  const extractionBadge = el("span", undefined, "extraction-badge");
+  updateExtractionBadge(extractionBadge, article.extraction);
   const description = article.description
     ? el("a", article.description, "article-description article-lead")
     : null;
