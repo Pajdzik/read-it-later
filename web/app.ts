@@ -1522,8 +1522,6 @@ async function initialize() {
       "Sign in to see saved articles across your devices.";
   } else {
     if (reconcileGitHubButton) reconcileGitHubButton.hidden = false;
-    $("#account").hidden = false;
-    $("#account").textContent = "Your private library";
     $("#logout").hidden = false;
     setListTitle();
     void load();

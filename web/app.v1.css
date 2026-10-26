@@ -99,6 +99,7 @@ button {
   color: var(--orange);
 }
 .top-actions {
+  grid-column: 3;
   display: flex;
   align-items: center;
   gap: 8px;
@@ -108,10 +109,6 @@ button {
   display: flex;
   align-items: center;
   gap: 6px;
-}
-.account {
-  color: var(--muted);
-  font-size: 13px;
 }
 .icon-button {
   width: 38px;
@@ -1116,9 +1113,6 @@ body:has(#reader-dialog[open]) {
   .topbar {
     height: 64px;
     padding: 0 16px;
-  }
-  .account {
-    display: none;
   }
   .shell {
     width: calc(100% - 30px);
