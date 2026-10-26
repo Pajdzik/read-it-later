@@ -1,6 +1,6 @@
 import { build } from 'esbuild';
-import { execFileSync } from 'node:child_process';
-import { cp, mkdir, readFile, rm, writeFile } from 'node:fs/promises';
+import { zipSync } from 'fflate';
+import { cp, mkdir, readFile, readdir, rm, writeFile } from 'node:fs/promises';
 import path from 'node:path';
 import sharp from 'sharp';
 
@@ -18,6 +18,21 @@ if (parsedOrigin.pathname !== '/' || parsedOrigin.search || parsedOrigin.hash ||
 const output = path.resolve('dist/extension');
 await rm(output, { recursive: true, force: true });
 await mkdir(output, { recursive: true });
+
+async function collectFiles(directory: string, prefix = ''): Promise<Record<string, Uint8Array>> {
+  const files: Record<string, Uint8Array> = {};
+  for (const entry of await readdir(directory, { withFileTypes: true })) {
+    const relativePath = prefix ? `${prefix}/${entry.name}` : entry.name;
+    const absolutePath = path.join(directory, entry.name);
+    if (entry.isDirectory()) {
+      Object.assign(files, await collectFiles(absolutePath, relativePath));
+    } else if (entry.isFile()) {
+      files[relativePath] = new Uint8Array(await readFile(absolutePath));
+    }
+  }
+  return files;
+}
+
 const bundles = [
   ['background.ts', 'background.js'], ['bridge.ts', 'bridge.js'], ['extractor.ts', 'extractor.js'], ['options.ts', 'options.js'],
 ] as const;
@@ -57,7 +72,7 @@ for (const browserName of ['chrome', 'firefox'] as const) {
   };
   await writeFile(path.join(directory, 'manifest.json'), `${JSON.stringify(manifest, null, 2)}\n`);
   const archive = path.join(output, `potem-${browserName}.zip`);
-  execFileSync('/usr/bin/zip', ['-qr', archive, '.'], { cwd: directory });
+  await writeFile(archive, zipSync(await collectFiles(directory), { level: 6 }));
 }
 await writeFile(path.join(output, 'BUILD-INFO.txt'), `${production ? 'production' : 'development'}\n${origin}\n`);
 console.log(`Built Chrome and Firefox packages for ${origin}${production ? ' (production)' : ' (loopback development)'}.`);

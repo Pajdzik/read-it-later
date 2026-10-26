@@ -4,7 +4,7 @@ Status: automated local mobile rehearsal and read-only deployed checks recorded 
 
 ## Automated scope
 
-`pnpm test:mobile` runs Playwright touch flows with Android Chromium and iPhone WebKit profiles against a fresh temporary local Worker/D1. CI installs both browser engines. The existing `pnpm test:browser` desktop smoke remains a separate check.
+`pnpm test:mobile` runs Playwright touch flows with Android Chromium and iPhone WebKit profiles against a fresh temporary local Worker/D1. CI runs it in the pinned Playwright container, which includes both browser engines. The existing `pnpm test:browser` desktop smoke remains a separate check in the same browser job.
 
 The runner covers anonymous sign-in, Add/save and duplicate handling, reading a saved Markdown copy, explicit read/unread across reload, search/filter navigation, settings, dialog close/recovery, long titles/URLs, narrow portrait and short landscape layouts, and wide reader content. It verifies failed-save draft retention, ambiguous shared text, logged-out `/add` recovery, and that GET share-target navigation never saves before confirmation. With background extraction disabled in the local configuration, it verifies a successful queued-save acknowledgment, the visible paused status, the pending reader, and manually saving a copy for reader/layout/read-state checks. It does not fetch the local source fixture for automatic extraction or exercise real OAuth.
 

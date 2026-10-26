@@ -53,6 +53,7 @@
     "@types/markdown-it": "14.2.0",
     "@types/node": "22.20.4",
     "esbuild": "0.28.1",
+    "fflate": "0.8.3",
     "playwright": "1.62.1",
     "sharp": "0.35.5",
     "tsx": "4.23.15",
