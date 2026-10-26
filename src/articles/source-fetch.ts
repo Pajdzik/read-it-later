@@ -1,16 +1,17 @@
 import type { Env } from "../contracts";
-import { parseArticleMetadata, type ArticleDocument, type ArticleMetadata } from "./metadata";
-import { parseArticleDocument } from "./extraction";
-import { failSourceFetch as fail, SourceFetchError, validateSourceTarget as validateTarget } from "./source-policy";
+import { failSourceFetch as fail, SourceFetchError, validateSourceTarget } from "./source-policy";
 import { FETCH_FAILURE_HEADER, isFetchErrorCode } from "../../fetcher/protocol";
 import { CONTAINER_STARTUP_TIMEOUT_MS, SOURCE_HOP_TIMEOUT_MS, SOURCE_TOTAL_TIMEOUT_MS } from "./capture-limits";
 
 export { SourceFetchError } from "./source-policy";
+export { validateSourceTarget as validateTarget } from "./source-policy";
+
+export type SourceFetchEnv = Pick<Env, "APP_ORIGIN" | "BACKGROUND_CAPTURE_ENABLED" | "ARTICLE_FETCHER">;
 
 const MAX_HTML_BYTES = 512 * 1024;
 const MAX_REDIRECTS = 3;
 
-export function isBackgroundCapturePaused(env: Env): boolean {
+export function isBackgroundCapturePaused(env: SourceFetchEnv): boolean {
   return env.BACKGROUND_CAPTURE_ENABLED !== "true" || !env.ARTICLE_FETCHER;
 }
 
@@ -97,16 +98,16 @@ async function readHtml(response: Response, signal: AbortSignal): Promise<string
  * connect to a validated public address while preserving TLS hostname checks.
  * A Worker-side DNS preflight cannot prove which address an ordinary fetch uses.
  */
-export async function fetchSourcePage(url: string, env: Env): Promise<{ html: string; document: ArticleDocument; url: string; metadata: ArticleMetadata }> {
+export async function fetchSourcePage(url: string, env: SourceFetchEnv): Promise<{ html: string; url: string }> {
   if (isBackgroundCapturePaused(env)) fail("capture_paused");
   const fetcher = env.ARTICLE_FETCHER;
   if (!fetcher) fail("capture_paused");
 
   const deadline = Date.now() + SOURCE_TOTAL_TIMEOUT_MS;
   const visited = new Set<string>();
-  let target = validateTarget(url, env);
+  let target = validateSourceTarget(url, env);
   for (let redirects = 0; ; redirects++) {
-    target = validateTarget(target.href, env);
+    target = validateSourceTarget(target.href, env);
     if (visited.has(target.href)) fail("redirect_loop");
     visited.add(target.href);
     const remaining = deadline - Date.now();
@@ -155,7 +156,7 @@ export async function fetchSourcePage(url: string, env: Env): Promise<{ html: st
       if (redirects >= MAX_REDIRECTS) fail("too_many_redirects");
       let next: URL;
       try { next = new URL(location, target); } catch { fail("invalid_redirect"); }
-      next = validateTarget(next.href, env);
+      next = validateSourceTarget(next.href, env);
       if (target.protocol === "https:" && next.protocol === "http:") fail("redirect_downgrade");
       target = next;
       continue;
@@ -186,12 +187,7 @@ export async function fetchSourcePage(url: string, env: Env): Promise<{ html: st
       fail(Date.now() >= deadline || controller.signal.aborted ? "timeout" : "network_error", true);
     }
     finally { clearTimeout(timeoutId!); }
-    let document: ArticleDocument;
-    let metadata: ArticleMetadata;
-    try {
-      document = parseArticleDocument(html);
-      metadata = parseArticleMetadata(document);
-    } catch { fail("invalid_html"); }
-    return { html, document, url: target.href, metadata };
+    // Parsing belongs to the executor's bounded thread, after the network deadline.
+    return { html, url: target.href };
   }
 }

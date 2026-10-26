@@ -1,3 +1,4 @@
+import { captureFixture } from './capture-fixture';
 import { env as testEnv } from 'cloudflare:test';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import type { Env, ExtractionStatus } from '../src/contracts';
@@ -90,8 +91,8 @@ describe('article HTTP handlers', () => {
   });
 
   it('acknowledges a durable request before fetching and preserves copies on duplicate adds', async () => {
-    const fetcher = vi.fn(async () => new Response('<html><head><title>Extracted article</title><meta name="author" content="Alex"></head><body><nav>Navigation clutter</nav><article><h1>Readable article</h1><p>Keep this <strong>important formatting</strong> and Unicode 📰.</p><pre><code class="language-js">const saved = true;</code></pre><p><a href="/related">Related reading</a></p></article></body></html>', { headers: { 'Content-Type': 'text/html' } }));
-    const enabledEnv: Env = { ...env, BACKGROUND_CAPTURE_ENABLED: 'true', ARTICLE_FETCHER: { fetch: fetcher, connect() { throw new Error('No socket access'); } } };
+    const fetcher = vi.fn(async () => await captureFixture('<html><head><title>Extracted article</title><meta name="author" content="Alex"></head><body><nav>Navigation clutter</nav><article><h1>Readable article</h1><p>Keep this <strong>important formatting</strong> and Unicode 📰.</p><pre><code class="language-js">const saved = true;</code></pre><p><a href="/related">Related reading</a></p></article></body></html>'));
+    const enabledEnv: Env = { ...env, BACKGROUND_CAPTURE_ENABLED: 'true', ARTICLE_EXTRACTOR: { fetch: fetcher, connect() { throw new Error('No socket access'); } } };
     const response = (await handleArticles(request('/api/articles', 'POST', { url: 'https://source.example.com/article', captureMarkdown: true }), enabledEnv))!;
     expect(response.status).toBe(201);
     const data = await response.json() as { article: { id: string; title: string; readAt: null }; extraction: ExtractionStatus };
@@ -120,8 +121,8 @@ describe('article HTTP handlers', () => {
   });
 
   it('keeps the URL on extraction failure and exposes an owner retry without resetting jobs on duplicate saves', async () => {
-    const fetcher = vi.fn(async () => new Response('Blocked', { status: 403 }));
-    const enabledEnv: Env = { ...env, BACKGROUND_CAPTURE_ENABLED: 'true', ARTICLE_FETCHER: { fetch: fetcher, connect() { throw new Error('No socket access'); } } };
+    const fetcher = vi.fn(async () => Response.json({ version: 1, ok: false, error: { code: "upstream_http", retryable: false } }));
+    const enabledEnv: Env = { ...env, BACKGROUND_CAPTURE_ENABLED: 'true', ARTICLE_EXTRACTOR: { fetch: fetcher, connect() { throw new Error('No socket access'); } } };
     const response = await route(request('/api/articles', 'POST', { url: 'https://source.example.com/retry', captureMarkdown: true }));
     expect(response.status).toBe(201);
     const data = await response.json() as { article: { id: string }; extraction: ExtractionStatus };
@@ -138,7 +139,7 @@ describe('article HTTP handlers', () => {
     expect(retried.status).toBe(200);
     expect(await retried.json()).toMatchObject({ extraction: { state: 'queued', attempts: 0 } });
     expect((await route(request(statusPath + '/retry', 'POST', { url: 'https://other.example' }))).status).toBe(400);
-    fetcher.mockImplementation(async () => new Response('<html><body><article><h1>Retry worked</h1><p>This article is now available to read and preserve.</p></article></body></html>', { headers: { 'Content-Type': 'text/html' } }));
+    fetcher.mockImplementation(async () => await captureFixture('<html><body><article><h1>Retry worked</h1><p>This article is now available to read and preserve.</p></article></body></html>'));
     await processExtractionJobs(enabledEnv);
     expect(await (await route(request(`/api/articles/${data.article.id}/copy`))).json()).toMatchObject({ copy: { markdown: expect.stringContaining('This article is now available') } });
   });
@@ -175,7 +176,7 @@ describe('article HTTP handlers', () => {
     }
     const enabledEnv: Env = {
       ...env, BACKGROUND_CAPTURE_ENABLED: 'true',
-      ARTICLE_FETCHER: { fetch: async () => new Response('<article><h1>Recovered</h1><p>A complete preserved article from the durable request.</p></article>', { headers: { 'Content-Type': 'text/html' } }), connect() { throw new Error('No socket access'); } },
+      ARTICLE_EXTRACTOR: { fetch: async () => await captureFixture('<article><h1>Recovered</h1><p>A complete preserved article from the durable request.</p></article>'), connect() { throw new Error('No socket access'); } },
     };
     await processExtractionJobs(enabledEnv);
     expect(await (await route(request(`/api/articles/${articleId!}/copy`))).json()).toMatchObject({ copy: { markdown: expect.stringContaining('durable request') } });
@@ -391,12 +392,11 @@ describe('article HTTP handlers', () => {
   });
 
   it('exports more than one page and imports idempotently with read state and Unicode intact', async () => {
-    // Seed both export pages in one D1 round trip rather than 105 serialized writes.
-    await env.DB.batch(Array.from({ length: 105 }, (_, i) =>
-      env.DB.prepare('INSERT INTO articles(id,url,normalized_url,title,created_at,updated_at,read_at) VALUES(?,?,?,?,?,?,?)')
+    for (let i = 0; i < 105; i++) {
+      await env.DB.prepare('INSERT INTO articles(id,url,normalized_url,title,created_at,updated_at,read_at) VALUES(?,?,?,?,?,?,?)')
         .bind(`exp${String(i).padStart(5, "0")}`, `https://example.com/${i}`, `https://example.com/${i}`, i === 0 ? '日本語 📰' : `Title ${i}`,
-          new Date(Date.UTC(2026, 0, 1, 0, 0, i)).toISOString(), new Date(Date.UTC(2026, 0, 1, 0, 0, i)).toISOString(), i === 0 ? '2026-01-02T00:00:00.000Z' : null),
-    ));
+          new Date(Date.UTC(2026, 0, 1, 0, 0, i)).toISOString(), new Date(Date.UTC(2026, 0, 1, 0, 0, i)).toISOString(), i === 0 ? '2026-01-02T00:00:00.000Z' : null).run();
+    }
     await env.DB.prepare('INSERT INTO article_copies(article_id,markdown,captured_at,source,revision) VALUES(?,?,?,?,?)')
       .bind('exp00000', '# Backup 📰\n\nescaped \u0000\t content', '2026-01-04T00:00:00.000Z', 'upload', 'copy-revision-1').run();
     const exported = await route(request('/api/export'));

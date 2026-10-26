@@ -48,7 +48,7 @@ describe("bounded source fetching", () => {
     });
     const result = await fetchSourcePage("https://news.example.com/start", env);
     expect(result.url).toBe("https://news.example.com/story");
-    expect(result.metadata.title).toBe("Fixture");
+    expect(result.html).toContain("<title>Fixture</title>");
     expect(calls).toHaveLength(2);
     for (const call of calls) {
       expect(call.init?.redirect).toBe("manual");
@@ -168,7 +168,7 @@ describe("bounded source fetching", () => {
       setTimeout(() => resolve(html()), SOURCE_HOP_TIMEOUT_MS + 100);
     })));
     await vi.advanceTimersByTimeAsync(SOURCE_HOP_TIMEOUT_MS + 101);
-    expect((await slowFirst).metadata.title).toBe("Fixture");
+    expect((await slowFirst).html).toContain("<title>Fixture</title>");
 
     let requests = 0;
     const redirected = fetchSourcePage("https://news.example.com/start", envWith(async () => {

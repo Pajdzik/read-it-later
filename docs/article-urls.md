@@ -1,6 +1,6 @@
 # Article URLs and returning to the last article
 
-Status: implemented and validated locally with Luna subagents. Current article data and backups are disposable test data. No live library reset, deployment, or remote GitHub backup/repository mutation has been performed. October 18, 2026.
+Status: implemented and validated locally with Luna subagents. Current article data and backups are disposable test data. Deployment and migration of the existing live library/GitHub backup set have not been performed. October 18, 2026.
 
 ## Decision
 
@@ -32,7 +32,7 @@ The backup shapes do not need to change. JSON version 2 still contains `id` and 
 
 New GitHub backups use readable title-based filenames such as `Articles/why-we-read.md`, with `id: "k7m2q9x4"` in YAML frontmatter. The database records the article's assigned backup path. The writer, recovery converter, JSON import, and database must agree on the frontmatter ID; the filename carries no identity contract. Repeated restore must preserve both the article ID and its reader URL. Preserve saved Markdown bytes and existing metadata through conversion. GitHub Markdown remains a text/capture backup and does not acquire read-state fields through this change.
 
-Testing cutover procedure (not performed as part of local validation): clear the disposable test article library and start with newly generated short IDs. Reset article rows and dependent copies/jobs/backup-status records together; keep authentication, tokens, configuration, and unrelated repository files outside the reset. Do not rewrite primary keys piecemeal across an active library. Test backups can be regenerated from the new library, and old UUID-named backup files can be retired rather than retained as aliases. Old bookmarks, last-opened browser pointers, and UUID links are allowed to expire. No live data reset, deployment, or remote repository mutation is authorized by this design document.
+Default cutover: clear the disposable test article library and start with newly generated short IDs. Reset article rows and dependent copies/jobs/backup-status records together; keep authentication, tokens, configuration, and unrelated repository files outside the reset. Do not rewrite primary keys piecemeal across an active library. Test backups can be regenerated from the new library, and old UUID-named backup files can be retired rather than retained as aliases. Old bookmarks, last-opened browser pointers, and UUID links are allowed to expire.
 
 If retaining an existing backup's contents is useful, convert it once before import:
 
@@ -154,7 +154,7 @@ Apply the same preservation before the existing API-401 redirect. Hide the last-
 5. Add browser-local last-opened and tab-local sign-in return helpers with defensive storage handling. Keep render-only functions free of persistence/navigation effects.
 6. Extend existing real-browser smoke coverage for the transitions below. No extraction or deployed-environment changes are part of this design update.
 
-The reader stores a numeric position per article and saved-copy revision in local browser storage. When the user opens that article again, the saved position is restored; this metadata contains no article text, title, or URL. Cross-device position synchronization remains a possible later extension. Position restore is separate from existing read/unread status.
+Cross-device last-opened synchronization and restoring a position within an article are possible later extensions. V1 restores the article at its beginning. They are separate from existing read/unread status and do not need to block useful article URLs.
 
 ## Acceptance checks
 

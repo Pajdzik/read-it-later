@@ -1,3 +1,4 @@
+import { captureFixture } from './capture-fixture';
 import { env as testEnv } from "cloudflare:test";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import type { Env } from "../src/contracts";
@@ -11,7 +12,7 @@ function processorEnv(fetch: (input: RequestInfo | URL, init?: RequestInit) => P
     DB: testEnv.DB,
     ASSETS: testEnv.ASSETS,
     BACKGROUND_CAPTURE_ENABLED: "true",
-    ARTICLE_FETCHER: { fetch, connect() { throw new Error("unused"); } } as Fetcher,
+    ARTICLE_EXTRACTOR: { fetch, connect() { throw new Error("unused"); } } as Fetcher,
     ...overrides,
   } as Env;
 }
@@ -30,7 +31,7 @@ describe("scheduled extraction processor", () => {
 
   it("turns a durable intent into one private copy and enriches only fallback metadata", async () => {
     await addIntent("processor-success");
-    const fetcher = vi.fn(async (_input?: RequestInfo | URL) => new Response(articleHtml, { headers: { "Content-Type": "text/html; charset=utf-8" } }));
+    const fetcher = vi.fn(async (_input?: RequestInfo | URL) => await captureFixture(articleHtml));
     await processExtractionJobs(processorEnv(fetcher), now);
 
     const row = await testEnv.DB.prepare(`SELECT a.title,a.author,a.description,a.read_at,j.state,j.attempts,j.lease_token,
@@ -45,13 +46,13 @@ describe("scheduled extraction processor", () => {
     expect(row?.markdown).toContain("**formatting**");
     expect(row?.revision).toEqual(expect.any(String));
     expect(fetcher).toHaveBeenCalledTimes(1);
-    expect(fetcher.mock.calls[0]?.[0]).toBe("https://source.example.com/processor-success");
+    expect(fetcher.mock.calls[0]?.[0]).toBe("https://capture.internal/capture");
   });
 
   it("processes only one eligible job per scheduled invocation", async () => {
     await addIntent("processor-one");
     await addIntent("processor-two");
-    const fetcher = vi.fn(async (_input?: RequestInfo | URL) => new Response(articleHtml, { headers: { "Content-Type": "text/html" } }));
+    const fetcher = vi.fn(async (_input?: RequestInfo | URL) => await captureFixture(articleHtml));
     await processExtractionJobs(processorEnv(fetcher), now);
     expect(fetcher).toHaveBeenCalledTimes(1);
     const completed = await testEnv.DB.prepare("SELECT COUNT(*) AS count FROM article_copies").first<{ count: number }>();
@@ -60,7 +61,7 @@ describe("scheduled extraction processor", () => {
 
   it("records permanent source failures without saving a copy", async () => {
     await addIntent("processor-permanent");
-    const fetcher = vi.fn(async () => new Response("", { status: 404 }));
+    const fetcher = vi.fn(async () => Response.json({ version: 1, ok: false, error: { code: "upstream_http", retryable: false } }));
     await processExtractionJobs(processorEnv(fetcher), now);
     const job = await testEnv.DB.prepare("SELECT state,attempts,error_code FROM article_extraction_jobs WHERE article_id=?")
       .bind("processor-permanent").first<Record<string, unknown>>();
@@ -71,7 +72,7 @@ describe("scheduled extraction processor", () => {
 
   it("schedules transient source failures with capped Retry-After", async () => {
     await addIntent("processor-transient");
-    const fetcher = vi.fn(async () => new Response("", { status: 503, headers: { "Retry-After": "7200" } }));
+    const fetcher = vi.fn(async () => Response.json({ version: 1, ok: false, error: { code: "upstream_http", retryable: true, retryAfterSeconds: 3600 } }));
     await processExtractionJobs(processorEnv(fetcher), now);
     const job = await testEnv.DB.prepare("SELECT state,attempts,error_code,next_attempt_at,updated_at FROM article_extraction_jobs WHERE article_id=?")
       .bind("processor-transient").first<Record<string, unknown>>();
@@ -83,9 +84,9 @@ describe("scheduled extraction processor", () => {
 
   it("does no reconciliation or source work while capture is paused or missing its gateway", async () => {
     await addIntent("processor-paused");
-    const fetcher = vi.fn(async () => new Response(articleHtml, { headers: { "Content-Type": "text/html" } }));
+    const fetcher = vi.fn(async () => await captureFixture(articleHtml));
     await processExtractionJobs(processorEnv(fetcher, { BACKGROUND_CAPTURE_ENABLED: "false" }), now);
-    await processExtractionJobs(processorEnv(fetcher, { ARTICLE_FETCHER: undefined }), now);
+    await processExtractionJobs(processorEnv(fetcher, { ARTICLE_EXTRACTOR: undefined }), now);
     expect(fetcher).not.toHaveBeenCalled();
     const jobs = await testEnv.DB.prepare("SELECT COUNT(*) AS count FROM article_extraction_jobs").first<{ count: number }>();
     expect(jobs?.count).toBe(0);

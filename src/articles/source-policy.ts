@@ -1,15 +1,7 @@
 import ipaddr from "ipaddr.js";
+import { SourceFetchError } from "./capture-protocol";
 
-export class SourceFetchError extends Error {
-  constructor(
-    readonly code: string,
-    readonly retryable: boolean,
-    readonly retryAfterSeconds?: number,
-  ) {
-    super(code);
-    this.name = "SourceFetchError";
-  }
-}
+export { SourceFetchError } from "./capture-protocol";
 
 export function failSourceFetch(code: string, retryable = false, retryAfterSeconds?: number): never {
   throw new SourceFetchError(code, retryable, retryAfterSeconds);

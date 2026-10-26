@@ -1,0 +1,24 @@
+*
+!package.json
+!pnpm-lock.yaml
+!pnpm-workspace.yaml
+!tsconfig.node.json
+!fetcher/
+!fetcher/**
+!src/
+!src/articles/
+!src/articles/**
+!capture/
+!capture/**
+!scripts/
+!scripts/build-capture.ts
+!Dockerfile.capture
+
+# Never send local credentials or fixtures to the image builder.
+**/.dev.vars*
+**/.env*
+**/*.pem
+**/*.key
+**/*.p12
+**/*.pfx
+capture/tests/

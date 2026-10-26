@@ -1,7 +1,7 @@
 import type { Env } from "../contracts";
-import { extractArticleMarkdown } from "./extraction";
+import { captureArticle, isBackgroundCapturePaused } from "./capture-client";
 import { claimExtractionJob, completeExtractionJob, failExtractionJob, reconcileExtractionJobs } from "./jobs";
-import { fetchSourcePage, isBackgroundCapturePaused, SourceFetchError } from "./source-fetch";
+import { SourceFetchError } from "./capture-protocol";
 
 function log(event: string, fields: Record<string, string | number | boolean | null> = {}): void {
   console.info(JSON.stringify({ event, ...fields }));
@@ -28,16 +28,10 @@ export async function processExtractionJobs(env: Env, now = new Date().toISOStri
   if (!job) return;
 
   try {
-    const source = await fetchSourcePage(job.url, env);
-    let markdown: string;
-    try {
-      markdown = await extractArticleMarkdown(source.document, source.url);
-    } catch {
-      throw new SourceFetchError("conversion_failed", false);
-    }
+    const { markdown, metadata } = await captureArticle(job.url, env);
     let completed: boolean;
     try {
-      completed = await completeExtractionJob(env.DB, job, { markdown, metadata: source.metadata }, new Date().toISOString());
+      completed = await completeExtractionJob(env.DB, job, { markdown, metadata }, new Date().toISOString());
     } catch {
       throw new SourceFetchError("storage_failed", true);
     }

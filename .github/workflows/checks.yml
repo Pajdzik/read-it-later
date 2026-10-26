@@ -35,7 +35,10 @@ jobs:
           cache: pnpm
 
       - name: Test extension change detection
-        run: node --test scripts/ci-extension-changes.test.mjs
+        id: extension_changes
+        run: |
+          node --test scripts/ci-extension-changes.test.mjs
+          node scripts/ci-extension-changes.mjs
 
       - name: Install dependencies
         run: pnpm install --frozen-lockfile
@@ -48,11 +51,14 @@ jobs:
       - name: Run Worker and D1 tests
         run: pnpm test
 
-      - name: Validate the paused capture deployment plan
-        run: pnpm test:capture-deployment
+      - name: Test native capture executor
+        run: pnpm test:capture
 
-      - name: Build fixture-only Defuddle Worker (dry run)
-        run: pnpm build:benchmark
+      - name: Check Container build engine
+        run: docker info
+
+      - name: Build capture image and private Worker (dry run)
+        run: pnpm check:capture
 
       - name: Build for deployment (dry run)
         run: pnpm build
@@ -66,8 +72,20 @@ jobs:
       - name: Package the safe fetch gateway Worker (dry run)
         run: pnpm build:fetcher-dry-run
 
-      - name: Build and smoke-test the fetch-only container image
-        run: pnpm test:fetcher:container
+      - name: Run browser extension checks
+        if: steps.extension_changes.outputs.run == 'true'
+        run: |
+          pnpm exec playwright install chromium
+          pnpm test:extension
+
+      - name: Install WebKit for mobile smoke test
+        run: pnpm exec playwright install --with-deps chromium webkit
+
+      - name: Run mobile browser smoke test
+        run: pnpm test:mobile
+
+      - name: Rehearse archive restoration
+        run: pnpm test:archive
 
       - name: Test Obsidian conversion and local restore
         run: pnpm test:obsidian
@@ -113,6 +131,10 @@ jobs:
       - name: Install dependencies
         run: pnpm install --frozen-lockfile
 
+      - name: Install extension packaging tools
+        if: steps.extension_changes.outputs.run == 'true'
+        run: apt-get update && apt-get install -y zip
+
       - name: Check Playwright image version matches the project
         env:
           EXPECTED_PLAYWRIGHT_VERSION: ${{ matrix.playwright-version }}
@@ -149,7 +171,7 @@ jobs:
     needs: verify-result
     if: github.event_name == 'push' && github.ref == 'refs/heads/main'
     runs-on: ubuntu-latest
-    timeout-minutes: 15
+    timeout-minutes: 30
     environment: production
     concurrency:
       group: production-deploy
@@ -179,6 +201,18 @@ jobs:
         run: |
           test -n "$CLOUDFLARE_API_TOKEN" || { echo "::error::Set the CLOUDFLARE_API_TOKEN Actions secret."; exit 1; }
           test -n "$CLOUDFLARE_ACCOUNT_ID" || { echo "::error::Set the CLOUDFLARE_ACCOUNT_ID Actions secret."; exit 1; }
+
+      - name: Check Container build engine
+        run: docker info
+
+      # The app's ARTICLE_EXTRACTOR service binding must exist before app deployment.
+      # Wrangler builds and pushes the image using the runner's Docker engine.
+      - name: Deploy production capture service
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+          CLOUDFLARE_LOAD_DEV_VARS_FROM_DOT_ENV: "false"
+        run: pnpm exec wrangler deploy --config capture/wrangler.jsonc --env production
 
       - name: Apply production D1 migrations
         env:
