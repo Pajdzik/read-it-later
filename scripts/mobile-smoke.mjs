@@ -265,8 +265,15 @@ async function runProfile(name, browserType, device) {
   await pendingReader.getByRole("button", { name: "Paste or upload Markdown" }).tap();
   const shareDetail = page.locator("#detail-content");
   const markdownDraft = `# ${shareTitle}\n\nManually saved while the background processor is paused. **Important formatting** stays readable.\n\n| Fixture | State |\n| --- | --- |\n| Mobile | paused |`;
-  await shareDetail.getByRole("textbox", { name: "Markdown copy" }).fill(`${markdownDraft}\n\n${Array.from({ length: 8 }, (_, index) => `Long section ${index + 1}: ${"mobile-reader-scroll-".repeat(28)}`).join("\n\n")}`);
+  const shareMarkdown = `${markdownDraft}\n\n${Array.from({ length: 8 }, (_, index) => `Long section ${index + 1}: ${"mobile-reader-scroll-".repeat(28)}`).join("\n\n")}`;
+  await shareDetail.getByRole("textbox", { name: "Markdown copy" }).fill(shareMarkdown);
+  const shareMarkdownSaveResponse = page.waitForResponse((response) =>
+    new URL(response.url()).pathname === `/api/articles/${encodeURIComponent(shareArticleId)}/copy` &&
+    response.request().method() === "PUT");
   await shareDetail.getByRole("button", { name: "Save Markdown copy" }).tap();
+  assert.equal((await shareMarkdownSaveResponse).status(), 200,
+    `${name}: manually saving Markdown did not complete.`);
+  await shareDetail.getByText(new RegExp(`${new TextEncoder().encode(shareMarkdown).byteLength.toLocaleString()} UTF-8 bytes`)).waitFor();
   await shareDetail.getByText(/pasted Markdown/).waitFor();
   const readCopyAction = shareDetail.getByRole("button", { name: "Read saved copy" });
   await readCopyAction.tap();
@@ -448,7 +455,8 @@ async function runProfile(name, browserType, device) {
     `${name}: detail dialog opened with its close button focused.`);
   await detail.locator(".copy-editor > .copy-status")
     .filter({ hasText: /^Saved .*captured or pasted Markdown/ }).waitFor();
-  await detail.getByRole("textbox", { name: "Markdown copy" }).fill(`# Wide reader check\n\n${"word-without-breaks-".repeat(24)}\n\n| left | ${"column-header-".repeat(8)} |\n| --- | --- |\n| text | ${"wide-cell-".repeat(24)} |`);
+  const wideMarkdown = `# Wide reader check\n\n${"word-without-breaks-".repeat(24)}\n\n| left | ${"column-header-".repeat(8)} |\n| --- | --- |\n| text | ${"wide-cell-".repeat(24)} |`;
+  await detail.getByRole("textbox", { name: "Markdown copy" }).fill(wideMarkdown);
   page.once("dialog", (dialog) => dialog.accept());
   const updatedCopyResponsePromise = page.waitForResponse((response) =>
     new URL(response.url()).pathname === `/api/articles/${encodeURIComponent(articleId)}/copy` &&

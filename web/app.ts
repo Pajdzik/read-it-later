@@ -2264,7 +2264,7 @@ searchInput.addEventListener("keydown", (event) => {
   setSearchOpen(false);
   searchToggle.focus({ preventScroll: true });
 });
-document.addEventListener("pointerdown", (event) => {
+document.addEventListener("click", (event) => {
   if (!searchControl.classList.contains("is-open") || searchControl.contains(event.target as Node)) return;
   setSearchOpen(false);
 });
