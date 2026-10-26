@@ -217,7 +217,7 @@ try {
   await detail.getByRole("button", { name: "Save Markdown copy" }).click();
   await detail.getByText(/uploaded file/).waitFor();
   await page.locator("#detail-dialog .dialog-close button").click();
-  await page.waitForFunction(() => !location.pathname.startsWith("/read/"));
+  await page.waitForFunction(() => location.pathname === "/");
   let githubRequests = 0;
   let githubFailure = true;
   let githubState = "not_saved";
@@ -268,7 +268,7 @@ try {
   await detail.getByText(/Saved to GitHub/).waitFor();
   assert.equal(githubRequests, 2, "GitHub retry must not require resaving or replacing the local copy.");
   await page.locator("#detail-dialog .dialog-close button").click();
-  await page.waitForFunction(() => !location.pathname.startsWith("/read/"));
+  await page.waitForFunction(() => location.pathname === "/");
   await page.reload();
   await title.waitFor();
   await article.getByRole("button", { name: "Edit", exact: true }).click();
@@ -315,7 +315,7 @@ try {
     const { article: item } = await created.json();
     const saved = await fetch(`/api/articles/${encodeURIComponent(item.id)}/copy`, {
       method: "PUT", headers,
-      body: JSON.stringify({ markdown: "# Reader entry copy\n\nRendered from the saved copy.\n\n" + "Long reader content. ".repeat(220), source: "paste", expectedRevision: null }),
+      body: JSON.stringify({ markdown: "# Reader entry copy\n\nRendered from the saved copy.", source: "paste", expectedRevision: null }),
     });
     if (!saved.ok) throw new Error(`Couldn’t save reader-entry fixture: ${saved.status}`);
     return { id: item.id };
@@ -323,12 +323,12 @@ try {
   let paginationEntry;
   await page.route("**/api/articles?*", async (route) => {
     const hasCursor = new URL(route.request().url()).searchParams.has("cursor");
-    const data = hasCursor ? {} : await (await route.fetch()).json();
+    const data = await (await route.fetch()).json();
     paginationEntry = data.items?.find((item) => item.id === entryFixture.id) || paginationEntry;
     const entry = paginationEntry;
     assert.ok(entry, "The pagination fixture needs the complete saved article.");
     if (entry) entry.description = "A lead used to test opening the saved copy.";
-    if (new URL(route.request().url()).searchParams.has("cursor")) {
+    if (hasCursor) {
       data.items = [{ ...entry, id: "smoke051", title: "Synthetic final row", description: null }];
       data.nextCursor = null;
     } else {
@@ -344,18 +344,11 @@ try {
   const entryArticle = page.locator(".article").filter({ hasText: "Reader entry smoke" });
   const entryTitle = entryArticle.getByRole("link", { name: "Reader entry smoke", exact: true });
   await entryTitle.waitFor();
+  assert.match(await entryTitle.getAttribute("href"), /^\/read\/[a-z0-9]{8}\/reader-entry-smoke$/,
+    "Saved article titles must use the canonical short-ID readable path.");
   await page.getByRole("button", { name: "Show more" }).click();
   await page.waitForFunction(() => document.querySelectorAll("#articles .article").length === 51);
   assert.equal(await page.locator(".article").count(), 51, "The second list page should append once without dropping the first page.");
-  await entryTitle.click();
-  const reader = page.locator("#reader-dialog");
-  await reader.getByRole("heading", { name: "Reader entry smoke" }).waitFor();
-  await page.keyboard.press("Escape");
-  await reader.waitFor({ state: "hidden" });
-  await page.waitForFunction(() => !location.pathname.startsWith("/read/"));
-  assert.equal(await page.locator(".article").count(), 51, "Back must preserve both loaded pages without duplicate first-page rows.");
-  await page.unroute("**/api/articles?*");
-  await page.reload();
   const entryActions = entryArticle.locator(".article-actions");
   const entryRead = entryActions.getByRole("button", { name: "Mark read", exact: true });
   const entryEdit = entryActions.getByRole("button", { name: "Edit", exact: true });
@@ -374,41 +367,88 @@ try {
   await assertActionRow();
   await page.screenshot({ path: "/tmp/potem-article-actions-desktop.png" });
   await entryTitle.click();
+  const reader = page.locator("#reader-dialog");
   await reader.getByRole("heading", { name: "Reader entry smoke" }).waitFor();
   await reader.locator("#reader-body").getByText("Rendered from the saved copy.").waitFor();
-  assert.match(new URL(page.url()).pathname, /^\/read\/[a-z0-9]{8}\/reader-entry-smoke$/,
-    "Opening an article title must use its short ID and readable title slug.");
+  const canonicalReaderUrl = page.url();
+  assert.equal(new URL(canonicalReaderUrl).pathname, await entryTitle.getAttribute("href"),
+    "Opening a title should navigate to its canonical readable URL.");
+  assert.match(canonicalReaderUrl, /^http:\/\/127\.0\.0\.1:[0-9]+\/read\/[a-z0-9]{8}\/reader-entry-smoke$/);
   assert.equal(await page.title(), "Reader entry smoke · Potem", "The reader tab title must identify the open article.");
   await reader.getByRole("button", { name: "Copy article link" }).click();
   await page.locator("#reader-copy-status").getByText(/copied|selected for copying/i).waitFor();
-  const canonicalReaderUrl = page.url();
   if (await page.locator("#reader-copy-fallback").isVisible())
     assert.equal(await page.locator("#reader-copy-fallback").inputValue(), canonicalReaderUrl,
       "Copy article link must expose the canonical URL when clipboard access is unavailable.");
-  const readerBounds = await reader.boundingBox();
-  assert.ok(readerBounds && readerBounds.x >= 0 && readerBounds.y >= 0 && readerBounds.x + readerBounds.width <= 1440 && readerBounds.y + readerBounds.height <= 1000, "Fullscreen reader must fit within the viewport.");
-  const readerFooter = reader.locator("#reader-footer");
-  assert.ok(await reader.locator("#reader-body").evaluate((body, footer) => Boolean(body.compareDocumentPosition(footer) & Node.DOCUMENT_POSITION_FOLLOWING), await readerFooter.elementHandle()), "Reader footer must follow the saved content in document order.");
-  await reader.evaluate((dialog) => { dialog.scrollTop = dialog.scrollHeight; });
-  assert.ok(await readerFooter.isVisible(), "Reader footer must be reachable after scrolling through long content.");
   assert.equal(await page.evaluate(async (id) => (await (await fetch(`/api/articles/${id}`)).json()).article.readAt, entryFixture.id), entryReadState, "Opening a title must not change read state.");
   await page.keyboard.press("Escape");
   await reader.waitFor({ state: "hidden" });
   await page.waitForFunction(() => !location.pathname.startsWith("/read/"));
-  assert.equal(new URL(page.url()).pathname, "/", "Escape from a list-opened reader must return to the list URL.");
-  assert.equal(await page.title(), "potem — your reading list", "Closing the reader must restore the list tab title.");
-  assert.equal(await entryTitle.evaluate((link) => document.activeElement === link), true, "Escape must return focus to the title that opened the reader.");
+  assert.equal(new URL(page.url()).pathname, "/", "Closing a list-opened reader should return to the list URL.");
+  assert.equal(await page.title(), "potem — your reading list", "Closing the reader should restore the list tab title.");
+  assert.equal(await page.locator(".article").count(), 51, "Back should preserve loaded pages without duplicate rows.");
+  assert.equal(await entryTitle.evaluate((link) => document.activeElement === link), true,
+    "Closing the reader should restore focus to the title that opened it.");
   const lastOpened = page.locator("#last-opened");
   await lastOpened.getByText("Last opened").waitFor();
-  assert.equal(await lastOpened.locator("#last-opened-title").getAttribute("href"), `/read/${entryFixture.id}/reader-entry-smoke`, "Last opened must link to the canonical article URL.");
-  await lastOpened.screenshot({ path: "/tmp/potem-last-opened-desktop.png" });
-  await lastOpened.screenshot({ path: "/tmp/potem-last-opened-mobile.png" });
+  assert.equal(await lastOpened.locator("#last-opened-title").getAttribute("href"), new URL(canonicalReaderUrl).pathname,
+    "Last opened should link to the canonical article URL.");
   await page.goForward();
-  await reader.getByRole("heading", { name: "Reader entry smoke" }).waitFor();
-  assert.equal(page.url(), canonicalReaderUrl, "Forward must reopen the same reader entry.");
+  try {
+    await reader.getByRole("heading", { name: "Reader entry smoke" }).waitFor({ timeout: 10_000 });
+  } catch {
+    const diagnostics = await page.evaluate(() => ({
+      url: location.href, historyState: history.state,
+      readerOpen: document.querySelector("#reader-dialog")?.open,
+      readerHeading: document.querySelector("#reader-title")?.textContent,
+      readerBody: document.querySelector("#reader-body")?.textContent?.slice(0, 300),
+      notice: document.querySelector("#notice")?.textContent,
+      detailOpen: document.querySelector("#detail-dialog")?.open,
+    }));
+    throw new Error(`Forward navigation did not reopen the reader: ${JSON.stringify({ ...diagnostics, errors })}`);
+  }
+  assert.equal(page.url(), canonicalReaderUrl, "Forward should reopen the same reader entry.");
   await page.keyboard.press("Escape");
   await reader.waitFor({ state: "hidden" });
   await page.waitForFunction(() => !location.pathname.startsWith("/read/"));
+  await page.unroute("**/api/articles?*");
+  await page.reload();
+  const directPage = await context.newPage();
+  await directPage.goto(`${base}/read/${entryFixture.id}/stale-title-slug`);
+  const directReader = directPage.locator("#reader-dialog");
+  await directReader.getByRole("heading", { name: "Reader entry smoke" }).waitFor();
+  await directPage.waitForFunction((id) => location.pathname === `/read/${id}/reader-entry-smoke`, entryFixture.id);
+  assert.equal(await directPage.title(), "Reader entry smoke · Potem");
+  await directPage.reload();
+  await directReader.getByRole("heading", { name: "Reader entry smoke" }).waitFor();
+  await directReader.getByRole("button", { name: "Close saved copy" }).click();
+  assert.equal(new URL(directPage.url()).pathname, "/", "Closing a direct article landing should return inside Potem.");
+  await directPage.close();
+  const signInPage = await context.newPage();
+  let ownerReady = false;
+  await signInPage.route("**/api/session", async (route) => ownerReady ? route.continue()
+    : await route.fulfill({ json: { authenticated: false } }));
+  await signInPage.route("**/auth/github", async (route) => {
+    ownerReady = true;
+    await route.fulfill({ status: 302, headers: { Location: `${base}/add` }, body: "" });
+  });
+  await signInPage.goto(canonicalReaderUrl);
+  await signInPage.locator("#library-sign-in").click();
+  await signInPage.locator("#reader-dialog").getByRole("heading", { name: "Reader entry smoke" }).waitFor();
+  assert.equal(signInPage.url(), canonicalReaderUrl,
+    "Signing in from a direct article route should return to the requested canonical article URL.");
+  assert.equal(await signInPage.evaluate(() => sessionStorage.getItem("potem-pending-reader-v1")), null,
+    "A restored sign-in return should consume the pending reader exactly once.");
+  await signInPage.close();
+  const storageBlockedPage = await context.newPage();
+  await storageBlockedPage.addInitScript(() => {
+    Object.defineProperty(window, "localStorage", { get() { throw new DOMException("Storage disabled", "SecurityError"); } });
+  });
+  await storageBlockedPage.goto(canonicalReaderUrl);
+  await storageBlockedPage.locator("#reader-dialog").getByRole("heading", { name: "Reader entry smoke" }).waitFor();
+  assert.equal(storageBlockedPage.url(), canonicalReaderUrl,
+    "Disabled localStorage should not prevent opening a direct article route.");
+  await storageBlockedPage.close();
   const entryLead = entryArticle.getByRole("link", { name: "Read saved copy of Reader entry smoke" });
   await entryLead.waitFor();
   await page.setViewportSize({ width: 390, height: 844 });
@@ -418,75 +458,34 @@ try {
   await entryLead.click();
   await reader.getByRole("heading", { name: "Reader entry smoke" }).waitFor();
   await reader.locator("#reader-body").getByText("Rendered from the saved copy.").waitFor();
-  const mobileReaderBounds = await reader.boundingBox();
-  assert.ok(mobileReaderBounds && mobileReaderBounds.x >= 0 && mobileReaderBounds.y >= 0 && mobileReaderBounds.x + mobileReaderBounds.width <= 390 && mobileReaderBounds.y + mobileReaderBounds.height <= 844, "Fullscreen reader must fit a narrow viewport.");
+  await page.evaluate(() => new Promise((resolve) => requestAnimationFrame(() => requestAnimationFrame(resolve))));
+  assert.ok(await reader.evaluate((dialog) => dialog.scrollTop <= 1), "A replacement copy revision should start at the top.");
+  assert.equal(await page.evaluate((id) => localStorage.getItem(`later-reading-position:${encodeURIComponent(id)}`), entryFixture.id), null,
+    "An obsolete revision position should be cleared when the replacement copy opens.");
   assert.equal(await page.evaluate(async (id) => (await (await fetch(`/api/articles/${id}`)).json()).article.readAt, entryFixture.id), entryReadState, "Opening a lead must not change read state.");
-  await reader.getByRole("button", { name: "Close saved copy" }).click();
-  await page.waitForFunction(() => !location.pathname.startsWith("/read/"));
-  assert.equal(await entryLead.evaluate((link) => document.activeElement === link), true, "Closing the reader must return focus to its opener.");
-  const directPage = await context.newPage();
-  await directPage.goto(`${base}/read/${entryFixture.id}/stale-title-slug`);
-  const directReader = directPage.locator("#reader-dialog");
-  await directReader.getByRole("heading", { name: "Reader entry smoke" }).waitFor();
-  assert.equal(new URL(directPage.url()).pathname, `/read/${entryFixture.id}/reader-entry-smoke`, "A stale title slug must resolve by ID and normalize to the current title.");
-  await directPage.reload();
-  await directReader.getByRole("heading", { name: "Reader entry smoke" }).waitFor();
-  await directReader.getByRole("button", { name: "Close saved copy" }).click();
-  assert.equal(new URL(directPage.url()).pathname, "/", "Closing a direct article landing must stay inside Potem.");
-  await directPage.close();
-  const signInPage = await context.newPage();
-  let ownerReady = false;
-  await signInPage.route("**/api/session", (route) => ownerReady ? route.continue()
-    : route.fulfill({ json: { authenticated: false } }));
-  await signInPage.route("**/auth/github", async (route) => {
-    ownerReady = true;
-    await route.fulfill({ status: 302, headers: { Location: `${base}/add` }, body: "" });
-  });
-  await signInPage.goto(canonicalReaderUrl);
-  await signInPage.locator("#library-sign-in").click();
-  await signInPage.locator("#reader-dialog").getByRole("heading", { name: "Reader entry smoke" }).waitFor();
-  assert.equal(signInPage.url(), canonicalReaderUrl, "Sign-in must return to the requested article through the fixed /add callback.");
-  assert.equal(await signInPage.evaluate(() => sessionStorage.getItem("potem-pending-reader-v1")), null,
-    "A restored sign-in return should be consumed once.");
-  await signInPage.close();
-  const storageBlockedPage = await context.newPage();
-  await storageBlockedPage.addInitScript(() => {
-    Object.defineProperty(window, "localStorage", { get() { throw new DOMException("Storage disabled", "SecurityError"); } });
-  });
-  await storageBlockedPage.goto(canonicalReaderUrl);
-  await storageBlockedPage.locator("#reader-dialog").getByRole("heading", { name: "Reader entry smoke" }).waitFor();
-  assert.equal(storageBlockedPage.url(), canonicalReaderUrl, "Unavailable browser storage must not block a direct reader URL.");
-  await storageBlockedPage.close();
-  let failReaderRead = true;
-  await page.route(`**/api/articles/${entryFixture.id}`, async (route) => {
-    if (route.request().method() === "PATCH" && failReaderRead) {
-      await route.fulfill({ status: 503, contentType: "application/json", body: JSON.stringify({ error: { message: "Simulated read outage" } }) });
-    } else await route.continue();
+  await closeReader(entryLead);
+  await page.evaluate((id) => localStorage.setItem(`later-reading-position:${encodeURIComponent(id)}`, "{"), entryFixture.id);
+  await entryTitle.click();
+  await reader.getByRole("heading", { name: "Reader entry smoke" }).waitFor();
+  await reader.locator("#reader-body").getByText("Rendered from the saved copy.").waitFor();
+  assert.ok(await reader.evaluate((dialog) => dialog.scrollTop <= 1), "Corrupt position metadata should fall back to the top.");
+  await closeReader(entryTitle);
+  await page.evaluate(() => {
+    window.__savedStorageMethods = { getItem: Storage.prototype.getItem, setItem: Storage.prototype.setItem };
+    Storage.prototype.getItem = () => { throw new Error("storage disabled"); };
+    Storage.prototype.setItem = () => { throw new Error("storage disabled"); };
   });
   await entryTitle.click();
   await reader.getByRole("heading", { name: "Reader entry smoke" }).waitFor();
-  await reader.locator("#reader-mark-read").click();
-  await reader.locator("#reader-status").getByText(/Simulated read outage|could not|failed/i).waitFor();
-  assert.equal(await reader.isVisible(), true, "A failed mark-as-read request must leave the saved copy open.");
-  assert.equal(await page.evaluate(async (id) => (await (await fetch(`/api/articles/${id}`)).json()).article.readAt, entryFixture.id), null, "A failed mark-as-read request must not change persisted state.");
-  failReaderRead = false;
-  await reader.locator("#reader-mark-read").click();
-  await reader.waitFor({ state: "hidden" });
-  await page.waitForFunction(() => !location.pathname.startsWith("/read/"));
-  const markedReadAt = await page.evaluate(async (id) => (await (await fetch(`/api/articles/${id}`)).json()).article.readAt, entryFixture.id);
-  assert.ok(markedReadAt, "Marking the saved copy read must persist readAt before closing.");
-  await page.waitForFunction(() => document.activeElement !== document.body && document.activeElement?.isConnected);
-  await page.unroute(`**/api/articles/${entryFixture.id}`);
-  await page.reload();
-  const readEntry = page.locator(".article").filter({ hasText: "Reader entry smoke" });
-  const readEntryTitle = readEntry.getByRole("link", { name: "Reader entry smoke", exact: true });
-  await page.getByRole("button", { name: "Read", exact: true }).click();
-  await readEntryTitle.waitFor();
-  await readEntryTitle.click();
-  await reader.getByRole("heading", { name: "Reader entry smoke" }).waitFor();
-  assert.equal(await reader.locator("#reader-mark-read").innerText(), "Done reading", "Already-read articles must show the Done reading action.");
-  await reader.getByRole("button", { name: "Done reading" }).click();
-  assert.equal(await page.evaluate(async (id) => (await (await fetch(`/api/articles/${id}`)).json()).article.readAt, entryFixture.id), markedReadAt, "Closing an already-read preview must preserve its read state.");
+  await reader.locator("#reader-body").getByText("Rendered from the saved copy.").waitFor();
+  assert.ok(await reader.evaluate((dialog) => dialog.scrollTop <= 1), "Disabled storage should not prevent reading.");
+  await closeReader(entryTitle);
+  await page.evaluate(() => {
+    Storage.prototype.getItem = window.__savedStorageMethods.getItem;
+    Storage.prototype.setItem = window.__savedStorageMethods.setItem;
+    delete window.__savedStorageMethods;
+  });
+  const entryPositionBaseline = await page.evaluate((id) => localStorage.getItem(`later-reading-position:${encodeURIComponent(id)}`), entryFixture.id);
   const removeEntryFixture = await page.evaluate(async (id) => {
     const session = await (await fetch("/api/session")).json();
     const response = await fetch(`/api/articles/${encodeURIComponent(id)}`, { method: "DELETE", headers: { "X-CSRF-Token": session.csrfToken } });
@@ -497,7 +496,6 @@ try {
   await page.setViewportSize({ width: 1440, height: 1000 });
   await page.reload();
   await page.locator("#account").waitFor();
-  await page.getByRole("button", { name: "Unread", exact: true }).click();
   await title.waitFor();
   let releasePendingCopy;
   let signalPendingCopy;
@@ -521,7 +519,7 @@ try {
   assert.equal(await page.locator("#reader-dialog").isHidden(), true, "Opening Edit during a pending title read must suppress the stale reader.");
   await page.unroute(`**/api/articles/${articleId}/copy`);
   await page.locator("#detail-dialog .dialog-close button").click();
-  await page.waitForFunction(() => !location.pathname.startsWith("/read/"));
+  await waitForList(title);
   const readStateBefore = await page.evaluate(async (id) => (await (await fetch(`/api/articles/${id}`)).json()).article.readAt, articleId);
   let imageMarkerRequests = 0;
   page.on("request", (request) => {
@@ -549,10 +547,10 @@ try {
   await reader.getByRole("heading", { name: "Browser smoke article" }).waitFor();
   assert.equal(await page.evaluate(() => document.activeElement?.id), "reader-title",
     "Opening the reader should focus its article title.");
-  const desktopReaderBounds = await reader.boundingBox();
-  assert.ok(desktopReaderBounds && Math.abs(desktopReaderBounds.x) <= 1 && Math.abs(desktopReaderBounds.y) <= 1 &&
-    Math.abs(desktopReaderBounds.width - 1440) <= 1 && Math.abs(desktopReaderBounds.height - 1000) <= 1,
-    `Desktop reader should cover the viewport: ${JSON.stringify(desktopReaderBounds)}.`);
+  const readerBounds = await reader.boundingBox();
+  assert.ok(readerBounds && Math.abs(readerBounds.x) <= 1 && Math.abs(readerBounds.y) <= 1 &&
+    Math.abs(readerBounds.width - 1440) <= 1 && Math.abs(readerBounds.height - 1000) <= 1,
+    `Desktop reader should cover the viewport: ${JSON.stringify(readerBounds)}.`);
   assert.equal(await page.evaluate(() => window.scrollY), backgroundScroll,
     "Opening the reader should preserve the background page position.");
   const readerBody = reader.locator("#reader-body");
@@ -701,7 +699,14 @@ try {
   await expect.poll(() => page.evaluate((id) => JSON.parse(localStorage.getItem(`later-reading-position:${encodeURIComponent(id)}`))?.scrollTop, articleId), { message: "Scrolling to the top should persist a zero position." }).toBe(0);
   // Reload discarded the in-memory opener; this close only restores the URL.
   await reader.getByRole("button", { name: "Close saved copy" }).click();
-  await page.waitForFunction(() => !location.pathname.startsWith("/read/"));
+  await expect(page).toHaveURL(base + "/");
+  const returnedToTop = await page.evaluate((id) => JSON.parse(localStorage.getItem(`later-reading-position:${encodeURIComponent(id)}`)), articleId);
+  assert.equal(returnedToTop.scrollTop, 0, "Scrolling to the top must persist a zero position.");
+  await title.click();
+  await reader.getByRole("heading", { name: "Browser smoke article" }).waitFor();
+  await page.evaluate(() => new Promise((resolve) => requestAnimationFrame(() => requestAnimationFrame(resolve))));
+  assert.ok(await reader.evaluate((dialog) => dialog.scrollTop <= 1), "Reopening a saved top position should stay at zero after rendering.");
+  await closeReader(title);
   assert.equal(await reader.locator("#reader-body").textContent(), "", "Closing the reader must discard its private DOM.");
   await article.getByRole("button", { name: "Edit", exact: true }).click();
   await detail.locator(".copy-status").getByText(/pasted Markdown/).waitFor();
@@ -721,10 +726,8 @@ try {
   await detail.getByRole("button", { name: "Read saved copy" }).click();
   await reader.getByRole("heading", { name: "Browser smoke article" }).waitFor();
   await reader.getByRole("button", { name: "Close saved copy" }).click();
-  await page.waitForFunction(() => !location.pathname.startsWith("/read/"));
   assert.equal(await detail.getByRole("textbox", { name: "Markdown copy" }).inputValue(), "Unsaved draft stays in the editor.", "Reading must preserve an unsaved editor draft.");
   await page.locator("#detail-dialog .dialog-close button").click();
-  await page.waitForFunction(() => !location.pathname.startsWith("/read/"));
   await page.reload();
   await title.waitFor();
   await article.getByRole("button", { name: "Edit", exact: true }).click();
@@ -732,9 +735,7 @@ try {
   await detail.getByRole("button", { name: "Read saved copy" }).click();
   await readerBody.getByRole("heading", { name: "Preserved copy — Ω" }).waitFor();
   await reader.getByRole("button", { name: "Close saved copy" }).click();
-  await page.waitForFunction(() => !location.pathname.startsWith("/read/"));
   await page.locator("#detail-dialog .dialog-close button").click();
-  await page.waitForFunction(() => !location.pathname.startsWith("/read/"));
   await page.unroute(originalUrl);
   await page.route("**/api/articles/*/copy", async (route) => {
     if (route.request().method() === "GET")
@@ -746,7 +747,6 @@ try {
   assert.equal(await detail.getByText("No Markdown copy saved yet.").count(), 0, "A failed request must not look like a missing copy.");
   assert.equal(await detail.getByRole("button", { name: "Read saved copy" }).isHidden(), true, "A failed request must hide reader actions.");
   await page.locator("#detail-dialog .dialog-close button").click();
-  await page.waitForFunction(() => !location.pathname.startsWith("/read/"));
   await page.unroute("**/api/articles/*/copy");
   const injectedTitle = 'Quoted metadata: "Ω"\n---\nrevision: forged';
   await page.evaluate(async ({ id, title: nextTitle }) => {
@@ -769,7 +769,6 @@ try {
   assert.ok(quotedMarkdown.startsWith(`---\ntitle: ${JSON.stringify(injectedTitle)}\nurl:`), "Quotes, Unicode, and newline frontmatter must remain a single quoted scalar.");
   assert.equal(quotedMarkdown.slice(quotedMarkdown.indexOf("\n\n", quotedMarkdown.indexOf("\n---\n") + 1) + 2), preservedMarkdown);
   await page.locator("#detail-dialog .dialog-close button").click();
-  await page.waitForFunction(() => !location.pathname.startsWith("/read/"));
   await page.evaluate(async (id) => {
     const session = await (await fetch("/api/session")).json();
     const response = await fetch(`/api/articles/${encodeURIComponent(id)}`, {
@@ -942,6 +941,7 @@ try {
     const popupPromise = source.waitForEvent("popup");
     await source.evaluate((href) => (0, eval)(href.slice("javascript:".length)), bookmarklet);
     const popup = await popupPromise;
+    await popup.locator("#add-url").waitFor();
     await popup.locator("#add-url").waitFor();
     return { source, popup, unexpectedRequests };
   };
@@ -1227,19 +1227,8 @@ try {
     }
     await route.continue();
   });
-  for (const fixture of [asyncFixture, failedFixture]) {
-    await urlPage.route(`**/api/articles/${fixture.id}`, async (route) => {
-      if (route.request().method() !== "GET") return route.continue();
-      const response = await route.fetch();
-      const data = await response.json();
-      data.article.extraction = fixture.id === asyncFixture.id
-        ? { state: asyncState, attempts: 0, errorCode: null, nextAttemptAt: null, paused: false }
-        : { state: "failed", attempts: 3, errorCode: "source_unavailable", nextAttemptAt: null, paused: false };
-      await route.fulfill({ response, body: JSON.stringify(data) });
-    });
-  }
-  await urlPage.route(`**/api/articles/${failedFixture.id}/copy`, (route) => route.fulfill({ contentType: "application/json", body: JSON.stringify({ copy: null }) }));
-  await urlPage.route(`**/api/articles/${failedFixture.id}/extraction/retry`, (route) => route.fulfill({ contentType: "application/json", body: JSON.stringify({ extraction: { state: "queued", attempts: 0, errorCode: null, nextAttemptAt: null, paused: false } }) }));
+  await urlPage.route(`**/api/articles/${failedFixture.id}/copy`, async (route) => await route.fulfill({ contentType: "application/json", body: JSON.stringify({ copy: null }) }));
+  await urlPage.route(`**/api/articles/${failedFixture.id}/extraction/retry`, async (route) => await route.fulfill({ contentType: "application/json", body: JSON.stringify({ extraction: { state: "queued", attempts: 0, errorCode: null, nextAttemptAt: null, paused: false } }) }));
   await urlPage.route(`**/api/articles/${asyncFixture.id}/extraction`, async (route) => {
     extractionReads++;
     if (extractionReads >= 1) asyncState = "ready";

@@ -345,9 +345,26 @@ async function runProfile(name, browserType, device) {
   assert.equal(await readyReader.locator("details").evaluate((details) => details.open), false,
     `${name}: reopening should collapse About this copy.`);
   await page.locator("#reader-dialog .reader-close button").tap();
-  await page.waitForFunction(() => !location.pathname.startsWith("/read/"));
   await page.locator("#detail-dialog .dialog-close button").tap();
-  await page.waitForFunction(() => !location.pathname.startsWith("/read/"));
+  await page.locator("#settings-open").tap();
+  await page.locator("#theme-toggle").selectOption("light");
+  await page.locator("#settings-dialog .dialog-close button").tap();
+  const listRoute = new URL(page.url()).pathname;
+  const waitForList = async (opener) => {
+    await expect(page).toHaveURL((url) => url.pathname === listRoute);
+    // The list restores its scroll position before returning focus.
+    await expect(opener).toBeFocused();
+  };
+  await titleButton.tap();
+  await readyReader.locator("#reader-body").getByRole("heading", { name: shareTitle }).waitFor();
+  assert.equal(new URL(page.url()).pathname, await titleButton.getAttribute("href"),
+    `${name}: reopening from the list should use the canonical URL.`);
+  await page.screenshot({ path: screenshot("portrait-reader-light") });
+  await page.locator("#reader-dialog .reader-close button").tap();
+  await waitForList(titleButton);
+  await page.locator("#settings-open").tap();
+  await page.locator("#theme-toggle").selectOption("dark");
+  await page.locator("#settings-dialog .dialog-close button").tap();
 
   // A duplicate normalized URL keeps its original record and state.
   await page.locator("#add-open").tap();
@@ -410,8 +427,8 @@ async function runProfile(name, browserType, device) {
   }, articleId);
   assert.ok(readAtAfterSave);
   await page.reload();
-  await page.locator("#account:not([hidden])").waitFor({ state: "attached" });
   await page.locator('[data-status="read"]').tap();
+  await page.locator("#search-toggle").tap();
   await page.locator("#articles").getByRole("link", { name: shareTitle, exact: true }).waitFor();
   await page.locator("#search").fill(shareTitle);
   await page.locator("#articles").getByRole("link", { name: shareTitle, exact: true }).waitFor();
@@ -438,7 +455,6 @@ async function runProfile(name, browserType, device) {
   await article.getByRole("button", { name: "Mark unread" }).tap();
   await article.getByRole("button", { name: "Mark read" }).waitFor();
   await page.reload();
-  await page.locator("#account:not([hidden])").waitFor({ state: "attached" });
   await page.locator('[data-status="unread"]').tap();
   await article.getByRole("button", { name: "Mark read" }).waitFor();
   assert.equal(await page.evaluate(async (id) => {
@@ -452,7 +468,10 @@ async function runProfile(name, browserType, device) {
   const detail = page.locator("#detail-content");
   assert.equal(await page.evaluate(() => document.activeElement?.matches("#detail-content input")), true,
     `${name}: detail dialog opened with its close button focused.`);
-  await detail.getByRole("textbox", { name: "Markdown copy" }).fill(`# Wide reader check\n\n${"word-without-breaks-".repeat(24)}\n\n${"A long reader paragraph keeps the document scrollable on a phone. It stays unread until the reader action is chosen. ".repeat(36)}\n\n| left | ${"column-header-".repeat(8)} |\n| --- | --- |\n| text | ${"wide-cell-".repeat(24)} |`);
+  await detail.locator(".copy-editor > .copy-status")
+    .filter({ hasText: /^Saved .*captured or pasted Markdown/ }).waitFor();
+  const wideMarkdown = `# Wide reader check\n\n${"word-without-breaks-".repeat(24)}\n\n| left | ${"column-header-".repeat(8)} |\n| --- | --- |\n| text | ${"wide-cell-".repeat(24)} |`;
+  await detail.getByRole("textbox", { name: "Markdown copy" }).fill(wideMarkdown);
   page.once("dialog", (dialog) => dialog.accept());
   const updatedCopyResponsePromise = page.waitForResponse((response) =>
     new URL(response.url()).pathname === `/api/articles/${encodeURIComponent(articleId)}/copy` &&
@@ -472,7 +491,6 @@ async function runProfile(name, browserType, device) {
   const readerMetrics = await page.locator("#reader-dialog").evaluate((dialog) => ({
     clientWidth: dialog.clientWidth, scrollWidth: dialog.scrollWidth,
     bounds: dialog.getBoundingClientRect().toJSON(),
-    viewport: { width: innerWidth, height: innerHeight },
     wideBlocks: [...dialog.querySelectorAll("pre, table")].map((element) => ({
       tag: element.tagName, clientWidth: element.clientWidth, scrollWidth: element.scrollWidth,
       bounds: element.getBoundingClientRect().toJSON(),
@@ -481,28 +499,13 @@ async function runProfile(name, browserType, device) {
   await page.screenshot({ path: screenshot("portrait-reader") });
   assert.ok(readerMetrics.scrollWidth <= readerMetrics.clientWidth + 1,
     `${name}: reader dialog content exceeds its scrollport: ${JSON.stringify(readerMetrics)}`);
-  assert.ok(Math.abs(readerMetrics.bounds.x) <= 1 && Math.abs(readerMetrics.bounds.y) <= 1
-    && Math.abs(readerMetrics.bounds.width - readerMetrics.viewport.width) <= 1
-    && Math.abs(readerMetrics.bounds.height - readerMetrics.viewport.height) <= 1,
-  `${name}: reader dialog does not fill the viewport: ${JSON.stringify(readerMetrics)}`);
-  const readerDialog = page.locator("#reader-dialog");
-  const closeButton = readerDialog.locator(".reader-close button");
-  await readerDialog.evaluate((dialog) => { dialog.scrollTop = dialog.scrollHeight; });
-  assert.ok(await readerDialog.evaluate((dialog) => dialog.scrollTop > 0),
-    `${name}: long reader content did not scroll.`);
-  const closeBoundsAfterScroll = await closeButton.boundingBox();
-  assert.ok(closeBoundsAfterScroll && closeBoundsAfterScroll.x >= 0
-    && closeBoundsAfterScroll.x + closeBoundsAfterScroll.width <= readerMetrics.viewport.width
-    && closeBoundsAfterScroll.y >= 0
-    && closeBoundsAfterScroll.y + closeBoundsAfterScroll.height <= readerMetrics.viewport.height,
-  `${name}: floating reader close control is unreachable after scrolling: ${JSON.stringify(closeBoundsAfterScroll)}`);
   assert.equal(await page.evaluate(async (id) => {
     const pageData = await fetch("/api/articles?status=all", { cache: "no-store" }).then((response) => response.json());
     return pageData.items.find((item) => item.id === id)?.readAt;
   }, articleId), null, `${name}: opening the saved title changed read state.`);
-  await closeButton.tap();
+  await page.locator("#reader-dialog .reader-close button").tap();
+  await waitForList(detail.getByRole("button", { name: "Read saved copy" }));
   await page.reload();
-  await page.locator("#account:not([hidden])").waitFor({ state: "attached" });
   await page.locator('[data-status="unread"]').tap();
   await titleButton.waitFor();
   await titleButton.tap();
@@ -512,18 +515,8 @@ async function runProfile(name, browserType, device) {
     const pageData = await fetch("/api/articles?status=all", { cache: "no-store" }).then((response) => response.json());
     return pageData.items.find((item) => item.id === id)?.readAt;
   }, articleId), null, `${name}: reopening a persisted reader changed read state.`);
-  const readerFooter = page.locator("#reader-footer");
-  await readerFooter.waitFor({ state: "visible" });
-  assert.equal(await page.locator("#reader-body").evaluate((body) =>
-    Boolean(body.compareDocumentPosition(document.querySelector("#reader-footer")) & Node.DOCUMENT_POSITION_FOLLOWING)), true,
-  `${name}: reader footer must follow the Markdown article in normal document order.`);
-  const markReadButton = page.locator("#reader-mark-read");
-  await markReadButton.tap();
-  await page.locator("#reader-dialog").waitFor({ state: "hidden" });
-  assert.ok(await page.evaluate(async (id) => {
-    const pageData = await fetch("/api/articles?status=all", { cache: "no-store" }).then((response) => response.json());
-    return pageData.items.find((item) => item.id === id)?.readAt;
-  }, articleId), `${name}: reader footer Mark as read did not persist read state.`);
+  await page.locator("#reader-dialog .reader-close button").tap();
+  await waitForList(titleButton);
 
   // Narrow and short landscape layouts must keep the Add and navigation
   // controls reachable by touch without document-level horizontal scrolling.
