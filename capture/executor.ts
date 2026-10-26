@@ -33,7 +33,7 @@ export async function extractInThread(html: string, url: string, threadUrl = new
 export async function executeCapture(url: string, appOrigin: string): Promise<CapturedArticle> {
   const source = await fetchSourcePage(url, {
     APP_ORIGIN: appOrigin, BACKGROUND_CAPTURE_ENABLED: "true",
-    ARTICLE_FETCHER: { fetch: (input, init) => pinnedFetch(input, init, appOrigin) },
+    ARTICLE_FETCHER: { fetch: (input, init) => pinnedFetch(String(input), init, appOrigin) },
   });
   return extractInThread(source.html, source.url);
 }

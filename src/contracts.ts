@@ -13,6 +13,8 @@ export interface Env {
   BACKGROUND_CAPTURE_ENABLED?: string;
   /** Private Cloudflare Container capture service; returns Markdown and metadata, never source HTML. */
   ARTICLE_EXTRACTOR?: Fetcher;
+  /** Legacy gateway binding retained for staged source-fetch compatibility. */
+  ARTICLE_FETCHER?: { fetch(input: string, init: RequestInit): Promise<Response> };
 }
 
 export interface ExtractionStatus {

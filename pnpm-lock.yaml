@@ -173,8 +173,8 @@ importers:
         specifier: 0.19.4
         version: 0.19.4
       dompurify:
-        specifier: 3.4.16
-        version: 3.4.16
+        specifier: 3.4.17
+        version: 3.4.17
       ipaddr.js:
         specifier: 2.5.0
         version: 2.5.0
@@ -210,8 +210,8 @@ importers:
         specifier: 1.62.1
         version: 1.62.1
       sharp:
-        specifier: 0.35.4
-        version: 0.35.4(@types/node@22.20.4)
+        specifier: 0.35.5
+        version: 0.35.5(@types/node@22.20.4)
       tsx:
         specifier: 4.23.15
         version: 4.23.15

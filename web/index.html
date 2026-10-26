@@ -98,13 +98,16 @@
           Show more
         </button>
       </section>
+      <footer class="footer">
+        <button id="build-info-open" class="build-info-button" type="button" aria-haspopup="dialog">Local build</button>
+      </footer>
     </main>
     <dialog id="build-info-dialog" class="dialog build-info-dialog" aria-labelledby="build-info-heading">
       <form method="dialog" class="dialog-close">
         <button class="icon-button" aria-label="Close build details">×</button>
       </form>
       <p class="eyebrow">Build details</p>
-      <h2 id="build-info-heading" tabindex="-1">Build information</h2>
+      <h2 id="build-info-heading">Build information</h2>
       <p id="build-info-local" class="muted" hidden>This is a local build. Build metadata is unavailable.</p>
       <dl id="build-info-metadata" class="build-info-metadata">
         <div><dt>Commit</dt><dd id="build-info-commit"></dd></div>
@@ -184,40 +187,43 @@
       <div id="detail-content"></div>
     </dialog>
     <dialog id="reader-dialog" class="dialog reader-dialog" aria-labelledby="reader-title">
-      <header class="reader-header">
-        <form method="dialog" class="reader-close">
-          <button class="icon-button" aria-label="Close saved copy">×</button>
-        </form>
-        <p class="eyebrow">Saved Markdown copy</p>
-        <h2 id="reader-title"></h2>
-        <p id="reader-author" class="muted" hidden></p>
-        <p id="reader-metadata" class="muted reader-metadata"></p>
-        <div class="reader-tools" aria-label="Article actions">
-          <a id="reader-original" class="icon-button reader-action" target="_blank" rel="noopener noreferrer" aria-label="Open original" title="Open original">
-            <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M15 3h6v6m-1-5-9 9" /><path d="M11 5H7a4 4 0 0 0-4 4v8a4 4 0 0 0 4 4h8a4 4 0 0 0 4-4v-4" /></svg>
-          </a>
-          <button id="reader-copy-link" class="icon-button reader-action" type="button" aria-label="Copy article link" title="Copy article link">
-            <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M10 13a5 5 0 0 0 7.1.1l2-2a5 5 0 0 0-7.1-7.1L11 5.1" /><path d="M14 11a5 5 0 0 0-7.1-.1l-2 2A5 5 0 0 0 12 20l1.1-1.1" /><path d="m8 16 8-8" /></svg>
-          </button>
+      <nav class="reader-toolbar" aria-label="Saved copy controls">
+        <div class="reader-column reader-toolbar-inner">
+          <form method="dialog" class="reader-close">
+            <button class="reader-back" aria-label="Close saved copy">← <span>Back</span></button>
+          </form>
+          <a id="reader-original" class="reader-original reader-action" target="_blank" rel="noopener noreferrer" aria-label="Open original" title="Open original">
+          <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M15 3h6v6m-1-5-9 9" /><path d="M11 5H7a4 4 0 0 0-4 4v8a4 4 0 0 0 4 4h8a4 4 0 0 0 4-4v-4" /></svg>
+        </a>
+
         </div>
-        <input id="reader-copy-fallback" class="reader-copy-fallback" type="url" readonly aria-label="Article link to copy" hidden />
-        <span id="reader-copy-status" class="muted" role="status" aria-live="polite"></span>
-      </header>
-      <section id="reader-pending" class="reader-pending" hidden aria-live="polite">
-        <p id="reader-pending-status" class="reader-pending-status"></p>
-        <div class="reader-pending-actions">
-          <button id="reader-manual-copy" class="button secondary" type="button">Paste or upload Markdown</button>
-          <button id="reader-retry" class="button secondary" type="button" hidden>Retry capture</button>
-        </div>
-      </section>
-      <p id="reader-image-note" class="reader-image-note">Image references are shown as text and still depend on their external source.</p>
-      <article id="reader-body" class="reader-body"></article>
-      <footer id="reader-footer" class="reader-footer" hidden>
-        <button id="reader-mark-read" class="icon-button reader-action reader-mark-read" type="button" aria-label="Mark as read" title="Mark as read">
-          <svg viewBox="0 0 24 24" aria-hidden="true"><path d="m5 12 4.5 4.5L19 7" /></svg>
-        </button>
-        <span id="reader-status" class="reader-status" role="status" aria-live="polite" hidden></span>
-      </footer>
+      </nav>
+      <div class="reader-column reader-content-column">
+        <header class="reader-header">
+          <h2 id="reader-title" tabindex="-1"></h2>
+          <p id="reader-author" class="muted" hidden></p>
+          <details id="reader-about" class="reader-about">
+            <summary>About this copy</summary>
+            <div class="reader-about-content">
+              <p id="reader-metadata" class="muted reader-metadata"></p>
+              <p id="reader-image-note" class="reader-image-note">Image references are shown as text and still depend on their external source.</p>
+            </div>
+          </details>
+          <div class="reader-share">
+            <button id="reader-copy-link" class="reader-copy-link" type="button">Copy article link</button>
+            <input id="reader-copy-fallback" class="reader-copy-fallback" type="url" readonly aria-label="Article link to copy" hidden />
+            <span id="reader-copy-status" class="muted" role="status" aria-live="polite"></span>
+          </div>
+        </header>
+        <section id="reader-pending" class="reader-pending" hidden aria-live="polite">
+          <p id="reader-pending-status" class="reader-pending-status"></p>
+          <div class="reader-pending-actions">
+            <button id="reader-manual-copy" class="button secondary" type="button">Paste or upload Markdown</button>
+            <button id="reader-retry" class="button secondary" type="button" hidden>Retry capture</button>
+          </div>
+        </section>
+        <article id="reader-body" class="reader-body"></article>
+      </div>
     </dialog>
     <dialog id="settings-dialog" class="dialog settings-dialog" aria-labelledby="settings-heading">
       <form method="dialog" class="dialog-close">
@@ -281,10 +287,6 @@
         <button id="logout" class="button secondary" type="button" hidden>
           Sign out
         </button>
-      </section>
-      <section class="settings-section">
-        <h3>About</h3>
-        <button id="build-info-open" class="build-info-button" type="button" aria-haspopup="dialog">Local build</button>
       </section>
     </dialog>
     <script type="module" src="/app.v1.js"></script>

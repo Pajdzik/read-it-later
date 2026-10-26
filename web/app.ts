@@ -32,11 +32,7 @@ if (buildInfoButton && buildInfoDialog) {
     document.querySelector("#build-info-local")!.removeAttribute("hidden");
     document.querySelector("#build-info-copy")!.setAttribute("hidden", "");
   }
-  buildInfoButton.addEventListener("click", () => {
-    const copyButton = document.querySelector<HTMLButtonElement>("#build-info-copy");
-    const heading = document.querySelector<HTMLElement>("#build-info-heading");
-    showDialog(buildInfoDialog, copyButton && !copyButton.hidden ? copyButton : heading);
-  });
+  buildInfoButton.addEventListener("click", () => buildInfoDialog.showModal());
 }
 
 type Article = {
@@ -77,15 +73,232 @@ function matchesGitHubDestination(configuration: GitHubCaptureConfiguration, exp
 }
 const $ = <T extends HTMLElement = HTMLElement>(selector: string): T =>
   document.querySelector<T>(selector)!;
+const READING_POSITION_PREFIX = "later-reading-position:";
+const MAX_READER_SCROLL = 10_000_000;
+type ReadingPosition = { revision: string; block: number; fraction: number; scrollTop: number };
+let readerPositionContext: { id: string; revision: string } | null = null;
+let readerPositionTimer = 0;
+let restoringReaderPosition = false;
+let readerPositionRestorePending = false;
+let readerPositionRestoreGeneration = 0;
+function readReadingPosition(context: { id: string; revision: string }): ReadingPosition | null {
+  try {
+    const raw = localStorage.getItem(`${READING_POSITION_PREFIX}${encodeURIComponent(context.id)}`);
+    if (!raw) return null;
+    const value = JSON.parse(raw) as Partial<ReadingPosition>;
+    if (value.revision !== context.revision) {
+      localStorage.removeItem(`${READING_POSITION_PREFIX}${encodeURIComponent(context.id)}`);
+      return null;
+    }
+    if (!Number.isInteger(value.block) || value.block! < -1 || value.block! > 100_000 ||
+        typeof value.fraction !== "number" || !Number.isFinite(value.fraction) || value.fraction < -100 || value.fraction > 100 ||
+        typeof value.scrollTop !== "number" || !Number.isFinite(value.scrollTop) || value.scrollTop < 0 || value.scrollTop > MAX_READER_SCROLL) return null;
+    return value as ReadingPosition;
+  } catch { return null; }
+}
+function saveReadingPosition() {
+  window.clearTimeout(readerPositionTimer);
+  readerPositionTimer = 0;
+  const dialog = $<HTMLDialogElement>("#reader-dialog");
+  const context = readerPositionContext;
+  if (!context || restoringReaderPosition || readerPositionRestorePending || $("#reader-pending").hidden === false) return;
+  const scrollTop = Math.min(MAX_READER_SCROLL, Math.max(0, dialog.scrollTop));
+  const body = $("#reader-body");
+  const toolbar = $(".reader-toolbar");
+  const anchorY = toolbar.getBoundingClientRect().bottom;
+  const children = Array.from(body.children) as HTMLElement[];
+  let block = -1;
+  let fraction = 0;
+  const visible = children.findIndex((child) => child.getBoundingClientRect().bottom > anchorY);
+  if (visible >= 0) {
+    block = visible;
+    const bounds = children[visible].getBoundingClientRect();
+    fraction = bounds.height > 0 ? Math.max(-100, Math.min(100, (anchorY - bounds.top) / bounds.height)) : 0;
+  }
+  try {
+    localStorage.setItem(`${READING_POSITION_PREFIX}${encodeURIComponent(context.id)}`, JSON.stringify({ revision: context.revision, block, fraction, scrollTop }));
+  } catch { /* Reading remains available when browser storage is disabled or full. */ }
+}
+function scheduleReadingPositionSave() {
+  if (!readerPositionContext || restoringReaderPosition) return;
+  window.clearTimeout(readerPositionTimer);
+  readerPositionTimer = window.setTimeout(saveReadingPosition, 300);
+}
+function restoreReadingPosition(context: { id: string; revision: string }) {
+  const generation = ++readerPositionRestoreGeneration;
+  readerPositionRestorePending = false;
+  restoringReaderPosition = false;
+  const position = readReadingPosition(context);
+  if (!position) return;
+  const dialog = $<HTMLDialogElement>("#reader-dialog");
+  restoringReaderPosition = true;
+  readerPositionRestorePending = true;
+  requestAnimationFrame(() => {
+    if (generation !== readerPositionRestoreGeneration) return;
+    if (!dialog.open || readerPositionContext !== context) {
+      readerPositionRestorePending = false;
+      restoringReaderPosition = false;
+      return;
+    }
+    if (position.scrollTop === 0) {
+      dialog.scrollTop = position.scrollTop;
+    } else {
+      const body = $("#reader-body");
+      const block = position.block >= 0 ? body.children.item(position.block) as HTMLElement | null : null;
+      if (block) {
+        const toolbar = $(".reader-toolbar");
+        const bounds = block.getBoundingClientRect();
+        dialog.scrollTop = Math.max(0, Math.min(MAX_READER_SCROLL,
+          dialog.scrollTop + bounds.top + position.fraction * bounds.height - toolbar.getBoundingClientRect().bottom));
+      } else dialog.scrollTop = position.scrollTop;
+    }
+    requestAnimationFrame(() => {
+      if (readerPositionContext === context && generation === readerPositionRestoreGeneration) {
+        readerPositionRestorePending = false;
+        restoringReaderPosition = false;
+      }
+    });
+  });
+}
+function showDialog(dialog: HTMLDialogElement, target: HTMLElement | null = null) {
+  dialog.showModal();
+  target?.focus({ preventScroll: true });
+}
+function parseReaderPath(pathname: string): ReaderRoute {
+  if (pathname !== "/read" && pathname !== "/read/" && !pathname.startsWith("/read/")) return null;
+  if (pathname === "/read" || pathname === "/read/") return { invalid: true };
+  const parts = pathname.slice(6).replace(/\/$/, "").split("/");
+  try {
+    const id = decodeURIComponent(parts[0] || "");
+    const slug = parts[1] === undefined ? undefined : decodeURIComponent(parts[1]);
+    if (parts.length > 2 || !isArticleId(id) || (slug !== undefined && (!slug || slug.includes("/") || slug.includes("\\")))) return { invalid: true };
+    return { id, ...(slug === undefined ? {} : { slug }) };
+  } catch { return { invalid: true }; }
+}
+function listHistoryState(): ReaderHistoryState { return { potem: { version: 1, kind: "list" } }; }
+function readerHistoryState(id: string, fromList: boolean): ReaderHistoryState { return { potem: { version: 1, kind: "reader", articleId: id, fromList } }; }
+function setListTitle() { document.title = "potem — your reading list"; }
+function setArticleTitle(article: Article) { document.title = `${article.title} · Potem`; }
+function rememberListView(opener?: HTMLElement) {
+  const active = opener ?? (document.activeElement instanceof HTMLElement ? document.activeElement : null);
+  const article = active?.closest<HTMLElement>(".article");
+  listSnapshot = { scrollY: window.scrollY, cursor: state.cursor, pageCount: Math.max(1, Math.ceil(list.children.length / 50)), focus: active, focusArticleId: article?.dataset.id || null, focusKind: active?.classList.contains("article-lead") ? "lead" : article ? "title" : "other", status: state.status, query: state.query, rowCount: list.children.length };
+}
+async function restoreListView() {
+  if (!listSnapshot) return;
+  const snapshot = listSnapshot;
+  state.status = snapshot.status;
+  state.query = snapshot.query;
+  $<HTMLInputElement>("#search").value = snapshot.query;
+  document.querySelectorAll<HTMLButtonElement>("[data-status]").forEach((button) => button.setAttribute("aria-pressed", String(button.dataset.status === snapshot.status)));
+  if (list.children.length !== snapshot.rowCount) {
+    await load();
+    for (let page = 1; page < snapshot.pageCount && state.cursor; page++) await load(false);
+  }
+  window.scrollTo(0, snapshot.scrollY);
+  const fallback = snapshot.focusArticleId
+    ? list.querySelector<HTMLElement>(`.article[data-id="${CSS.escape(snapshot.focusArticleId)}"] .${snapshot.focusKind === "lead" ? "article-lead" : "article-title"}`)
+    : null;
+  const target = snapshot.focus?.isConnected ? snapshot.focus : fallback || document.querySelector<HTMLElement>("#last-opened-title") || document.querySelector<HTMLElement>("[data-status][aria-pressed='true']") || document.querySelector<HTMLElement>("#search");
+  target?.focus({ preventScroll: true });
+}
+function readLastOpenedId(): string | null {
+  try {
+    const raw = localStorage.getItem(lastOpenedStorageKey);
+    if (!raw) return null;
+    const item = JSON.parse(raw);
+    if (item?.version === 1 && isArticleId(item.articleId) && typeof item.openedAt === "string" && Number.isFinite(Date.parse(item.openedAt))) return item.articleId;
+    localStorage.removeItem(lastOpenedStorageKey);
+  } catch { try { localStorage.removeItem(lastOpenedStorageKey); } catch {} }
+  return null;
+}
+function renderLastOpened() {
+  const row = document.querySelector<HTMLElement>("#last-opened");
+  const link = document.querySelector<HTMLAnchorElement>("#last-opened-title");
+  const status = document.querySelector<HTMLElement>("#last-opened-status");
+  if (!row || !link || !status) return;
+  const scrollX = window.scrollX, scrollY = window.scrollY;
+  row.hidden = !state.session?.authenticated || (!lastOpenedArticle && !lastOpenedError);
+  link.hidden = !lastOpenedArticle;
+  status.hidden = !lastOpenedError;
+  status.textContent = lastOpenedError;
+  const retry = document.querySelector<HTMLButtonElement>("#last-opened-retry");
+  if (retry) retry.hidden = !lastOpenedError;
+  if (lastOpenedArticle) {
+    link.textContent = lastOpenedArticle.title; link.href = articlePath(lastOpenedArticle); link.dataset.articleId = lastOpenedArticle.id;
+    if (!link.dataset.navigationBound) {
+      link.dataset.navigationBound = "true";
+      link.addEventListener("click", (event) => {
+        if (event.button !== 0 || event.metaKey || event.ctrlKey || event.shiftKey || event.altKey) return;
+        event.preventDefault(); void navigateToArticle(link.dataset.articleId || "", link);
+      });
+    }
+  }
+  // Updating the shortcut above the list must not move its background view.
+  window.scrollTo(scrollX, scrollY);
+}
+async function loadLastOpened() {
+  const generation = ++lastOpenedFetchGeneration;
+  const id = readLastOpenedId();
+  if (!state.session?.authenticated || !id) { lastOpenedArticle = null; renderLastOpened(); return; }
+  try {
+    const { article } = await request<{ article: Article }>(`/api/articles/${encodeURIComponent(id)}`);
+    if (generation !== lastOpenedFetchGeneration || readLastOpenedId() !== id) return;
+    lastOpenedArticle = article; lastOpenedError = ""; renderLastOpened();
+  } catch (error) {
+    if (generation !== lastOpenedFetchGeneration) return;
+    if ((error as Error & { status?: number }).status === 404) {
+      try { localStorage.removeItem(lastOpenedStorageKey); } catch {}
+      lastOpenedArticle = null; lastOpenedError = "";
+    } else { lastOpenedArticle = null; lastOpenedError = "Couldn’t load the last opened article."; }
+    renderLastOpened();
+  }
+}
+function saveLastOpened(article: Article) {
+  lastOpenedFetchGeneration++;
+  try { localStorage.setItem(lastOpenedStorageKey, JSON.stringify({ version: 1, articleId: article.id, openedAt: new Date().toISOString() })); } catch {}
+  lastOpenedArticle = article; lastOpenedError = ""; renderLastOpened();
+}
+function clearReaderLinkFeedback() {
+  const input = document.querySelector<HTMLInputElement>("#reader-copy-fallback");
+  if (input) { input.value = ""; input.hidden = true; }
+  const status = document.querySelector<HTMLElement>("#reader-copy-status");
+  if (status) status.textContent = "";
+}
+function clearLastOpened(id?: string) {
+  if (id && readLastOpenedId() !== id) return;
+  lastOpenedFetchGeneration++;
+  try { localStorage.removeItem(lastOpenedStorageKey); } catch {}
+  lastOpenedArticle = null; lastOpenedError = ""; renderLastOpened();
+}
+function rememberReaderForAuthentication() {
+  const route = parseReaderPath(location.pathname);
+  if (!route || !("id" in route)) return;
+  try { sessionStorage.setItem(pendingReaderStorageKey, JSON.stringify({ version: 1, articleId: route.id, createdAt: Date.now() })); } catch {}
+}
+function resumePendingReader() {
+  if (!state.session?.authenticated) return;
+  try {
+    const pending = JSON.parse(sessionStorage.getItem(pendingReaderStorageKey) || "null");
+    if (pending?.version !== 1 || !isArticleId(pending.articleId) || !Number.isFinite(pending.createdAt) || Date.now() < pending.createdAt || Date.now() - pending.createdAt >= 30 * 60 * 1000) {
+      sessionStorage.removeItem(pendingReaderStorageKey); return;
+    }
+    const route = parseReaderPath(location.pathname);
+    if (route && (!("id" in route) || route.id !== pending.articleId || readerArticleId === pending.articleId)) {
+      sessionStorage.removeItem(pendingReaderStorageKey); return;
+    }
+    if (browserCaptureDraft || sessionStorage.getItem("later-extension-connect-request")) return;
+    if (sessionStorage.getItem("later-add-draft")) return;
+    sessionStorage.removeItem(pendingReaderStorageKey);
+    history.replaceState(readerHistoryState(pending.articleId, false), "", `/read/${pending.articleId}`);
+    void openArticleById(pending.articleId);
+  } catch { try { sessionStorage.removeItem(pendingReaderStorageKey); } catch {} }
+}
 const searchControl = $<HTMLElement>("#search-control");
 const searchToggle = $<HTMLButtonElement>("#search-toggle");
 const searchField = $<HTMLElement>("#search-field");
 const searchInput = $<HTMLInputElement>("#search");
 const statusTabs = $<HTMLElement>("#status-tabs");
-function showDialog(dialog: HTMLDialogElement, target: HTMLElement | null = null) {
-  dialog.showModal();
-  target?.focus({ preventScroll: true });
-}
 function updateSearchState() {
   const hasQuery = Boolean(searchInput.value.trim());
   searchControl.classList.toggle("has-query", hasQuery);
@@ -94,6 +307,7 @@ function updateSearchState() {
 }
 function setSearchOpen(open: boolean, focus = false) {
   searchControl.classList.toggle("is-open", open);
+  searchControl.closest(".topbar")?.classList.toggle("search-open", open);
   searchToggle.setAttribute("aria-expanded", String(open));
   searchField.setAttribute("aria-hidden", String(!open));
   searchInput.disabled = !open;
@@ -115,21 +329,19 @@ let browserCaptureDraft: BrowserCaptureDraft | null = null;
 let captureGitHubConfiguration: GitHubCaptureConfiguration | null = null;
 let captureGitHubConfigurationPromise: Promise<void> | null = null;
 let readerLoadGeneration = 0;
-let readerArticleId: string | null = null;
-let readerMarkReadPending = false;
+const readerCloseEvents: Array<{ generation: number; opener: HTMLElement | null }> = [];
+let readerReturnFocus: HTMLElement | null = null;
 const lastOpenedStorageKey = "potem-last-opened-v1";
 const pendingReaderStorageKey = "potem-pending-reader-v1";
+type ReaderRoute = { id: string; slug?: string } | { invalid: true } | null;
 type ReaderHistoryState = { potem?: { version: 1; kind: "list" | "reader"; articleId?: string; fromList?: boolean } };
-type ListSnapshot = { status: string; query: string; cursor: string | null; pageCount: number; scrollY: number; focusId: string | null; focusKind: "lead" | "title" | "element"; focusElement: HTMLElement | null };
-let listSnapshot: ListSnapshot | null = null;
-let listRestoreGeneration = 0;
-let readerListNeedsRebuild = false;
-let readerFromList = false;
-let readerReturnPending = false;
+let readerArticleId: string | null = null;
+let lastOpenedFetchGeneration = 0;
 let lastOpenedArticle: Article | null = null;
 let lastOpenedError = "";
-let lastOpenedFetchGeneration = 0;
-let pendingReaderReturn: { articleId: string; createdAt: number } | null = null;
+let readerFromList = false;
+let readerReturnPending = false;
+let listSnapshot: { scrollY: number; cursor: string | null; pageCount: number; focus: HTMLElement | null; focusArticleId: string | null; focusKind: "title" | "lead" | "other"; status: string; query: string; rowCount: number } | null = null;
 let extractionPollTimer = 0;
 let extractionPollStartedAt = 0;
 let extractionPollGeneration = 0;
@@ -172,8 +384,7 @@ window.addEventListener('message', (event: MessageEvent) => {
     $<HTMLInputElement>('#capture-author').value = draft.author || '';
     $<HTMLTextAreaElement>('#capture-description').value = draft.description || '';
     restoreBrowserCaptureDraft();
-    if (!$<HTMLDialogElement>('#add-dialog').open)
-      showDialog($<HTMLDialogElement>('#add-dialog'), $<HTMLInputElement>('#add-url'));
+    if (!$<HTMLDialogElement>('#add-dialog').open) $<HTMLDialogElement>('#add-dialog').showModal();
     extensionPost('ack-capture', message.requestId);
     void finishExtensionSetup();
   } catch { /* Quota failures are surfaced by the 20-second extension handoff deadline. */ }
@@ -194,164 +405,6 @@ function showNotice(message: string, bad = false) {
   notice.classList.toggle("error", bad);
   if ($<HTMLDialogElement>("#settings-dialog").open)
     $("#settings-status").textContent = message;
-}
-function readLastOpenedId(): string | null {
-  try {
-    const raw = localStorage.getItem(lastOpenedStorageKey);
-    if (!raw) return null;
-    const value = JSON.parse(raw);
-    if (value?.version !== 1 || !isArticleId(value.articleId) || typeof value.openedAt !== "string" || Number.isNaN(Date.parse(value.openedAt))) {
-      localStorage.removeItem(lastOpenedStorageKey);
-      return null;
-    }
-    return value.articleId;
-  } catch {
-    try { localStorage.removeItem(lastOpenedStorageKey); } catch {}
-    return null;
-  }
-}
-function saveLastOpened(article: Article) {
-  lastOpenedFetchGeneration++;
-  try { localStorage.setItem(lastOpenedStorageKey, JSON.stringify({ version: 1, articleId: article.id, openedAt: new Date().toISOString() })); } catch {}
-  lastOpenedArticle = article;
-  lastOpenedError = "";
-  renderLastOpened();
-}
-function clearLastOpened(articleId?: string) {
-  if (articleId && lastOpenedArticle?.id !== articleId && readLastOpenedId() !== articleId) return;
-  lastOpenedFetchGeneration++;
-  try { localStorage.removeItem(lastOpenedStorageKey); } catch {}
-  lastOpenedArticle = null;
-  lastOpenedError = "";
-  renderLastOpened();
-}
-function renderLastOpened() {
-  const row = document.querySelector<HTMLElement>("#last-opened");
-  const title = document.querySelector<HTMLAnchorElement>("#last-opened-title");
-  const status = document.querySelector<HTMLElement>("#last-opened-status");
-  if (!row || !title || !status) return;
-  row.hidden = !state.session?.authenticated || (!lastOpenedArticle && !lastOpenedError);
-  status.textContent = lastOpenedError;
-  status.hidden = !lastOpenedError;
-  const retry = document.querySelector<HTMLButtonElement>("#last-opened-retry");
-  if (retry) retry.hidden = !lastOpenedError;
-  title.hidden = !lastOpenedArticle;
-  if (lastOpenedArticle) {
-    title.textContent = lastOpenedArticle.title;
-    title.href = articlePath(lastOpenedArticle);
-    title.dataset.articleId = lastOpenedArticle.id;
-    interceptArticleAnchor(title);
-  }
-}
-function pendingReaderFromStorage() {
-  try {
-    const value = JSON.parse(sessionStorage.getItem(pendingReaderStorageKey) || "null");
-    if (value?.version === 1 && isArticleId(value.articleId) && Number.isFinite(value.createdAt) && Date.now() >= value.createdAt && Date.now() - value.createdAt < 30 * 60 * 1000) {
-      pendingReaderReturn = { articleId: value.articleId, createdAt: value.createdAt };
-      return pendingReaderReturn;
-    }
-    sessionStorage.removeItem(pendingReaderStorageKey);
-  } catch { try { sessionStorage.removeItem(pendingReaderStorageKey); } catch {} }
-  return null;
-}
-function savePendingReader(id: string) {
-  if (!isArticleId(id)) return;
-  pendingReaderReturn = { articleId: id, createdAt: Date.now() };
-  try { sessionStorage.setItem(pendingReaderStorageKey, JSON.stringify({ version: 1, articleId: id, createdAt: pendingReaderReturn.createdAt })); } catch {}
-}
-function consumePendingReader() {
-  const pending = pendingReaderReturn || pendingReaderFromStorage();
-  pendingReaderReturn = null;
-  try { sessionStorage.removeItem(pendingReaderStorageKey); } catch {}
-  return pending && Date.now() >= pending.createdAt && Date.now() - pending.createdAt < 30 * 60 * 1000 ? pending.articleId : null;
-}
-function rememberReaderForAuthentication() {
-  const route = parseReaderPath(location.pathname);
-  if (route && "id" in route) savePendingReader(route.id);
-}
-function parseReaderPath(pathname: string): { id: string; slug?: string } | { invalid: true } | null {
-  if (pathname !== "/read" && pathname !== "/read/" && !pathname.startsWith("/read/")) return null;
-  if (pathname === "/read" || pathname === "/read/") return { invalid: true };
-  let raw = pathname.slice("/read/".length);
-  if (raw.endsWith("/")) raw = raw.slice(0, -1);
-  const parts = raw.split("/");
-  if (parts.length < 1 || parts.length > 2 || parts.some((part) => !part)) return { invalid: true };
-  try {
-    const id = decodeURIComponent(parts[0]);
-    const slug = parts.length === 2 ? decodeURIComponent(parts[1]) : undefined;
-    if (!isArticleId(id) || (parts.length === 2 && (!slug || slug.includes("/") || slug.includes("\\")))) return { invalid: true };
-    return { id, ...(slug ? { slug } : {}) };
-  } catch { return { invalid: true }; }
-}
-function titleForList() { document.title = "potem — your reading list"; }
-function listState(): ReaderHistoryState { return { potem: { version: 1, kind: "list" } }; }
-function readerState(id: string, fromList: boolean): ReaderHistoryState { return { potem: { version: 1, kind: "reader", articleId: id, fromList } }; }
-function rememberListView() {
-  const active = document.activeElement as HTMLElement | null;
-  const loadedRows = list.querySelectorAll(".article").length;
-  const focusedArticle = active?.closest<HTMLElement>(".article");
-  listSnapshot = {
-    status: state.status, query: state.query, cursor: state.cursor, pageCount: Math.max(1, Math.ceil(loadedRows / 50)),
-    scrollY: window.scrollY, focusId: active?.id || (focusedArticle?.dataset.id ? `article:${focusedArticle.dataset.id}` : null),
-    focusKind: active?.classList.contains("article-lead") ? "lead" : focusedArticle ? "title" : "element",
-    focusElement: active && (focusedArticle || active.id === "last-opened-title") ? active : null,
-  };
-}
-async function restoreListView(rebuild = false) {
-  if (!listSnapshot) return;
-  const snapshot = listSnapshot;
-  const generation = ++listRestoreGeneration;
-  state.status = snapshot.status;
-  state.query = snapshot.query;
-  searchInput.value = snapshot.query;
-  updateSearchState();
-  document.querySelectorAll<HTMLButtonElement>("[data-status]").forEach((button) => button.setAttribute("aria-pressed", String(button.dataset.status === snapshot.status)));
-  await (async () => {
-    if (rebuild) {
-      await load(true);
-      for (let page = 1; page < snapshot.pageCount && state.cursor && generation === listRestoreGeneration; page++) await load(false);
-    }
-    if (generation !== listRestoreGeneration) return;
-    window.scrollTo(0, snapshot.scrollY);
-    const focusId = snapshot.focusId;
-    const articleTarget = focusId?.startsWith("article:")
-      ? list.querySelector<HTMLElement>(`.article[data-id="${CSS.escape(focusId.slice(8))}"] .${snapshot.focusKind === "lead" ? "article-lead" : "article-title"}`)
-      : null;
-    const target = snapshot.focusElement?.isConnected ? snapshot.focusElement : articleTarget || (focusId ? document.getElementById(focusId) : null);
-    (target || $<HTMLElement>("[data-status][aria-pressed='true']") || searchToggle).focus({ preventScroll: true });
-  })();
-}
-function articleLink(article: Article, label = article.title, className = "article-title") {
-  const anchor = el("a", label, className);
-  anchor.href = articlePath(article);
-  anchor.dataset.articleId = article.id;
-  return anchor;
-}
-function interceptArticleAnchor(anchor: HTMLAnchorElement) {
-  if (anchor.dataset.navigationBound) return;
-  anchor.dataset.navigationBound = "true";
-  anchor.addEventListener("click", (event) => {
-    if (event.defaultPrevented || event.button !== 0 || event.metaKey || event.ctrlKey || event.shiftKey || event.altKey) return;
-    event.preventDefault();
-    void navigateToArticle(anchor.dataset.articleId || "");
-  });
-}
-async function loadLastOpened() {
-  const generation = ++lastOpenedFetchGeneration;
-  if (!state.session?.authenticated) { lastOpenedArticle = null; renderLastOpened(); return; }
-  const id = readLastOpenedId();
-  if (!id) { lastOpenedArticle = null; renderLastOpened(); return; }
-  try {
-    const result = await request<{ article: Article }>(`/api/articles/${encodeURIComponent(id)}`);
-    if (generation !== lastOpenedFetchGeneration || readLastOpenedId() !== id) return;
-    lastOpenedArticle = result.article;
-    lastOpenedError = "";
-    renderLastOpened();
-  } catch (error) {
-    if (generation !== lastOpenedFetchGeneration) return;
-    if ((error as Error & { status?: number }).status === 404) clearLastOpened(id);
-    else { lastOpenedArticle = null; lastOpenedError = "Couldn’t load the last opened article."; renderLastOpened(); }
-  }
 }
 function showExtensionResult(article: Article, sourceUrl: string, githubUrl?: string) {
   notice.replaceChildren(document.createTextNode('Saved. '));
@@ -388,12 +441,9 @@ async function request<T>(path: string, init: RequestInit = {}): Promise<T> {
   });
   if (response.status === 401) {
     rememberReaderForAuthentication();
-    try { stashDraft(); } catch {}
+    stashDraft();
     copyDrafts.clear();
     discardPrivateContent();
-    state.session = { authenticated: false };
-    lastOpenedArticle = null;
-    renderLastOpened();
     location.assign("/auth/github");
     throw new Error("Sign in to continue.");
   }
@@ -467,9 +517,6 @@ function extractionFailureMessage(code: string | null | undefined) {
     case "source_unavailable": return "The source site could not be reached.";
     case "upstream_http": return "The source site refused the request or is unavailable.";
     case "network_error": return "A network error interrupted capture.";
-    case "capture_busy":
-    case "capture_unavailable":
-    case "invalid_capture_response": return "The capture service is temporarily unavailable.";
     case "timeout": return "The source site took too long to respond.";
     case "unsupported_content":
     case "unsupported_content_type": return "This link does not serve a supported article page.";
@@ -569,11 +616,9 @@ function el<K extends keyof HTMLElementTagNameMap>(
   if (className) node.className = className;
   return node;
 }
-type IconName = "copy" | "edit" | "external" | "mark-read" | "mark-unread";
+type IconName = "edit" | "external" | "mark-read" | "mark-unread";
 function iconMarkup(name: IconName): string {
   switch (name) {
-    case "copy":
-      return '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M10 13a5 5 0 0 0 7.1.1l2-2a5 5 0 0 0-7.1-7.1L11 5.1" /><path d="M14 11a5 5 0 0 0-7.1-.1l-2 2A5 5 0 0 0 12 20l1.1-1.1" /><path d="m8 16 8-8" /></svg>';
     case "edit":
       return '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="m4 16.5-.8 3.3 3.3-.8L18.7 6.8a2.3 2.3 0 0 0-3.3-3.3L4 16.5Z" /><path d="m13.9 5.1 5 5" /></svg>';
     case "external":
@@ -603,8 +648,13 @@ function renderArticle(article: Article) {
   const li = el("li", undefined, `article${article.readAt ? " is-read" : ""}`);
   li.dataset.id = article.id;
   const main = el("div", undefined, "article-main");
-  const title = articleLink(article);
-  interceptArticleAnchor(title);
+  const title = el("a", article.title, "article-title");
+  title.href = articlePath(article);
+  title.dataset.articleId = article.id;
+  title.addEventListener("click", (event) => {
+    if (event.button !== 0 || event.metaKey || event.ctrlKey || event.shiftKey || event.altKey) return;
+    event.preventDefault(); void navigateToArticle(article.id, title);
+  });
   const meta = el(
     "p",
     `${sourceHost(article.url)}${article.author ? ` · By ${article.author}` : ""} · Saved ${dateLabel(article.createdAt)}`,
@@ -613,11 +663,16 @@ function renderArticle(article: Article) {
   const extractionBadge = el("span", extractionLabel(article.extraction), "extraction-badge");
   extractionBadge.hidden = !extractionBadge.textContent;
   const description = article.description
-    ? articleLink(article, article.description, "article-description article-lead")
+    ? el("a", article.description, "article-description article-lead")
     : null;
   if (description) {
+    description.href = articlePath(article);
+    description.dataset.articleId = article.id;
     description.setAttribute("aria-label", `Read saved copy of ${article.title}`);
-    interceptArticleAnchor(description);
+    description.addEventListener("click", (event) => {
+      if (event.button !== 0 || event.metaKey || event.ctrlKey || event.shiftKey || event.altKey) return;
+      event.preventDefault(); void navigateToArticle(article.id, description);
+    });
   }
   const link = iconLink("Open original", "external", "subtle original-link");
   link.href = safeHttpUrl(article.url) || "#";
@@ -633,7 +688,7 @@ function renderArticle(article: Article) {
     "read-action",
   );
   read.addEventListener("click", () => mutateRead(article, !article.readAt));
-  const edit = iconButton("Edit article", "edit", "subtle edit-action");
+  const edit = iconButton("Edit", "edit", "subtle edit-action");
   edit.addEventListener("click", () => openDetail(article));
   actions.append(read, edit, link);
   li.append(main, actions);
@@ -728,15 +783,13 @@ function renderDetail(article: Article) {
         { method: "PATCH", body: JSON.stringify({ title }) },
       );
       state.selected = result.article;
-      if (lastOpenedArticle?.id === article.id || readLastOpenedId() === article.id) {
-        lastOpenedFetchGeneration++;
+      if (lastOpenedArticle?.id === result.article.id || readLastOpenedId() === result.article.id) {
         lastOpenedArticle = result.article;
-        lastOpenedError = "";
         renderLastOpened();
       }
-      if (location.pathname.startsWith(`/read/${article.id}`)) {
-        history.replaceState(readerState(result.article.id, readerFromList), "", articlePath(result.article));
-        titleForArticle(result.article);
+      if (readerArticleId === result.article.id) {
+        setArticleTitle(result.article);
+        history.replaceState(readerHistoryState(result.article.id, readerFromList), "", articlePath(result.article));
       }
       showNotice("Title updated.");
       await load();
@@ -891,7 +944,7 @@ async function renderCopyEditor(article: Article) {
   };
   readCopy.addEventListener("click", () => {
     if (saved && state.selected?.id === article.id && root.contains(section))
-      void navigateToArticle(article.id);
+      void navigateToArticle(article.id, readCopy);
   });
   downloadCopy.addEventListener("click", () => {
     if (!saved || state.selected?.id !== article.id || !root.contains(section)) return;
@@ -1080,14 +1133,14 @@ function ensureReaderOpener(opener?: HTMLElement) {
 }
 function openReader(article: Article, copy: ArticleCopy, opener?: HTMLElement) {
   if (state.selected?.id !== article.id) return;
-  readerArticleId = article.id;
+  clearReaderLinkFeedback();
+  if (readerPositionContext && (readerPositionContext.id !== article.id || readerPositionContext.revision !== copy.revision)) saveReadingPosition();
   const title = $("#reader-title");
   const author = $("#reader-author");
   const metadata = $("#reader-metadata");
   const original = $<HTMLAnchorElement>("#reader-original");
   const body = $("#reader-body");
-  $("#reader-copy-status").textContent = "";
-  $<HTMLInputElement>("#reader-copy-fallback").hidden = true;
+  const about = $<HTMLDetailsElement>("#reader-about");
   title.textContent = article.title;
   readerArticleId = article.id;
   setArticleTitle(article);
@@ -1098,43 +1151,38 @@ function openReader(article: Article, copy: ArticleCopy, opener?: HTMLElement) {
   metadata.textContent = `Captured ${dateLabel(copy.capturedAt)} · ${copy.source === "upload" ? "uploaded file" : "captured or pasted Markdown"} · ${sourceHost(article.url)}`;
   about.open = false;
   $("#reader-pending").hidden = true;
-  $("#reader-footer").hidden = false;
-  const markRead = $<HTMLButtonElement>("#reader-mark-read");
-  markRead.disabled = false;
-  const markReadLabel = article.readAt ? "Done reading" : "Mark as read";
-  markRead.setAttribute("aria-label", markReadLabel);
-  markRead.title = markReadLabel;
-  markRead.innerHTML = iconMarkup("mark-read");
-  const readerStatus = $("#reader-status");
-  readerStatus.textContent = "";
-  readerStatus.hidden = true;
   $("#reader-image-note").hidden = false;
   body.hidden = false;
   original.href = safeHttpUrl(article.url) || "#";
   body.replaceChildren(renderMarkdown(copy.markdown, article.url));
-  titleForArticle(article);
-  const canonical = articlePath(article);
-  if (location.pathname !== canonical) history.replaceState(readerState(article.id, readerFromList), "", canonical);
   saveLastOpened(article);
+  const positionContext = { id: article.id, revision: copy.revision };
+  const readerIsSameCopy = readerPositionContext?.id === positionContext.id && readerPositionContext.revision === positionContext.revision;
+  readerPositionContext = positionContext;
   const dialog = $<HTMLDialogElement>("#reader-dialog");
   if (!dialog.open) {
-    dialog.showModal();
-    title.tabIndex = -1;
-    title.focus({ preventScroll: true });
+    ensureReaderOpener(opener);
+    showDialog(dialog, title);
   }
-  dialog.scrollTop = 0;
-  body.scrollTop = 0;
+  if (!readerIsSameCopy) dialog.scrollTop = 0;
+  title.focus({ preventScroll: true });
+  restoreReadingPosition(positionContext);
   stopExtractionPolling();
 }
 function renderPendingReader(article: Article) {
-  clearReaderLinkFeedback();
+  saveReadingPosition();
+  readerPositionContext = null;
   state.selected = article;
+  const title = $("#reader-title");
+  title.textContent = article.title;
   readerArticleId = article.id;
-  $("#reader-title").textContent = article.title;
-  titleForArticle(article);
-  const canonical = articlePath(article);
-  if (location.pathname !== canonical) history.replaceState(readerState(article.id, readerFromList), "", canonical);
-  $("#reader-author").hidden = true;
+  setArticleTitle(article);
+  const canonicalPath = articlePath(article);
+  if (location.pathname !== canonicalPath) history.replaceState(readerHistoryState(article.id, readerFromList), "", canonicalPath);
+  $<HTMLDetailsElement>("#reader-about").open = false;
+  const author = $("#reader-author");
+  author.textContent = article.author ? `By ${article.author}` : "";
+  author.hidden = !article.author;
   $("#reader-metadata").textContent = `${sourceHost(article.url)} · ${extractionLabel(article.extraction)}`;
   const original = $<HTMLAnchorElement>("#reader-original");
   original.href = safeHttpUrl(article.url) || "#";
@@ -1143,9 +1191,6 @@ function renderPendingReader(article: Article) {
     : article.extraction?.paused ? "Capture is paused. Your link is saved; you can add Markdown manually in article details."
       : "Markdown is being prepared in the background. You can close this view; the link is already saved.";
   $("#reader-pending").hidden = false;
-  $("#reader-footer").hidden = true;
-  $("#reader-status").textContent = "";
-  $("#reader-status").hidden = true;
   const retry = $<HTMLButtonElement>("#reader-retry");
   retry.hidden = article.extraction?.state !== "failed";
   retry.disabled = false;
@@ -1153,13 +1198,11 @@ function renderPendingReader(article: Article) {
   $("#reader-body").hidden = true;
   const dialog = $<HTMLDialogElement>("#reader-dialog");
   if (!dialog.open) {
-    dialog.showModal();
-    const title = $("#reader-title");
-    title.tabIndex = -1;
-    title.focus({ preventScroll: true });
+    ensureReaderOpener();
+    showDialog(dialog, title);
   }
   dialog.scrollTop = 0;
-  $("#reader-body").scrollTop = 0;
+  title.focus({ preventScroll: true });
   startExtractionPolling(article);
 }
 $("#reader-manual-copy").addEventListener("click", () => {
@@ -1186,17 +1229,11 @@ $("#reader-retry").addEventListener("click", async () => {
     button.disabled = false;
   }
 });
-function clearReaderLinkFeedback() {
-  const input = $<HTMLInputElement>("#reader-copy-fallback");
-  input.value = "";
-  input.hidden = true;
-  $("#reader-copy-status").textContent = "";
-}
 function clearReader() {
   clearReaderLinkFeedback();
+  saveReadingPosition();
+  readerPositionContext = null;
   readerLoadGeneration++;
-  readerArticleId = null;
-  readerMarkReadPending = false;
   stopExtractionPolling();
   if (notice.textContent === "Loading Markdown copy…") showNotice("");
   const dialog = document.querySelector<HTMLDialogElement>("#reader-dialog");
@@ -1212,32 +1249,18 @@ function clearReader() {
   $("#reader-author").textContent = "";
   $("#reader-metadata").textContent = "";
   $("#reader-pending").hidden = true;
-  $("#reader-footer").hidden = true;
-  $("#reader-status").textContent = "";
-  $("#reader-status").hidden = true;
-  $<HTMLButtonElement>("#reader-mark-read").disabled = false;
+  $<HTMLDetailsElement>("#reader-about").open = false;
+  $("#reader-pending-status").textContent = "";
   $("#reader-body").hidden = false;
   $("#reader-image-note").hidden = false;
   $<HTMLAnchorElement>("#reader-original").removeAttribute("href");
 }
-function titleForArticle(article: Article) { document.title = `${article.title} · Potem`; }
-function navigateReaderAway() {
-  if (readerReturnPending) return;
-  if (!readerArticleId && !$<HTMLDialogElement>("#reader-dialog").open && !parseReaderPath(location.pathname)) return;
-  const current = history.state as ReaderHistoryState | null;
-  const fromList = current?.potem?.kind === "reader" ? Boolean(current.potem.fromList) : readerFromList;
-  if (fromList) {
-    readerReturnPending = true;
-    history.back();
-  }
-  else {
-    history.replaceState(listState(), "", "/");
-    readerFromList = false;
-    titleForList();
-    clearReader();
-    void restoreListView(readerListNeedsRebuild);
-    readerListNeedsRebuild = false;
-  }
+function restoreReaderFocus(opener = readerReturnFocus) {
+  readerReturnFocus = null;
+  if (!opener?.isConnected) return;
+  const detailDialog = $<HTMLDialogElement>("#detail-dialog");
+  if (detailDialog.open && !detailDialog.contains(opener)) return;
+  opener.focus({ preventScroll: true });
 }
 function discardPrivateContent() {
   clearReader();
@@ -1247,66 +1270,31 @@ function discardPrivateContent() {
   state.selected = null;
 }
 $("#reader-dialog").addEventListener("close", () => {
-  clearReaderLinkFeedback();
+  const dialog = $<HTMLDialogElement>("#reader-dialog");
+  // Closing queues an event. Ignore its cleanup if another navigation has
+  // started, including while that navigation is still fetching its copy.
+  const closed = readerCloseEvents.shift();
+  if (dialog.open) return;
+  if (closed && closed.generation !== readerLoadGeneration) {
+    if (!parseReaderPath(location.pathname)) restoreReaderFocus(closed.opener);
+    return;
+  }
+  saveReadingPosition();
+  readerPositionContext = null;
+  dialog.scrollTop = 0;
   $("#reader-body").replaceChildren();
   $("#reader-title").textContent = "";
   $("#reader-author").textContent = "";
   $("#reader-metadata").textContent = "";
   $("#reader-pending").hidden = true;
-  $("#reader-footer").hidden = true;
-  $("#reader-status").textContent = "";
-  $("#reader-status").hidden = true;
-  $<HTMLButtonElement>("#reader-mark-read").disabled = false;
-  readerArticleId = null;
-  readerMarkReadPending = false;
+  $("#reader-pending-status").textContent = "";
+  $<HTMLDetailsElement>("#reader-about").open = false;
+  $("#reader-body").hidden = false;
+  $("#reader-image-note").hidden = false;
   $<HTMLAnchorElement>("#reader-original").removeAttribute("href");
   if (!$<HTMLDialogElement>("#detail-dialog").open) {
     stopExtractionPolling();
     state.selected = null;
-    titleForList();
-  }
-});
-$("#reader-mark-read").addEventListener("click", async () => {
-  const article = state.selected;
-  const articleId = readerArticleId;
-  const generation = readerLoadGeneration;
-  const dialog = $<HTMLDialogElement>("#reader-dialog");
-  const button = $<HTMLButtonElement>("#reader-mark-read");
-  const status = $("#reader-status");
-  if (!article || !articleId || article.id !== articleId || !dialog.open || readerMarkReadPending) return;
-  if (article.readAt) {
-    navigateReaderAway();
-    clearReader();
-    return;
-  }
-  readerMarkReadPending = true;
-  button.disabled = true;
-  status.textContent = "Saving read status…";
-  status.hidden = false;
-  try {
-    const result = await request<{ article: Article }>(
-      `/api/articles/${encodeURIComponent(articleId)}`,
-      { method: "PATCH", body: JSON.stringify({ read: true }) },
-    );
-    if (generation === readerLoadGeneration && state.selected?.id === articleId && readerArticleId === articleId && dialog.open) {
-      state.selected = result.article;
-      readerListNeedsRebuild = Boolean(listSnapshot);
-      navigateReaderAway();
-      clearReader();
-      if ($<HTMLDialogElement>("#detail-dialog").open) {
-        renderDetail(result.article);
-        $("#detail-dialog .dialog-close button").focus({ preventScroll: true });
-      }
-      if (!listSnapshot) void load();
-      return;
-    }
-  } catch (error) {
-    if (generation !== readerLoadGeneration || state.selected?.id !== articleId || readerArticleId !== articleId || !dialog.open) return;
-    status.textContent = `Couldn’t mark this article as read. ${(error as Error).message}`;
-    status.hidden = false;
-    button.disabled = false;
-  } finally {
-    if (generation === readerLoadGeneration && readerArticleId === articleId) readerMarkReadPending = false;
   }
   restoreReaderFocus(closed?.opener);
 });
@@ -1332,6 +1320,9 @@ document.addEventListener("pointerdown", (event) => {
     clearReader();
   }
 }, true);
+$("#reader-dialog").addEventListener("scroll", scheduleReadingPositionSave, { passive: true });
+window.addEventListener("pagehide", saveReadingPosition);
+document.addEventListener("visibilitychange", () => { if (document.visibilityState === "hidden") saveReadingPosition(); });
 function openDetail(article: Article) {
   clearReader();
   renderDetail(article);
@@ -1340,23 +1331,25 @@ function openDetail(article: Article) {
 }
 async function openArticleById(id: string) {
   if (!state.session?.authenticated || !isArticleId(id)) return;
-  if (readerArticleId && readerArticleId !== id) clearReader();
   const generation = ++readerLoadGeneration;
-  showNotice("Loading article…");
   try {
     const { article } = await request<{ article: Article }>(`/api/articles/${encodeURIComponent(id)}`);
     if (generation !== readerLoadGeneration) return;
     state.selected = article;
-    titleForArticle(article);
-    history.replaceState(history.state, "", articlePath(article));
-    await openSavedCopy(article, generation);
+    setArticleTitle(article);
+    history.replaceState(readerHistoryState(id, readerFromList), "", articlePath(article));
+    await openSavedCopy(article);
   } catch (error) {
     if (generation !== readerLoadGeneration) return;
-    const missing = (error as Error & { status?: number }).status === 404;
-    showNotice(missing ? "This article is no longer in your library." : `Couldn’t open the saved article. ${(error as Error).message}`, true);
-    if (missing) {
+    const status = (error as Error & { status?: number }).status;
+    if (status === 404) clearLastOpened(id);
+    showNotice(status === 404 ? "This article is no longer in your library." : `Couldn’t open the saved article. ${(error as Error).message}`, true);
+    if (status === 404) {
       const back = el("a", "Back to list"); back.href = "/";
-      back.addEventListener("click", (event) => { if (event.button === 0 && !event.metaKey && !event.ctrlKey) { event.preventDefault(); history.replaceState(listState(), "", "/"); readerFromList = false; titleForList(); showNotice(""); restoreListView(); } });
+      back.addEventListener("click", (event) => {
+        if (event.button !== 0 || event.metaKey || event.ctrlKey || event.shiftKey || event.altKey) return;
+        event.preventDefault(); history.replaceState(listHistoryState(), "", "/"); readerFromList = false; setListTitle(); clearReader(); showNotice(""); restoreListView();
+      });
       notice.append(document.createTextNode(" "), back);
     } else {
       const retry = el("button", "Retry", "text-button"); retry.type = "button";
@@ -1365,23 +1358,89 @@ async function openArticleById(id: string) {
     }
   }
 }
-async function navigateToArticle(id: string) {
+async function navigateToArticle(id: string, opener?: HTMLElement) {
   if (!isArticleId(id) || readerReturnPending) return;
-  if (!state.session?.authenticated) { savePendingReader(id); location.assign("/auth/github"); return; }
+  if (!state.session?.authenticated) {
+    try { sessionStorage.setItem(pendingReaderStorageKey, JSON.stringify({ version: 1, articleId: id, createdAt: Date.now() })); } catch {}
+    location.assign("/auth/github");
+    return;
+  }
   const current = parseReaderPath(location.pathname);
   if (current && "id" in current && current.id === id) {
-    // Reading from the editor is another view of the current article. Adding a
-    // second reader entry would make Close reopen it through browser Back.
+    // The editor can reopen the current article without another history entry.
+    // Its reader button still owns focus when that reader closes.
+    rememberReaderOpener(opener);
+    if (listSnapshot && opener) listSnapshot.focus = opener;
     await openArticleById(id);
     return;
   }
-  rememberListView();
+  rememberListView(opener);
   readerFromList = true;
-  history.pushState(readerState(id, true), "", `/read/${id}`);
+  rememberReaderOpener(opener);
+  history.pushState(readerHistoryState(id, true), "", `/read/${id}`);
   await openArticleById(id);
 }
-async function openSavedCopy(article: Article, existingGeneration?: number) {
-  const generation = existingGeneration ?? ++readerLoadGeneration;
+function navigateReaderAway() {
+  if (readerReturnPending || !readerArticleId && !parseReaderPath(location.pathname)) return;
+  const current = history.state as ReaderHistoryState | null;
+  const fromList = current?.potem?.kind === "reader" ? Boolean(current.potem.fromList) : readerFromList;
+  if (fromList) { readerReturnPending = true; history.back(); }
+  else { history.replaceState(listHistoryState(), "", "/"); readerFromList = false; setListTitle(); restoreListView(); }
+}
+window.addEventListener("popstate", () => {
+  readerReturnPending = false;
+  const route = parseReaderPath(location.pathname);
+  if (route) {
+    if (!("id" in route)) { clearReader(); setListTitle(); showNotice("This article link is invalid. Go back to your list and try again.", true); return; }
+    const entry = history.state as ReaderHistoryState | null;
+    readerFromList = Boolean(entry?.potem?.kind === "reader" && entry.potem.fromList);
+    if (state.session?.authenticated) void openArticleById(route.id);
+    return;
+  }
+  readerFromList = false;
+  setListTitle();
+  clearReader();
+  restoreListView();
+});
+const lastOpenedRetry = document.querySelector<HTMLButtonElement>("#last-opened-retry");
+lastOpenedRetry?.addEventListener("click", () => void loadLastOpened());
+const reconcileGitHubButton = document.querySelector<HTMLButtonElement>("#github-reconcile");
+reconcileGitHubButton?.addEventListener("click", async () => {
+  if (!state.session?.authenticated || !reconcileGitHubButton) return;
+  reconcileGitHubButton.disabled = true;
+  const status = $("#settings-status");
+  status.textContent = "Finding existing GitHub backups…";
+  try {
+    const result = await request<{ scanned: number; mapped: number; conflicts: unknown[] }>("/api/github/reconcile", { method: "POST", body: JSON.stringify({}) });
+    status.textContent = `Scanned ${result.scanned} backup${result.scanned === 1 ? "" : "s"}; mapped ${result.mapped}; ${result.conflicts.length} conflict${result.conflicts.length === 1 ? "" : "s"}.`;
+  } catch (error) {
+    status.textContent = `Couldn’t find existing GitHub backups. ${(error as Error).message}`;
+  } finally { reconcileGitHubButton.disabled = false; }
+});
+$("#add-dialog").addEventListener("close", () => window.setTimeout(resumePendingReader, 0));
+const copyArticleLinkButton = document.querySelector<HTMLButtonElement>("#reader-copy-link");
+copyArticleLinkButton?.addEventListener("click", async () => {
+  const article = state.selected;
+  if (!article || readerArticleId !== article.id) return;
+  const articleId = article.id;
+  const input = document.querySelector<HTMLInputElement>("#reader-copy-fallback");
+  const status = document.querySelector<HTMLElement>("#reader-copy-status");
+  const url = new URL(articlePath(article), location.origin).href;
+  try {
+    if (!navigator.clipboard?.writeText) throw new Error("Clipboard unavailable");
+    await navigator.clipboard.writeText(url);
+    if (readerArticleId !== articleId || state.selected?.id !== articleId) return;
+    if (input) input.hidden = true;
+    if (status) status.textContent = "Article link copied.";
+  } catch {
+    if (readerArticleId !== articleId || state.selected?.id !== articleId) return;
+    if (input) { input.value = url; input.hidden = false; input.focus(); input.select(); }
+    if (status) status.textContent = "Clipboard unavailable. The article link is selected for copying.";
+  }
+});
+async function openSavedCopy(article: Article, opener?: HTMLElement) {
+  ensureReaderOpener(opener);
+  const generation = ++readerLoadGeneration;
   state.selected = article;
   showNotice("Loading Markdown copy…");
   try {
@@ -1404,62 +1463,15 @@ async function openSavedCopy(article: Article, existingGeneration?: number) {
   } catch (error) {
     if (generation !== readerLoadGeneration || state.selected?.id !== article.id) return;
     showNotice(`Couldn’t load this Markdown copy. ${(error as Error).message}`, true);
-    const retry = el("button", "Retry", "text-button"); retry.type = "button";
-    retry.addEventListener("click", () => { showNotice(""); void openArticleById(article.id); });
-    notice.append(document.createTextNode(" "), retry);
     openDetail(article);
   }
 }
 $("#detail-dialog").addEventListener("close", () => {
-  if (parseReaderPath(location.pathname) && state.selected?.id) navigateReaderAway();
+  if (parseReaderPath(location.pathname)) navigateReaderAway();
   stopExtractionPolling();
   clearReader();
   $("#detail-content").replaceChildren();
   state.selected = null;
-});
-$("#last-opened-retry").addEventListener("click", () => void loadLastOpened());
-$("#add-dialog").addEventListener("close", () => {
-  if (pendingReaderReturn && state.session?.authenticated && !browserCaptureDraft && !connectRequestId && !extensionHandoffId) {
-    const id = consumePendingReader();
-    if (id) {
-      history.replaceState(readerState(id, false), "", `/read/${id}`);
-      void openArticleById(id);
-    }
-  }
-});
-$("#reader-copy-link").addEventListener("click", async () => {
-  if (!readerArticleId) return;
-  const input = $<HTMLInputElement>("#reader-copy-fallback");
-  const status = $("#reader-copy-status");
-  const url = new URL(articlePath(state.selected || { id: readerArticleId, title: $("#reader-title").textContent || "" }), location.origin).href;
-  try {
-    if (!navigator.clipboard?.writeText) throw new Error("Clipboard unavailable");
-    await navigator.clipboard.writeText(url);
-    input.hidden = true;
-    status.textContent = "Article link copied.";
-  } catch {
-    input.value = url;
-    input.hidden = false;
-    input.focus();
-    input.select();
-    status.textContent = "Clipboard unavailable. The article link is selected for copying.";
-  }
-});
-window.addEventListener("popstate", () => {
-  readerReturnPending = false;
-  const route = parseReaderPath(location.pathname);
-  if (route) {
-    if (!("id" in route)) { clearReader(); titleForList(); showNotice("This article link is invalid. Go back to your list and try again.", true); return; }
-    const entry = history.state as ReaderHistoryState | null;
-    readerFromList = Boolean(entry?.potem?.kind === "reader" && entry.potem.fromList);
-    if (state.session?.authenticated) void openArticleById(route.id);
-    return;
-  }
-  readerFromList = false;
-  titleForList();
-  clearReader();
-  void restoreListView(readerListNeedsRebuild);
-  readerListNeedsRebuild = false;
 });
 async function initialize() {
   try {
@@ -1513,31 +1525,34 @@ async function initialize() {
     $("#account").hidden = false;
     $("#account").textContent = "Your private library";
     $("#logout").hidden = false;
-    titleForList();
+    setListTitle();
     void load();
     void loadLastOpened();
     const route = parseReaderPath(location.pathname);
     if (route) {
-      if (!("id" in route)) {
-        showNotice("This article link is invalid. Go back to your list and try again.", true);
-        const back = el("a", "Back to list"); back.href = "/"; back.addEventListener("click", (event) => { if (event.button === 0 && !event.metaKey && !event.ctrlKey) { event.preventDefault(); history.replaceState(listState(), "", "/"); titleForList(); showNotice(""); } }); notice.append(document.createTextNode(" "), back);
-      } else {
-        const captureActive = Boolean(browserCaptureDraft || connectRequestId || extensionHandoffId || params.has("capture") || $<HTMLDialogElement>("#add-dialog").open);
-        if (captureActive) savePendingReader(route.id);
-        else {
+      if (!("id" in route)) showNotice("This article link is invalid. Go back to your list and try again.", true);
+      else {
+        const captureActive = Boolean(browserCaptureDraft || connectRequestId || extensionHandoffId || new URL(location.href).searchParams.has("capture") || sessionStorage.getItem("later-add-draft"));
+        if (captureActive) {
+          try { sessionStorage.setItem(pendingReaderStorageKey, JSON.stringify({ version: 1, articleId: route.id, createdAt: Date.now() })); } catch {}
+        } else {
+          try { sessionStorage.removeItem(pendingReaderStorageKey); } catch {}
           readerFromList = Boolean((history.state as ReaderHistoryState | null)?.potem?.kind === "reader" && (history.state as ReaderHistoryState).potem?.fromList);
-          if ((history.state as ReaderHistoryState | null)?.potem?.kind !== "reader") history.replaceState(readerState(route.id, false), "", location.href);
+          if ((history.state as ReaderHistoryState | null)?.potem?.kind !== "reader") history.replaceState(readerHistoryState(route.id, false), "", location.href);
           void openArticleById(route.id);
         }
       }
     } else {
-      const pending = pendingReaderFromStorage();
-      const captureActive = Boolean(browserCaptureDraft || connectRequestId || extensionHandoffId || params.has("capture") || $<HTMLDialogElement>("#add-dialog").open || sessionStorage.getItem("later-add-draft"));
-      if (pending && !captureActive) {
-        const id = consumePendingReader()!;
-        history.replaceState(readerState(id, false), "", `/read/${id}`);
-        void openArticleById(id);
-      }
+      try {
+        const pending = JSON.parse(sessionStorage.getItem(pendingReaderStorageKey) || "null");
+        const validPending = pending?.version === 1 && isArticleId(pending.articleId) && Number.isFinite(pending.createdAt) && Date.now() >= pending.createdAt && Date.now() - pending.createdAt < 30 * 60 * 1000;
+        const captureActive = Boolean(browserCaptureDraft || connectRequestId || extensionHandoffId || new URL(location.href).searchParams.has("capture") || sessionStorage.getItem("later-add-draft"));
+        if (validPending && !captureActive) {
+          sessionStorage.removeItem(pendingReaderStorageKey);
+          history.replaceState(readerHistoryState(pending.articleId, false), "", `/read/${pending.articleId}`);
+          void openArticleById(pending.articleId);
+        }
+      } catch { try { sessionStorage.removeItem(pendingReaderStorageKey); } catch {} }
     }
   }
   if (!state.session.authenticated) {
@@ -1572,8 +1587,7 @@ async function finishExtensionSetup() {
   extensionAutosaveStarted = true;
   try {
     const { github } = await request<{ github: GitHubCaptureConfiguration }>('/api/github');
-    const match = github.configured && github.repository === draft.destination.repository && github.branch === draft.destination.branch && (github.folder || '') === draft.destination.folder;
-    if (!match) {
+    if (!matchesGitHubDestination(github, draft.destination)) {
       draft.mode = 'review';
       sessionStorage.setItem('later-extension-capture', JSON.stringify(draft));
       showNotice('The consented GitHub destination changed. Review this capture or reconnect in extension settings.', true);
@@ -1765,7 +1779,6 @@ function finishBrowserCaptureDraft(result: 'saved' | 'action-required' = 'saved'
   $<HTMLButtonElement>('#extension-confirm-replacement').hidden = true;
   $<HTMLElement>('#extension-actions').hidden = true;
   $<HTMLDetailsElement>('#capture-existing-copy').hidden = true;
-  $<HTMLDetailsElement>('#capture-existing-copy').hidden = true;
   $<HTMLInputElement>("#capture-copy-enabled").checked = true;
   $<HTMLInputElement>("#capture-copy-enabled").disabled = false;
   $<HTMLInputElement>("#capture-github-enabled").checked = false;
@@ -1820,8 +1833,6 @@ async function retryBrowserCaptureGitHub() {
     }
     finishBrowserCaptureDraft();
     $<HTMLDialogElement>("#add-dialog").close();
-    draft.stage = 'complete';
-    if (draft.requestId) sessionStorage.setItem('later-extension-capture', JSON.stringify(draft));
     showNotice("Markdown copy saved to Potem and GitHub.");
     await load();
   } catch (error) {
@@ -1950,7 +1961,7 @@ async function confirmExtensionReplacement() {
     if (publish) {
       const config = (await request<{ github: GitHubCaptureConfiguration }>('/api/github')).github;
       const expected = draft.mode === 'simple' ? draft.destination : undefined;
-      if (expected && (!config.configured || config.repository !== expected.repository || config.branch !== expected.branch || (config.folder || '') !== expected.folder)) {
+      if (expected && !matchesGitHubDestination(config, expected)) {
         throw new Error('The consented GitHub destination changed. The confirmed metadata and Markdown remain saved in Potem.');
       }
       draft.stage = 'publishing';
@@ -2040,7 +2051,7 @@ $("#add-form").addEventListener("submit", async (e) => {
     if (captured?.mode === 'simple') {
       const consented = captured.destination;
       const { github } = await request<{ github: GitHubCaptureConfiguration }>('/api/github');
-      if (!consented || !github.configured || github.repository !== consented.repository || github.branch !== consented.branch || (github.folder || '') !== consented.folder) {
+      if (!matchesGitHubDestination(github, consented)) {
         throw new Error('The consented GitHub destination changed. No save was started; review this capture or reconnect in extension settings.');
       }
     }
@@ -2210,6 +2221,7 @@ $("#add-form").addEventListener("submit", async (e) => {
 const statusOrder = ["unread", "read", "all"] as const;
 function setStatus(status: string) {
   if (!statusOrder.includes(status as (typeof statusOrder)[number])) return;
+  setSearchOpen(false);
   invalidateLoads();
   stopExtractionPolling();
   state.status = status;
@@ -2253,7 +2265,7 @@ searchInput.addEventListener("keydown", (event) => {
   setSearchOpen(false);
   searchToggle.focus({ preventScroll: true });
 });
-document.addEventListener("pointerdown", (event) => {
+document.addEventListener("click", (event) => {
   if (!searchControl.classList.contains("is-open") || searchControl.contains(event.target as Node)) return;
   setSearchOpen(false);
 });
@@ -2270,14 +2282,11 @@ $("#logout").addEventListener("click", async () => {
   stopExtractionPolling();
   copyDrafts.clear();
   browserCaptureDraft = null;
-  pendingReaderReturn = null;
   clearLastOpened();
   try { sessionStorage.removeItem(pendingReaderStorageKey); } catch {}
   sessionStorage.removeItem("later-browser-capture-draft");
   sessionStorage.removeItem("later-add-draft");
   discardPrivateContent();
-  history.replaceState(listState(), "", "/");
-  titleForList();
   try {
     await request("/auth/logout", { method: "POST" });
     copyDrafts.clear();
@@ -2288,10 +2297,6 @@ $("#logout").addEventListener("click", async () => {
     showNotice((e as Error).message, true);
   }
 });
-document.querySelectorAll<HTMLAnchorElement>('a[href="/auth/github"]').forEach((anchor) => anchor.addEventListener("click", () => {
-  rememberReaderForAuthentication();
-  stashDraft();
-}));
 function applyTheme() {
   const theme =
     state.theme === "system"
@@ -2304,7 +2309,7 @@ function applyTheme() {
 }
 $("#theme-toggle").addEventListener("change", (e) => {
   state.theme = (e.target as HTMLSelectElement).value;
-  try { localStorage.setItem("later-theme", state.theme); } catch {}
+  try { localStorage.setItem("later-theme", state.theme); } catch { /* Theme selection still applies in memory. */ }
   applyTheme();
 });
 matchMedia("(prefers-color-scheme: dark)").addEventListener("change", () => {
@@ -2319,14 +2324,12 @@ $("#settings-dialog").addEventListener("close", () => {
 async function openSettings() {
   showDialog($<HTMLDialogElement>("#settings-dialog"), $<HTMLSelectElement>("#theme-toggle"));
   if (!state.session?.authenticated) {
-    $<HTMLButtonElement>("#github-reconcile").hidden = true;
     $("#settings-status").textContent =
       "Sign in to manage your capture tokens.";
     $("#token-form").hidden = true;
     $("#tokens").replaceChildren();
     return;
   }
-  $<HTMLButtonElement>("#github-reconcile").hidden = false;
   $("#settings-status").textContent = "Signed in";
   $("#token-form").hidden = false;
   try {
@@ -2379,20 +2382,6 @@ async function openSettings() {
     $("#settings-status").textContent = (e as Error).message;
   }
 }
-$<HTMLButtonElement>("#github-reconcile").addEventListener("click", async () => {
-  const button = $<HTMLButtonElement>("#github-reconcile");
-  const status = $("#settings-status");
-  button.disabled = true;
-  status.textContent = "Finding existing GitHub backups…";
-  try {
-    const result = await request<{ scanned: number; mapped: number; conflicts: unknown[] }>("/api/github/reconcile", {
-      method: "POST", body: JSON.stringify({}),
-    });
-    status.textContent = `Scanned ${result.scanned} files, reconnected ${result.mapped} backups, and found ${result.conflicts.length} conflicts.`;
-  } catch (error) {
-    status.textContent = `Couldn’t reconnect GitHub backups. ${(error as Error).message}`;
-  } finally { button.disabled = false; }
-});
 $("#token-form").addEventListener("submit", async (e) => {
   e.preventDefault();
   try {

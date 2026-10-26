@@ -1,70 +1,20 @@
-import { SourceFetchError } from "./capture-protocol";
-export { SourceFetchError } from "./capture-protocol";
+import type { Env } from "../contracts";
+import { parseArticleMetadata, type ArticleDocument, type ArticleMetadata } from "./metadata";
+import { parseArticleDocument } from "./extraction";
+import { failSourceFetch as fail, SourceFetchError, validateSourceTarget } from "./source-policy";
+import { FETCH_FAILURE_HEADER, isFetchErrorCode } from "../../fetcher/protocol";
+import { CONTAINER_STARTUP_TIMEOUT_MS, SOURCE_HOP_TIMEOUT_MS, SOURCE_TOTAL_TIMEOUT_MS } from "./capture-limits";
 
-/** Internal executor dependency, implemented with native, pinned Node connections. */
-export interface SourceFetchEnv {
-  APP_ORIGIN?: string;
-  BACKGROUND_CAPTURE_ENABLED?: string;
-  ARTICLE_FETCHER?: { fetch(input: string, init: RequestInit): Promise<Response> };
-}
+export { SourceFetchError } from "./source-policy";
+export { validateSourceTarget as validateTarget } from "./source-policy";
+
+export type SourceFetchEnv = Pick<Env, "APP_ORIGIN" | "BACKGROUND_CAPTURE_ENABLED" | "ARTICLE_FETCHER">;
 
 const MAX_HTML_BYTES = 512 * 1024;
 const MAX_REDIRECTS = 3;
 
-function fail(code: string, retryable = false, retryAfterSeconds?: number): never {
-  throw new SourceFetchError(code, retryable, retryAfterSeconds);
-}
-
-function isPrivateIpv4(host: string): boolean {
-  const parts = host.split(".");
-  if (parts.length !== 4 || parts.some((part) => !/^\d{1,3}$/.test(part) || Number(part) > 255)) return false;
-  const [a, b, c, d] = parts.map(Number);
-  return a === 0 || a === 10 || a === 127 || a >= 224 ||
-    (a === 100 && b >= 64 && b <= 127) ||
-    (a === 169 && b === 254) ||
-    (a === 172 && b >= 16 && b <= 31) ||
-    (a === 192 && (b === 168 || (b === 0 && c === 0) || (b === 0 && c === 2) || (b === 88 && c === 99))) ||
-    (a === 198 && (b === 18 || b === 19 || (b === 51 && c === 100))) ||
-    (a === 203 && b === 0 && c === 113) ||
-    (a === 255 && b === 255 && c === 255 && d === 255);
-}
-
-const RESTRICTED_SUFFIXES = [
-  ".localhost", ".local", ".internal", ".lan", ".home", ".home.arpa",
-  ".test", ".invalid", ".example", ".onion", ".arpa", ".svc", ".cluster.local",
-];
-
-export function validateTarget(raw: string, env: Pick<SourceFetchEnv, "APP_ORIGIN">): URL {
-  let target: URL;
-  try {
-    target = new URL(raw);
-  } catch {
-    return fail("invalid_url");
-  }
-  if (target.protocol !== "https:" && target.protocol !== "http:") fail("unsafe_destination");
-  if (target.username || target.password) fail("unsafe_destination");
-  if (target.port && target.port !== "80" && target.port !== "443") fail("unsafe_destination");
-
-  const host = target.hostname.toLowerCase().replace(/\.$/, "");
-  if (!host || host === "localhost" || !host.includes(".") || RESTRICTED_SUFFIXES.some((suffix) => host === suffix.slice(1) || host.endsWith(suffix))) {
-    fail("unsafe_destination");
-  }
-  // URL canonicalizes unusual IPv4 spellings (integer, octal, and hex) before
-  // exposing hostname. Reject private/reserved literals; IPv6 literals are
-  // conservatively rejected so mapped and scoped forms cannot bypass checks.
-  if (host.startsWith("[") || host.includes(":")) fail("unsafe_destination");
-  if (/^\d+(?:\.\d+){3}$/.test(host) && isPrivateIpv4(host)) fail("unsafe_destination");
-  if (/^(?:0x[\da-f]+|\d+)$/i.test(host)) fail("unsafe_destination");
-
-  const configuredOrigin = env.APP_ORIGIN;
-  if (configuredOrigin) {
-    try {
-      if (new URL(configuredOrigin).hostname.toLowerCase().replace(/\.$/, "") === host) fail("unsafe_destination");
-    } catch (error) {
-      if (error instanceof SourceFetchError) throw error;
-    }
-  }
-  return target;
+export function isBackgroundCapturePaused(env: SourceFetchEnv): boolean {
+  return env.BACKGROUND_CAPTURE_ENABLED !== "true" || !env.ARTICLE_FETCHER;
 }
 
 function retryAfter(response: Response, now: number): number | undefined {
@@ -145,21 +95,21 @@ async function readHtml(response: Response, signal: AbortSignal): Promise<string
 }
 
 /**
- * Executor-only bounded pipeline. The supplied transport must validate every
- * resolved address and connect to a selected numeric public address while
- * preserving the original hostname for TLS checks (capture/pinned-fetch.ts).
+ * Fetches only through the configured connection-time public-egress gateway.
+ * That service must resolve and validate every A/AAAA/CNAME candidate and
+ * connect to a validated public address while preserving TLS hostname checks.
  * A Worker-side DNS preflight cannot prove which address an ordinary fetch uses.
  */
-export async function fetchSourcePage(url: string, env: SourceFetchEnv): Promise<{ html: string; url: string }> {
-  if (env.BACKGROUND_CAPTURE_ENABLED !== "true") fail("capture_paused");
+export async function fetchSourcePage(url: string, env: SourceFetchEnv): Promise<{ html: string; document: ArticleDocument; url: string; metadata: ArticleMetadata }> {
+  if (isBackgroundCapturePaused(env)) fail("capture_paused");
   const fetcher = env.ARTICLE_FETCHER;
   if (!fetcher) fail("capture_paused");
 
   const deadline = Date.now() + SOURCE_TOTAL_TIMEOUT_MS;
   const visited = new Set<string>();
-  let target = validateTarget(url, env);
+  let target = validateSourceTarget(url, env);
   for (let redirects = 0; ; redirects++) {
-    target = validateTarget(target.href, env);
+    target = validateSourceTarget(target.href, env);
     if (visited.has(target.href)) fail("redirect_loop");
     visited.add(target.href);
     const remaining = deadline - Date.now();
@@ -208,7 +158,7 @@ export async function fetchSourcePage(url: string, env: SourceFetchEnv): Promise
       if (redirects >= MAX_REDIRECTS) fail("too_many_redirects");
       let next: URL;
       try { next = new URL(location, target); } catch { fail("invalid_redirect"); }
-      next = validateTarget(next.href, env);
+      next = validateSourceTarget(next.href, env);
       if (target.protocol === "https:" && next.protocol === "http:") fail("redirect_downgrade");
       target = next;
       continue;
@@ -239,6 +189,12 @@ export async function fetchSourcePage(url: string, env: SourceFetchEnv): Promise
       fail(Date.now() >= deadline || controller.signal.aborted ? "timeout" : "network_error", true);
     }
     finally { clearTimeout(timeoutId!); }
-    return { html, url: target.href };
+    let document: ArticleDocument;
+    let metadata: ArticleMetadata;
+    try {
+      document = parseArticleDocument(html);
+      metadata = parseArticleMetadata(document);
+    } catch { fail("invalid_html"); }
+    return { html, document, url: target.href, metadata };
   }
 }
