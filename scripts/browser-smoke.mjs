@@ -549,10 +549,10 @@ try {
   await reader.getByRole("heading", { name: "Browser smoke article" }).waitFor();
   assert.equal(await page.evaluate(() => document.activeElement?.id), "reader-title",
     "Opening the reader should focus its article title.");
-  const readerBounds = await reader.boundingBox();
-  assert.ok(readerBounds && Math.abs(readerBounds.x) <= 1 && Math.abs(readerBounds.y) <= 1 &&
-    Math.abs(readerBounds.width - 1440) <= 1 && Math.abs(readerBounds.height - 1000) <= 1,
-    `Desktop reader should cover the viewport: ${JSON.stringify(readerBounds)}.`);
+  const desktopReaderBounds = await reader.boundingBox();
+  assert.ok(desktopReaderBounds && Math.abs(desktopReaderBounds.x) <= 1 && Math.abs(desktopReaderBounds.y) <= 1 &&
+    Math.abs(desktopReaderBounds.width - 1440) <= 1 && Math.abs(desktopReaderBounds.height - 1000) <= 1,
+    `Desktop reader should cover the viewport: ${JSON.stringify(desktopReaderBounds)}.`);
   assert.equal(await page.evaluate(() => window.scrollY), backgroundScroll,
     "Opening the reader should preserve the background page position.");
   const readerBody = reader.locator("#reader-body");

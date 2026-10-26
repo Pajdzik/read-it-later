@@ -3,7 +3,9 @@ WORKDIR /build
 RUN npm install --global pnpm@12.4.1
 COPY package.json pnpm-lock.yaml pnpm-workspace.yaml ./
 RUN pnpm install --frozen-lockfile
+COPY tsconfig.node.json ./tsconfig.node.json
 COPY src/articles ./src/articles
+COPY fetcher ./fetcher
 COPY capture ./capture
 COPY scripts/build-capture.ts ./scripts/build-capture.ts
 RUN pnpm build:capture
