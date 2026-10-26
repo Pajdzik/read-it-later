@@ -1,6 +1,10 @@
 *
 !package.json
 !pnpm-lock.yaml
+!pnpm-workspace.yaml
+!tsconfig.node.json
+!fetcher/
+!fetcher/**
 !src/
 !src/articles/
 !src/articles/**

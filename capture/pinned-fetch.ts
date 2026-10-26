@@ -52,24 +52,29 @@ export async function pinnedFetch(input: string, init: RequestInit, appOrigin?: 
   const options = pinnedRequestOptions(target, address, init.signal);
   return new Promise((resolveResponse, reject) => {
     const request = (target.protocol === "https:" ? httpsRequest : httpRequest)(options, upstream => {
-      // No transparent decompression: bound the source exactly and reject unexpected encodings.
-      if (upstream.headers["content-encoding"] && upstream.headers["content-encoding"] !== "identity") {
+      try {
+        // No transparent decompression: bound the source exactly and reject unexpected encodings.
+        if (upstream.headers["content-encoding"] && upstream.headers["content-encoding"] !== "identity") {
+          throw new SourceFetchError("unsupported_encoding", false);
+        }
+        const headers = new Headers();
+        for (const name of ["content-type", "content-length", "location", "retry-after"]) {
+          const value = upstream.headers[name];
+          if (typeof value === "string") headers.set(name, value);
+        }
+        const status = upstream.statusCode ?? 502;
+        // Node accepts three-digit statuses that the Web Response constructor rejects.
+        if (status < 200 || status > 599) throw new SourceFetchError("upstream_http", true);
+        if ([204, 205, 304].includes(status)) {
+          upstream.destroy();
+          resolveResponse(new Response(null, { status, headers }));
+        } else {
+          // Cancelling the Web stream destroys the Node stream and its non-pooled socket.
+          resolveResponse(new Response(Readable.toWeb(upstream) as ReadableStream<Uint8Array>, { status, headers }));
+        }
+      } catch (error) {
         upstream.destroy();
-        reject(new SourceFetchError("unsupported_encoding", false));
-        return;
-      }
-      const headers = new Headers();
-      for (const name of ["content-type", "content-length", "location", "retry-after"]) {
-        const value = upstream.headers[name];
-        if (typeof value === "string") headers.set(name, value);
-      }
-      const status = upstream.statusCode ?? 502;
-      if ([204, 205, 304].includes(status)) {
-        upstream.destroy();
-        resolveResponse(new Response(null, { status, headers }));
-      } else {
-        // Cancelling the Web stream destroys the Node stream and its non-pooled socket.
-        resolveResponse(new Response(Readable.toWeb(upstream) as ReadableStream<Uint8Array>, { status, headers }));
+        reject(error instanceof SourceFetchError ? error : new SourceFetchError("network_error", true));
       }
     });
     request.on("error", () => reject(new SourceFetchError(init.signal?.aborted ? "timeout" : "network_error", true)));

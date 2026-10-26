@@ -1,6 +1,4 @@
 import type { Env } from "../contracts";
-import { parseArticleMetadata, type ArticleDocument, type ArticleMetadata } from "./metadata";
-import { parseArticleDocument } from "./extraction";
 import { failSourceFetch as fail, SourceFetchError, validateSourceTarget } from "./source-policy";
 import { FETCH_FAILURE_HEADER, isFetchErrorCode } from "../../fetcher/protocol";
 import { CONTAINER_STARTUP_TIMEOUT_MS, SOURCE_HOP_TIMEOUT_MS, SOURCE_TOTAL_TIMEOUT_MS } from "./capture-limits";
@@ -100,7 +98,7 @@ async function readHtml(response: Response, signal: AbortSignal): Promise<string
  * connect to a validated public address while preserving TLS hostname checks.
  * A Worker-side DNS preflight cannot prove which address an ordinary fetch uses.
  */
-export async function fetchSourcePage(url: string, env: SourceFetchEnv): Promise<{ html: string; document: ArticleDocument; url: string; metadata: ArticleMetadata }> {
+export async function fetchSourcePage(url: string, env: SourceFetchEnv): Promise<{ html: string; url: string }> {
   if (isBackgroundCapturePaused(env)) fail("capture_paused");
   const fetcher = env.ARTICLE_FETCHER;
   if (!fetcher) fail("capture_paused");
@@ -189,12 +187,7 @@ export async function fetchSourcePage(url: string, env: SourceFetchEnv): Promise
       fail(Date.now() >= deadline || controller.signal.aborted ? "timeout" : "network_error", true);
     }
     finally { clearTimeout(timeoutId!); }
-    let document: ArticleDocument;
-    let metadata: ArticleMetadata;
-    try {
-      document = parseArticleDocument(html);
-      metadata = parseArticleMetadata(document);
-    } catch { fail("invalid_html"); }
-    return { html, document, url: target.href, metadata };
+    // Parsing belongs to the executor's bounded thread, after the network deadline.
+    return { html, url: target.href };
   }
 }
