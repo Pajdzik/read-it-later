@@ -238,7 +238,7 @@ async function runProfile(name, browserType, device) {
   const titleButton = page.locator("#articles").getByRole("link", { name: shareTitle, exact: true });
   await titleButton.waitFor();
   const article = page.locator(".article").filter({ hasText: shareTitle });
-  await article.locator(".extraction-badge").getByText("Capture paused").waitFor();
+  await article.locator(".article-meta").getByText("Capture paused").waitFor();
   const shareArticleId = await article.getAttribute("data-id");
   assert.match(shareArticleId || "", /^[a-z0-9]{8}$/, `${name}: newly saved article IDs should be short and URL-safe.`);
   assert.equal(await titleButton.getAttribute("href"), `/read/${shareArticleId}/${shareTitle.toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-|-$/g, "")}`,
