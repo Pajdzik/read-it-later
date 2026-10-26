@@ -5,6 +5,7 @@ import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { Alias, isAlias, isMap, parseDocument } from "yaml";
 import { MAX_BACKUP_BYTES, splitImportBatches, validateBackupEnvelope, type BackupArticle, type BackupEnvelope } from "./archive-backup.ts";
+import { createShortIdMapper } from "./short-id.ts";
 
 export const MAX_SOURCE_FILE_BYTES = 1024 * 1024;
 export const MAX_MARKDOWN_TOTAL_BYTES = 64 * 1024 * 1024;
@@ -259,9 +260,13 @@ function parseMarkdownFile(relativePath: string, bytes: Uint8Array, mtime: numbe
   }
   const bodyBytes = utf8Length(body);
   if (bodyBytes > MAX_COPY_BYTES) fail("copy_body_too_large");
-  const id = `obsidian-${sha256(urlInfo.normalizedUrl)}`;
+  let sourceId = `obsidian:${urlInfo.normalizedUrl}`;
+  if (Object.hasOwn(metadata, "id") && metadata.id !== null) {
+    if (typeof metadata.id !== "string" || !metadata.id || metadata.id.length > 128) fail("invalid_id");
+    sourceId = metadata.id;
+  }
   const item: BackupArticle = {
-    id, url: urlInfo.url, title, author, description, createdAt, updatedAt, readAt,
+    id: sourceId, url: urlInfo.url, title, author, description, createdAt, updatedAt, readAt,
   };
   const warnings: string[] = [];
   if (body.trim()) {
@@ -332,6 +337,7 @@ export async function convertVault(sourcePath: string, outputPath: string, { now
   const scan = await walkVault(source);
   const outcomes: ObsidianOutcome[] = [];
   const eligible: BackupArticle[] = [];
+  const sourceIds = new Set<string>();
   const winners = new Map();
   let readCount = 0;
   let unreadCount = 0;
@@ -370,6 +376,7 @@ export async function convertVault(sourcePath: string, outputPath: string, { now
         bytes = buffer.subarray(0, bytesRead);
       } finally { await handle.close(); }
       parsed = parseMarkdownFile(candidate.relative, bytes, info.mtimeMs);
+      sourceIds.add(parsed.item.id);
     } catch (error) {
       if (isFatalError(error)) throw error;
       outcomes.push({ path: candidate.relative, outcome: "excluded", reasons: [reportReason(error)], warnings: [], dateSource: null });
@@ -391,6 +398,8 @@ export async function convertVault(sourcePath: string, outputPath: string, { now
     if (parsed.item.copy) copyCount++; else linkOnlyCount++;
     outcomes.push({ path: candidate.relative, outcome: "eligible", reasons: [], warnings: parsed.warnings, dateSource: parsed.dateSource });
   }
+  const mapId = createShortIdMapper(sourceIds);
+  for (const item of eligible) item.id = mapId(item.id);
   const envelope: BackupEnvelope = { version: 2, exportedAt: now.toISOString(), articles: eligible };
   validateBackupEnvelope(envelope);
   const portableBytes = utf8Length(JSON.stringify(envelope));

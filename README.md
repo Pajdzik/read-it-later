@@ -11,7 +11,7 @@ The current service stores links, article metadata, read state, and Markdown cop
 - **The reading list comes first.** The responsive website offers Unread, Read, and All views, search, pagination, an Add dialog, article details, title editing, and deletion. Light, dark, and system themes are available.
 - **Capture should stay lightweight.** Use the website, a desktop bookmarklet, an iOS Shortcut, or an installed PWA share target where supported. Native apps, browser extensions, and email ingestion are deferred.
 - **Keep the stack small.** One TypeScript Worker serves the API and website; one D1 database stores the library and authentication records. Use plain HTML/CSS/browser TypeScript, prepared SQL, and migrations, without a frontend framework or ORM.
-- **Aim for free hosting.** Workers Static Assets and D1 are the selected Cloudflare services, with a `workers.dev` hostname avoiding a domain purchase. Free hosting depends on current account quotas and usage; no automatic upgrade to paid services is part of the design.
+- **Aim for free hosting.** Workers Static Assets and D1 are the selected Cloudflare services; production is served at `read.pajdzik.pl`. Free hosting depends on current account quotas and usage; no automatic upgrade to paid services is part of the design.
 - **Backups must be portable.** Versioned JSON exports contain library data and can be restored without copying authentication records.
 
 ## Architecture
@@ -38,11 +38,11 @@ The frontend is bundled with esbuild. JavaScript and CSS use content-hashed file
 
 Both the authenticated Add form and token capture API use the same save path. URLs must be absolute HTTP(S), have no embedded credentials, and fit within 8 KiB. The submitted URL is retained for opening the original. A separate normalized URL is the unique deduplication key: normalize host/default ports, remove fragments and `utm_*`, `fbclid`, and `gclid`, and retain other query bytes/order, path case, and trailing slashes. This deliberately treats fragment-only differences as the same article; changing the policy later requires an explicit data migration.
 
-Saving commits the URL immediately with a supplied title or hostname/path fallback. The website Add form enables **Save a Markdown copy of the article** by default and records durable extraction intent through `captureMarkdown: true`. A scheduled Worker later fetches a bounded HTML page, extracts title/author/description and Markdown with the pinned Defuddle parser, and creates a private copy in D1. Closing the browser or phone after the link-save acknowledgment does not cancel that intent. Uncheck the option for a link-only save; link-only saves do not fetch metadata.
+Saving commits the URL immediately with a supplied title or hostname/path fallback. The website Add form enables **Save a Markdown copy of the article** by default and records durable extraction intent through `captureMarkdown: true`. A scheduled Worker later claims the job and calls a private Cloudflare Container service to fetch bounded HTML and extract title/author/description and Markdown. The Worker creates the private copy in D1. Closing the browser or phone after the link-save acknowledgment does not cancel that intent. Uncheck the option for a link-only save; link-only saves do not fetch metadata.
 
 Mobile capture tokens request background extraction by default, including existing iOS Shortcut `{url, title?}` payloads. `captureMarkdown: false` opts out. Tokens remain save-only: they cannot read copies or job history, submit Markdown, retry failed jobs, or publish to GitHub. Website details show queued, running, retrying, ready, failed, or paused status and provide an owner-only retry. Duplicate saves preserve existing copies and do not restart exhausted jobs. Reviewed browser clips take priority and continue using their existing explicit copy-save path.
 
-Processing is **paused by default** in every environment. Activation requires `BACKGROUND_CAPTURE_ENABLED=true` and an `ARTICLE_FETCHER` service binding that enforces public destinations at connection time. There is no unrestricted source-fetch fallback. The deployed safe-egress and extraction CPU checks remain pending; existing automatic website extraction becomes queued/paused until activation. See [background extraction](docs/background-markdown-extraction.md), [URL Markdown capture](docs/url-markdown-capture.md), and the [deployment gate](docs/deployment.md#background-markdown-extraction).
+Processing is **paused by default** in every environment. Activation requires `BACKGROUND_CAPTURE_ENABLED=true` and the `ARTICLE_EXTRACTOR` service binding to the private Cloudflare Container executor. The executor uses native Node connections pinned to validated public IPs and runs Defuddle in a bounded thread. This option requires Workers Paid (starting at $5/month with included Container usage); no plan change or deployment is performed by the implementation. Staging security, resource, and cost checks remain required. See [background extraction](docs/background-markdown-extraction.md), [URL Markdown capture](docs/url-markdown-capture.md), and the [deployment gate](docs/deployment.md#background-markdown-extraction).
 
 A unique SQL constraint handles concurrent duplicate saves. Duplicates keep their ID, saved date, and read state. A subsequent save can fill missing author/description or replace the generated fallback title; it preserves an edited title and reports whether metadata changed.
 
@@ -80,12 +80,17 @@ An explicit local authentication bypass works only on the configured loopback or
 | --- | --- |
 | Website | Open Add, paste a URL and optional title, then save the link and queue an optional background Markdown copy |
 | Desktop bookmarklet | Extracts the open page into an editable Markdown draft in `/add`; review and confirm in the website |
+| Chrome/Firefox extension | Implementation in progress; not supported or distributed until cross-browser extension capture validation passes (E08) |
 | iOS Shortcut | POSTs one URL and optional title to `/api/capture` with a save-only bearer token; background extraction defaults on |
 | Installed PWA | Supported browsers open `/add` from shared URL/title/text; review and confirm |
 
 `GET /add` never writes data. The desktop bookmarklet injects the pinned Defuddle browser bundle into the currently viewed page, extracts Markdown locally with third-party async extraction disabled, and sends it to the Potem tab through a one-use `postMessage` channel. Markdown never appears in a URL or is sent to Defuddle. Potem checks the source origin, opener, channel, source URL, and 256 KiB UTF-8 bound. The draft is editable and stays in same-origin session storage until saved. The normal Save action first saves the URL, then attempts to create a copy with `expectedRevision: null`; an existing copy is never silently replaced. If copy saving fails, the link remains saved and the draft stays available for retry or link-only saving. A changed URL cannot receive the original page’s clip. Page CSP or opener isolation can block extraction/handoff; the original URL/title prefill remains and paste remains available. Drafts survive login redirects and reloads. Shared query parameters are removed from the address bar. Ambiguous shared text does not silently choose a link. PWA share-target support varies, and native iOS/Android sharing requires actual-device validation. See the [capture guide](docs/capture.md) and website Capture help.
 
 ## API and backups
+
+Saved articles use eight-character IDs and readable reader links such as `/read/k7m2q9x4/why-we-read`. Refresh, bookmarks, and Back/Forward restore the article; **Last opened** remembers the most recently rendered saved copy in this browser. Opening a copy leaves its read/unread state unchanged. GitHub backups use readable title-based filenames with the permanent ID inside frontmatter. See [article URLs and backup migration](docs/article-urls.md).
+
+To retain contents from old test backups, use `pnpm backup:migrate --json /absolute/path/export.json --github-dir /absolute/path/Articles --output /absolute/path/new-directory` (either input may be omitted). It creates converted import batches, readable Markdown filenames, and an ID/path report without modifying the source or publishing to GitHub. Import the converted batches into an empty article library; UUID reader links do not carry over. New backups retain short IDs exactly through restore.
 
 All API payloads are JSON with camelCase fields. Errors use `{error: {code, message}}`, with distinct validation, authentication, authorization, missing-resource, size-limit, rate-limit, and retryable storage errors.
 
@@ -102,6 +107,7 @@ All API payloads are JSON with camelCase fields. Errors use `{error: {code, mess
 | `GET /api/articles/:id/copy`, `PUT /api/articles/:id/copy` | Read or save a private Markdown copy with revision checks |
 | `GET /api/articles/:id/extraction`, `POST /api/articles/:id/extraction/retry` | Owner-only capture status and retry of failed extraction |
 | `GET /api/github` | Owner-only GitHub configuration for capture before an article exists; never returns credentials |
+| `POST /api/github/reconcile` | Reconnect recognized GitHub backup filenames to restored articles; owner session and CSRF required |
 | `GET /api/articles/:id/github`, `POST /api/articles/:id/github` | Check the configured GitHub destination or save the persisted Markdown copy there |
 | `GET /api/export`, `POST /api/import` | Download or restore versioned library JSON |
 | `GET`, `POST /api/capture-tokens` | List token metadata or create a token |
@@ -163,7 +169,7 @@ pnpm test:github
 
 ## Deployment and operations
 
-One Worker deployment contains API code and static assets. Production is live at <https://read-it-later-production.pajdzik.workers.dev> as Worker `read-it-later-production`, backed by D1 database `read-later-production`; its migrations are applied. Production sign-in is restricted to the configured GitHub owner. The OAuth app homepage is `https://read-it-later-production.pajdzik.workers.dev` and its callback is `https://read-it-later-production.pajdzik.workers.dev/auth/github/callback`.
+One Worker deployment contains API code and static assets. Production is served at <https://read.pajdzik.pl> by Worker `read-it-later-production`, backed by D1 database `read-later-production`; its migrations are applied. Production sign-in is restricted to the configured GitHub owner. Set the GitHub OAuth app homepage to `https://read.pajdzik.pl` and its callback to `https://read.pajdzik.pl/auth/github/callback`.
 
 Store `GITHUB_CLIENT_ID` and `GITHUB_CLIENT_SECRET` as **Production secrets** in Cloudflare under **Workers & Pages → read-it-later-production → Settings → Variables and Secrets**. Never put OAuth credentials in `wrangler.jsonc`, source code, or logs. Local, staging, and production data are separate; staging configuration still has placeholders.
 
@@ -174,6 +180,8 @@ pnpm build:web
 pnpm exec wrangler d1 migrations apply read-later-production --remote --env production
 pnpm exec wrangler deploy --env production
 ```
+
+Production CI embeds the commit SHA and the UTC time the website assets were built; that timestamp records the build, not the later deployment time. The footer opens build details with the full commit, the build time in your timezone, and a copy action. Local and manual builds with neither `BUILD_COMMIT_SHA` nor `BUILD_TIMESTAMP` are labeled as local builds; supplying incomplete or invalid metadata fails the build.
 
 GitHub Actions runs strict TypeScript checks, Worker/D1 tests, a dry-run build, and browser smoke on pushes and PRs. A push to `main` additionally applies production migrations and deploys after verification passes. The `production` Actions environment needs `CLOUDFLARE_API_TOKEN` and `CLOUDFLARE_ACCOUNT_ID`; OAuth secrets are configured on the Worker separately. PR checks do not deploy production. See [CI](docs/ci.md) and [deployment instructions](docs/deployment.md).
 
@@ -195,7 +203,7 @@ Back up before destructive schema changes. Prefer additive migrations and roll b
 | `wrangler.jsonc` | Worker, assets and environment bindings |
 | `server.ts`, `public/`, `Dockerfile` | Preserved Node.js Markdown-reader prototype |
 
-Supporting documents: [TypeScript migration](docs/typescript-migration.md), [original design](docs/design.md), [implementation tracker](docs/tasks.md), [capture](docs/capture.md), [mobile release validation](docs/mobile-release.md), [CI](docs/ci.md), [deployment and operations](docs/deployment.md), and [prototype](docs/prototype.md). The original design/tracker record the initial implementation scope; this README reflects the current code, including metadata enrichment and production CI deployment.
+Supporting documents: [TypeScript migration](docs/typescript-migration.md), [original design](docs/design.md), [implementation tracker](docs/tasks.md), [capture](docs/capture.md), [browser extension install draft](docs/browser-extension-install.md), [mobile release validation](docs/mobile-release.md), [CI](docs/ci.md), [deployment and operations](docs/deployment.md), and [prototype](docs/prototype.md). The original design/tracker record the initial implementation scope; this README reflects the current code, including metadata enrichment and production CI deployment.
 
 ### Preserved prototype
 

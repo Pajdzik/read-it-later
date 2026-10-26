@@ -1,4 +1,5 @@
 import { DOMParser, parseHTML } from 'linkedom';
+import { MAX_MARKDOWN_BYTES } from './capture-protocol';
 
 // The full bundle's Markdown converter expects a DOMParser. Install a fixed,
 // inert parser before loading it; each call creates a separate document.
@@ -20,6 +21,6 @@ export async function extractArticleMarkdown(html: string, url: string): Promise
   const markdown = result.content;
   if (markdown.startsWith('Partial conversion completed with errors. Original HTML:')) throw new ArticleExtractionError('Article conversion failed. Use the bookmarklet or paste Markdown in article details.');
   if (!markdown.trim()) throw new ArticleExtractionError('No article text could be extracted.');
-  if (new TextEncoder().encode(markdown).byteLength > 256 * 1024) throw new ArticleExtractionError('The extracted article exceeds the 256 KiB Markdown limit.');
+  if (new TextEncoder().encode(markdown).byteLength > MAX_MARKDOWN_BYTES) throw new ArticleExtractionError('The extracted article exceeds the 256 KiB Markdown limit.');
   return markdown;
 }

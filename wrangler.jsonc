@@ -4,7 +4,7 @@
   "main": "src/worker.ts",
   "compatibility_date": "2026-08-01",
   "vars": {
-    "APP_ORIGIN": "https://read-it-later-production.pajdzik.workers.dev",
+    "APP_ORIGIN": "https://read.pajdzik.pl",
     "GITHUB_BACKUP_BRANCH": "main",
     "GITHUB_BACKUP_PATH": "Articles",
     "GITHUB_BACKUP_REPOSITORY": "Pajdzik/Kamilpedia",
@@ -34,6 +34,7 @@
   "env": {
     "staging": {
       "name": "read-it-later-staging",
+      "services": [{ "binding": "ARTICLE_EXTRACTOR", "service": "read-it-later-capture-staging" }],
       "vars": {
         "APP_ORIGIN": "https://read-it-later-staging.<account-subdomain>.workers.dev",
         "OWNER_GITHUB_ID": "replace-with-numeric-github-user-id",
@@ -55,8 +56,9 @@
     },
     "production": {
       "name": "read-it-later-production",
+      "services": [{ "binding": "ARTICLE_EXTRACTOR", "service": "read-it-later-capture-production" }],
       "vars": {
-        "APP_ORIGIN": "https://read-it-later-production.pajdzik.workers.dev",
+        "APP_ORIGIN": "https://read.pajdzik.pl",
         "OWNER_GITHUB_ID": "1497744",
         "GITHUB_BACKUP_REPOSITORY": "Pajdzik/Kamilpedia",
         "GITHUB_BACKUP_BRANCH": "main",

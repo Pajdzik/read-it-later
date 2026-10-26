@@ -59,7 +59,7 @@ test("converts sorted nested Markdown without changing source bytes; handles Uni
   const copied = result.batches[0].articles.find(item => item.url.includes("/a?"));
   assert.equal(copied.url, "HTTPS://EXAMPLE.COM/a?utm_campaign=x&keep=%20#frag");
   assert.equal(copied.copy.markdown, "# Ω\r\n\r\n雪\r\n");
-  assert.match(copied.id, /^obsidian-[a-f0-9]{64}$/);
+  assert.match(copied.id, /^[a-z0-9]{8}$/);
   assert.deepEqual(await readFile(first), originalFirst);
   assert.deepEqual(await readFile(early), originalEarly);
 });
@@ -77,6 +77,13 @@ test("uses title fallbacks and stable IDs/revisions", async t => {
     assert.equal(again.id, item.id);
     assert.equal(again.copy?.revision, item.copy?.revision);
   }
+});
+
+test("retains valid short IDs supplied by Obsidian frontmatter", async t => {
+  const { vault, output } = await setup(t);
+  await write(vault, "article.md", `---\nsource: https://example.com/short-id\nid: k7m2q9x4\nread: false\n---\n# Body\n`);
+  const result = await convert(vault, output);
+  assert.equal(result.batches[0].articles[0].id, "k7m2q9x4");
 });
 
 test("tracking duplicates use the first sorted path", async t => {

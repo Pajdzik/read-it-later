@@ -3,11 +3,32 @@ import { createHash } from 'node:crypto';
 import { cp, mkdir, readFile, readdir, rm, writeFile } from 'node:fs/promises';
 import path from 'node:path';
 
+const commitSha = process.env.BUILD_COMMIT_SHA;
+const builtAt = process.env.BUILD_TIMESTAMP;
+if ((commitSha === undefined) !== (builtAt === undefined)) {
+  throw new Error('BUILD_COMMIT_SHA and BUILD_TIMESTAMP must be supplied together.');
+}
+if (commitSha !== undefined && !/^(?:[\da-f]{40}|[\da-f]{64})$/i.test(commitSha)) {
+  throw new Error('BUILD_COMMIT_SHA must be a full 40- or 64-character hexadecimal commit SHA.');
+}
+if (builtAt !== undefined) {
+  const isoUtcTimestamp = /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:\.\d+)?Z$/;
+  const parsedTimestamp = Date.parse(builtAt);
+  const parsedIsoSeconds = Number.isNaN(parsedTimestamp) ? '' : new Date(parsedTimestamp).toISOString().slice(0, 19);
+  if (!isoUtcTimestamp.test(builtAt) || Number.isNaN(parsedTimestamp) || parsedIsoSeconds !== builtAt.slice(0, 19)) {
+    throw new Error('BUILD_TIMESTAMP must be a valid ISO 8601 UTC timestamp ending in Z.');
+  }
+}
+const buildInfo = commitSha === undefined ? null : { commitSha, builtAt: builtAt! };
+
 const output = 'dist/web';
 await rm(output, { recursive: true, force: true });
 await mkdir(output, { recursive: true });
 const bundle = async (entry: string, format: 'esm' | 'iife' = 'esm', minify = true): Promise<string> => {
-  const result = await build({ entryPoints: [entry], bundle: true, format, target: 'es2022', minify, write: false });
+  const result = await build({
+    entryPoints: [entry], bundle: true, format, target: 'es2022', minify, write: false,
+    define: entry === 'web/app.ts' ? { __BUILD_INFO__: JSON.stringify(buildInfo) } : undefined,
+  });
   if (!result.outputFiles?.[0]) throw new Error(`No build output for ${entry}.`);
   return result.outputFiles[0].text;
 };

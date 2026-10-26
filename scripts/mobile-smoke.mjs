@@ -182,7 +182,7 @@ async function runProfile(name, browserType, device) {
   await logoutContext.close();
   await context.unroute("**/api/session");
   await page.goto(base);
-  await page.locator("#logout").waitFor();
+  await page.locator("#add-open").waitFor();
 
   // Exercise the manifest's exact GET parameter names. The review dialog must
   // stay open with the candidate URL, and a reload before Save writes nothing.
@@ -194,10 +194,12 @@ async function runProfile(name, browserType, device) {
     [shareParams.text]: `${shareTitle} ${shareUrl}`,
   });
   await page.goto(`${base}${manifest.share_target.action}?${shareQuery}`);
-  await page.locator("#logout").waitFor();
+  await page.locator("#add-url").waitFor();
   assert.equal(await page.locator("#add-dialog").evaluate((dialog) => dialog.open), true);
   assert.equal(await page.locator("#add-url").inputValue(), shareUrl);
   assert.equal(await page.locator("#add-title").inputValue(), shareTitle);
+  assert.equal(await page.evaluate(() => document.activeElement?.id), "add-url",
+    `${name}: Add dialog opened with its close button focused.`);
   assert.equal(await page.locator("#add-capture-markdown").isChecked(), true,
     `${name}: capture from URL should default on for a new review form.`);
   assert.equal(new URL(page.url()).search, "", "Share input should be removed from history after recovery.");
@@ -219,7 +221,7 @@ async function runProfile(name, browserType, device) {
   assert.match((await page.locator("#add-notice").textContent()) || "", /clear link/i,
     `${name}: ambiguous share notice was missing.`);
   await page.goto(`${base}${manifest.share_target.action}?${shareQuery}`);
-  await page.locator("#logout").waitFor();
+  await page.locator("#add-url").waitFor();
 
   await page.locator("#add-capture-markdown").check();
   const captureSaveResponsePromise = page.waitForResponse((response) =>
@@ -232,7 +234,7 @@ async function runProfile(name, browserType, device) {
   assert.equal(captureSave.extraction?.paused, true, `${name}: local runtime should report its disabled capture processor.`);
   assert.equal(Object.hasOwn(captureSave, "copy"), false, `${name}: save response must not include synchronous Markdown.`);
   await page.locator("#notice").getByText(/Link saved\. Capture is paused/).waitFor();
-  const titleButton = page.getByRole("button", { name: shareTitle, exact: true });
+  const titleButton = page.locator("#articles").getByRole("link", { name: shareTitle, exact: true });
   await titleButton.waitFor();
   const article = page.locator(".article").filter({ hasText: shareTitle });
   await article.locator(".extraction-badge").getByText("Capture paused").waitFor();
@@ -260,7 +262,9 @@ async function runProfile(name, browserType, device) {
   assert.equal(await page.locator("#reader-dialog #reader-body table tbody tr").count(), 1,
     `${name}: manually persisted Markdown should remain readable while extraction is paused.`);
   await page.locator("#reader-dialog .reader-close button").tap();
+  await page.waitForFunction(() => !location.pathname.startsWith("/read/"));
   await page.locator("#detail-dialog .dialog-close button").tap();
+  await page.waitForFunction(() => !location.pathname.startsWith("/read/"));
 
   // A duplicate normalized URL keeps its original record and state.
   await page.locator("#add-open").tap();
@@ -274,8 +278,8 @@ async function runProfile(name, browserType, device) {
   assert.equal(duplicateResponse.status(), 200);
   assert.equal((await duplicateResponse.json()).duplicate, true);
   await page.locator("#add-dialog").waitFor({ state: "hidden" });
-  await page.getByRole("button", { name: shareTitle, exact: true }).waitFor();
-  assert.equal(await page.getByRole("button", { name: "Duplicate must not replace title", exact: true }).count(), 0);
+  await page.locator("#articles").getByRole("link", { name: shareTitle, exact: true }).waitFor();
+  assert.equal(await page.locator("#articles").getByRole("link", { name: "Duplicate must not replace title", exact: true }).count(), 0);
 
   // Save failure leaves both URL and title in the dialog for retry.
   await page.locator("#add-open").tap();
@@ -305,8 +309,10 @@ async function runProfile(name, browserType, device) {
   assert.equal(await page.locator("#add-title").inputValue(), retryTitle);
   await context.setOffline(false);
   await page.locator("#add-form button").tap();
-  await page.getByRole("button", { name: retryTitle, exact: true }).waitFor();
+  await page.locator("#articles").getByRole("link", { name: retryTitle, exact: true }).waitFor();
   await page.locator("#settings-open").tap();
+  assert.equal(await page.evaluate(() => document.activeElement?.id), "theme-toggle",
+    `${name}: Settings dialog opened with its close button focused.`);
   await page.locator("#theme-toggle").selectOption("dark");
   await page.locator("#settings-dialog .dialog-close button").tap();
 
@@ -321,11 +327,11 @@ async function runProfile(name, browserType, device) {
   }, articleId);
   assert.ok(readAtAfterSave);
   await page.reload();
-  await page.locator("#logout").waitFor();
+  await page.locator("#account:not([hidden])").waitFor({ state: "attached" });
   await page.locator('[data-status="read"]').tap();
-  await page.getByRole("button", { name: shareTitle, exact: true }).waitFor();
+  await page.locator("#articles").getByRole("link", { name: shareTitle, exact: true }).waitFor();
   await page.locator("#search").fill(shareTitle);
-  await page.getByRole("button", { name: shareTitle, exact: true }).waitFor();
+  await page.locator("#articles").getByRole("link", { name: shareTitle, exact: true }).waitFor();
   await page.locator("#search").fill("missing mobile result");
   await page.getByText("Nothing here yet").waitFor();
   await page.locator("#search").fill("");
@@ -334,7 +340,7 @@ async function runProfile(name, browserType, device) {
   await article.getByRole("button", { name: "Mark unread" }).tap();
   await article.getByRole("button", { name: "Mark read" }).waitFor();
   await page.reload();
-  await page.locator("#logout").waitFor();
+  await page.locator("#account:not([hidden])").waitFor({ state: "attached" });
   await page.locator('[data-status="unread"]').tap();
   await article.getByRole("button", { name: "Mark read" }).waitFor();
   assert.equal(await page.evaluate(async (id) => {
@@ -346,7 +352,9 @@ async function runProfile(name, browserType, device) {
   // overflow. Paste the copy through article details, then open the title.
   await article.getByRole("button", { name: "Edit", exact: true }).tap();
   const detail = page.locator("#detail-content");
-  await detail.getByRole("textbox", { name: "Markdown copy" }).fill(`# Wide reader check\n\n${"word-without-breaks-".repeat(24)}\n\n| left | ${"column-header-".repeat(8)} |\n| --- | --- |\n| text | ${"wide-cell-".repeat(24)} |`);
+  assert.equal(await page.evaluate(() => document.activeElement?.matches("#detail-content input")), true,
+    `${name}: detail dialog opened with its close button focused.`);
+  await detail.getByRole("textbox", { name: "Markdown copy" }).fill(`# Wide reader check\n\n${"word-without-breaks-".repeat(24)}\n\n${"A long reader paragraph keeps the document scrollable on a phone. It stays unread until the reader action is chosen. ".repeat(36)}\n\n| left | ${"column-header-".repeat(8)} |\n| --- | --- |\n| text | ${"wide-cell-".repeat(24)} |`);
   page.once("dialog", (dialog) => dialog.accept());
   await detail.getByRole("button", { name: "Save Markdown copy" }).tap();
   await detail.getByText(/pasted Markdown/).waitFor();
@@ -357,6 +365,7 @@ async function runProfile(name, browserType, device) {
   const readerMetrics = await page.locator("#reader-dialog").evaluate((dialog) => ({
     clientWidth: dialog.clientWidth, scrollWidth: dialog.scrollWidth,
     bounds: dialog.getBoundingClientRect().toJSON(),
+    viewport: { width: innerWidth, height: innerHeight },
     wideBlocks: [...dialog.querySelectorAll("pre, table")].map((element) => ({
       tag: element.tagName, clientWidth: element.clientWidth, scrollWidth: element.scrollWidth,
       bounds: element.getBoundingClientRect().toJSON(),
@@ -365,13 +374,28 @@ async function runProfile(name, browserType, device) {
   await page.screenshot({ path: screenshot("portrait-reader") });
   assert.ok(readerMetrics.scrollWidth <= readerMetrics.clientWidth + 1,
     `${name}: reader dialog content exceeds its scrollport: ${JSON.stringify(readerMetrics)}`);
+  assert.ok(Math.abs(readerMetrics.bounds.x) <= 1 && Math.abs(readerMetrics.bounds.y) <= 1
+    && Math.abs(readerMetrics.bounds.width - readerMetrics.viewport.width) <= 1
+    && Math.abs(readerMetrics.bounds.height - readerMetrics.viewport.height) <= 1,
+  `${name}: reader dialog does not fill the viewport: ${JSON.stringify(readerMetrics)}`);
+  const readerDialog = page.locator("#reader-dialog");
+  const closeButton = readerDialog.locator(".reader-close button");
+  await readerDialog.evaluate((dialog) => { dialog.scrollTop = dialog.scrollHeight; });
+  assert.ok(await readerDialog.evaluate((dialog) => dialog.scrollTop > 0),
+    `${name}: long reader content did not scroll.`);
+  const closeBoundsAfterScroll = await closeButton.boundingBox();
+  assert.ok(closeBoundsAfterScroll && closeBoundsAfterScroll.x >= 0
+    && closeBoundsAfterScroll.x + closeBoundsAfterScroll.width <= readerMetrics.viewport.width
+    && closeBoundsAfterScroll.y >= 0
+    && closeBoundsAfterScroll.y + closeBoundsAfterScroll.height <= readerMetrics.viewport.height,
+  `${name}: floating reader close control is unreachable after scrolling: ${JSON.stringify(closeBoundsAfterScroll)}`);
   assert.equal(await page.evaluate(async (id) => {
     const pageData = await fetch("/api/articles?status=all", { cache: "no-store" }).then((response) => response.json());
     return pageData.items.find((item) => item.id === id)?.readAt;
   }, articleId), null, `${name}: opening the saved title changed read state.`);
-  await page.locator("#reader-dialog .reader-close button").tap();
+  await closeButton.tap();
   await page.reload();
-  await page.locator("#logout").waitFor();
+  await page.locator("#account:not([hidden])").waitFor({ state: "attached" });
   await page.locator('[data-status="unread"]').tap();
   await titleButton.waitFor();
   await titleButton.tap();
@@ -381,7 +405,18 @@ async function runProfile(name, browserType, device) {
     const pageData = await fetch("/api/articles?status=all", { cache: "no-store" }).then((response) => response.json());
     return pageData.items.find((item) => item.id === id)?.readAt;
   }, articleId), null, `${name}: reopening a persisted reader changed read state.`);
-  await page.locator("#reader-dialog .reader-close button").tap();
+  const readerFooter = page.locator("#reader-footer");
+  await readerFooter.waitFor({ state: "visible" });
+  assert.equal(await page.locator("#reader-body").evaluate((body) =>
+    Boolean(body.compareDocumentPosition(document.querySelector("#reader-footer")) & Node.DOCUMENT_POSITION_FOLLOWING)), true,
+  `${name}: reader footer must follow the Markdown article in normal document order.`);
+  const markReadButton = page.locator("#reader-mark-read");
+  await markReadButton.tap();
+  await page.locator("#reader-dialog").waitFor({ state: "hidden" });
+  assert.ok(await page.evaluate(async (id) => {
+    const pageData = await fetch("/api/articles?status=all", { cache: "no-store" }).then((response) => response.json());
+    return pageData.items.find((item) => item.id === id)?.readAt;
+  }, articleId), `${name}: reader footer Mark as read did not persist read state.`);
 
   // Narrow and short landscape layouts must keep the Add and navigation
   // controls reachable by touch without document-level horizontal scrolling.
