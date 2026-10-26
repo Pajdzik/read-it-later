@@ -891,7 +891,13 @@ try {
   await retryClip.popup.reload();
   await retryClip.popup.locator("#capture-copy").waitFor({ state: "visible" });
   assert.equal(await retryClip.popup.locator("#capture-markdown").inputValue(), capturedText, "The captured draft must survive reload.");
+  const retryCopyResponsePromise = retryClip.popup.waitForResponse((response) =>
+    new URL(response.url()).pathname.endsWith("/copy") && response.request().method() === "PUT");
   await retryClip.popup.locator("#add-form button").click();
+  const retryCopyResponse = await retryCopyResponsePromise;
+  assert.equal(retryCopyResponse.status(), 200, "The retried Markdown copy save must complete before the dialog closes.");
+  const retryCopy = await retryCopyResponse.json();
+  assert.match(retryCopy.copy.markdown, /important formatting/);
   await retryClip.popup.locator("#add-dialog").waitFor({ state: "hidden" });
   captureArticles = await retryClip.popup.evaluate(async () => (await (await fetch("/api/articles?status=all")).json()).items);
   capturedArticle = captureArticles.find((item) => item.url === `${sourceBase}/retry`);
