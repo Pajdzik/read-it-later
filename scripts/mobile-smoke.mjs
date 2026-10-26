@@ -436,6 +436,21 @@ async function runProfile(name, browserType, device) {
   await page.getByText("Nothing here yet").waitFor();
   await page.locator("#search").fill("");
   await page.locator('[data-status="unread"]').tap();
+  await page.locator("#search-toggle").tap();
+  await page.locator("#search").waitFor({ state: "visible" });
+  await page.evaluate(() => {
+    const tabs = document.querySelector("#status-tabs");
+    if (!tabs) throw new Error("Status tabs are unavailable.");
+    const emit = (type, clientX) => {
+      const event = new Event(type, { bubbles: true });
+      Object.defineProperty(event, "changedTouches", { value: [{ clientX, clientY: 100 }] });
+      tabs.dispatchEvent(event);
+    };
+    emit("touchstart", 320);
+    emit("touchend", 100);
+  });
+  await page.waitForFunction(() => document.querySelector('[data-status="read"]')?.getAttribute("aria-pressed") === "true");
+  await page.locator("#search").waitFor({ state: "hidden" });
   await page.locator('[data-status="all"]').tap();
   await article.getByRole("button", { name: "Mark unread" }).tap();
   await article.getByRole("button", { name: "Mark read" }).waitFor();
