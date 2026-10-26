@@ -275,6 +275,7 @@ async function verifyReader(base: string, envelope: BackupEnvelope, temporary: s
     await page.locator("#account:not([hidden])").waitFor({ state: "attached" });
     diagnosticStage = "restored reader list filter";
     await page.getByRole("button", { name: "All", exact: true }).click();
+    await page.locator("#search-toggle").click();
     for (let index = 0; index < copies.length; index++) {
       const sample = copies[index];
       const searchTerm = sample.title.split(/\r?\n/).find(line => line.trim())?.trim() || sample.title.trim();
@@ -345,6 +346,7 @@ async function verifyReader(base: string, envelope: BackupEnvelope, temporary: s
       assert.equal(await row.getAttribute("class"), originalReadClass, "Reading or downloading must not change read state.");
       const articleAfter = await (await api(base, `/api/articles/${encodeURIComponent(sample.id)}`)).json();
       assert.equal(articleAfter.article.readAt, articleBefore.article.readAt, "Reading and downloading must preserve readAt in D1.");
+      if (await page.locator("#search").isDisabled()) await page.locator("#search-toggle").click();
       await page.locator("#search").fill("");
     }
     assert.deepEqual(blocked, [], "The restore reader should not request external resources.");

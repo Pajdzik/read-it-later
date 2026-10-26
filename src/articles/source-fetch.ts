@@ -9,8 +9,6 @@ export interface SourceFetchEnv {
 }
 
 const MAX_HTML_BYTES = 512 * 1024;
-const HOP_TIMEOUT_MS = 5_000;
-const TOTAL_TIMEOUT_MS = 20_000;
 const MAX_REDIRECTS = 3;
 
 function fail(code: string, retryable = false, retryAfterSeconds?: number): never {
@@ -157,7 +155,7 @@ export async function fetchSourcePage(url: string, env: SourceFetchEnv): Promise
   const fetcher = env.ARTICLE_FETCHER;
   if (!fetcher) fail("capture_paused");
 
-  const deadline = Date.now() + TOTAL_TIMEOUT_MS;
+  const deadline = Date.now() + SOURCE_TOTAL_TIMEOUT_MS;
   const visited = new Set<string>();
   let target = validateTarget(url, env);
   for (let redirects = 0; ; redirects++) {
@@ -168,7 +166,9 @@ export async function fetchSourcePage(url: string, env: SourceFetchEnv): Promise
     if (remaining <= 0) fail("timeout", true);
 
     const controller = new AbortController();
-    const hopMs = Math.min(HOP_TIMEOUT_MS, remaining);
+    // The gateway enforces its network deadline after readiness; only the first
+    // hop can spend an additional bounded allowance waking the Container.
+    const hopMs = Math.min(SOURCE_HOP_TIMEOUT_MS + (redirects === 0 ? CONTAINER_STARTUP_TIMEOUT_MS : 0), remaining);
     let activeResponse: Response | undefined;
     let timeoutId: ReturnType<typeof setTimeout>;
     const hopTimeout = new Promise<never>((_, reject) => {
@@ -212,6 +212,12 @@ export async function fetchSourcePage(url: string, env: SourceFetchEnv): Promise
       if (target.protocol === "https:" && next.protocol === "http:") fail("redirect_downgrade");
       target = next;
       continue;
+    }
+    const gatewayError = response.headers.get(FETCH_FAILURE_HEADER);
+    if (gatewayError && isFetchErrorCode(gatewayError)) {
+      await response.body?.cancel().catch(() => undefined);
+      clearTimeout(timeoutId!);
+      fail(gatewayError, ["dns_error", "timeout", "network_error"].includes(gatewayError));
     }
     if (response.status < 200 || response.status >= 300) {
       await response.body?.cancel().catch(() => undefined);

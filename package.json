@@ -19,6 +19,13 @@
     "dev": "pnpm build:web && CLOUDFLARE_LOAD_DEV_VARS_FROM_DOT_ENV=false wrangler dev",
     "typecheck": "tsc --noEmit && tsc --noEmit -p web/tsconfig.json && tsc --noEmit -p web/tsconfig.sw.json && tsc --noEmit -p public/tsconfig.json && tsc --noEmit -p tsconfig.node.json && tsc --noEmit -p extension/tsconfig.json && tsc --noEmit -p capture/tsconfig.json",
     "build": "pnpm build:web && pnpm build:prototype && CLOUDFLARE_LOAD_DEV_VARS_FROM_DOT_ENV=false wrangler deploy --dry-run --env=\"\" --outdir dist/worker",
+    "build:fetch-probe": "CLOUDFLARE_LOAD_DEV_VARS_FROM_DOT_ENV=false wrangler deploy --dry-run --outdir .wrangler/fetch-probe-dry-run --config probes/edge-pinned-fetch/wrangler.jsonc",
+    "test:fetcher": "NODE_ENV=test node --import tsx --test fetcher/test/*.test.ts",
+    "test:capture-deployment": "node --import tsx --test scripts/capture-deployment.test.ts",
+    "capture:deploy": "tsx scripts/deploy-capture-stack.ts",
+    "build:fetcher": "esbuild fetcher/server.ts --bundle --platform=node --format=esm --target=node22 --outfile=fetcher/dist/server.mjs",
+    "build:fetcher-dry-run": "pnpm build:fetcher && CLOUDFLARE_LOAD_DEV_VARS_FROM_DOT_ENV=false wrangler deploy --dry-run --containers-rollout=none --env=\"\" --outdir .wrangler/fetcher-dry-run --config fetcher/wrangler.jsonc",
+    "test:fetcher:container": "pnpm build:fetcher && node scripts/fetcher-container-smoke.mjs",
     "test": "CLOUDFLARE_LOAD_DEV_VARS_FROM_DOT_ENV=false vitest run",
     "db:migrate:local": "CLOUDFLARE_LOAD_DEV_VARS_FROM_DOT_ENV=false wrangler d1 migrations apply read-later --local",
     "db:migrate:remote": "CLOUDFLARE_LOAD_DEV_VARS_FROM_DOT_ENV=false wrangler d1 migrations apply read-later --remote",
@@ -50,6 +57,7 @@
     "@types/markdown-it": "14.2.0",
     "@types/node": "22.20.4",
     "esbuild": "0.28.1",
+    "fflate": "0.8.3",
     "playwright": "1.62.1",
     "sharp": "0.35.4",
     "tsx": "4.23.15",
@@ -63,7 +71,8 @@
     "dompurify": "3.4.16",
     "ipaddr.js": "2.5.0",
     "linkedom": "0.18.13",
-    "markdown-it": "15.0.2",
-    "yaml": "2.8.1"
+    "markdown-it": "15.0.3",
+    "yaml": "2.8.3",
+    "ipaddr.js": "2.5.0"
   }
 }

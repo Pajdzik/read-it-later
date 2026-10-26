@@ -1,4 +1,5 @@
 import { chromium } from "playwright";
+import { expect } from "playwright/test";
 import { spawn } from "node:child_process";
 import { mkdtemp, readFile, rm } from "node:fs/promises";
 import os from "node:os";
@@ -107,10 +108,19 @@ try {
     viewport: { width: 1440, height: 1000 },
   });
   const page = await context.newPage();
+  const waitForList = async (opener) => {
+    await expect(page).toHaveURL(base + "/");
+    // List restoration scrolls before returning focus to the opener.
+    await expect(opener).toBeFocused();
+  };
+  const closeReader = async (opener) => {
+    await page.locator("#reader-dialog").getByRole("button", { name: "Close saved copy" }).click();
+    await waitForList(opener);
+  };
   const errors = [];
   page.on("pageerror", (error) => errors.push(error.message));
-  await page.route("**/api/session", (route) =>
-    route.fulfill({
+  await page.route("**/api/session", async (route) =>
+    await route.fulfill({
       status: 503,
       contentType: "application/json",
       body: JSON.stringify({ error: { message: "Simulated session outage" } }),
@@ -125,7 +135,7 @@ try {
   );
   assert.equal(await page.locator("#library-sign-in").isHidden(), true);
   await page.unroute("**/api/session");
-  await page.route("**/api/session", (route) => route.fulfill({
+  await page.route("**/api/session", async (route) => await route.fulfill({
     status: 200,
     contentType: "application/json",
     body: JSON.stringify({ authenticated: false }),
@@ -135,7 +145,7 @@ try {
   await signIn.waitFor({ state: "visible" });
   assert.equal(await page.locator("#add-dialog").evaluate((dialog) => dialog.open), false,
     "A fresh browser must be able to sign in without opening Add article.");
-  await page.route("**/auth/github", (route) => route.fulfill({
+  await page.route("**/auth/github", async (route) => await route.fulfill({
     status: 200, contentType: "text/plain", body: "Sign-in reached",
   }));
   await signIn.click();
@@ -167,6 +177,10 @@ try {
     exact: true,
   });
   await title.waitFor();
+  const createdArticleId = await title.getAttribute("data-article-id");
+  assert.match(createdArticleId || "", /^[a-z0-9]{8}$/, "New article links must expose an eight-character ID.");
+  assert.equal(await title.getAttribute("href"), `/read/${createdArticleId}/browser-smoke-article`,
+    "Article titles should link to the canonical readable route.");
   const article = page
     .locator(".article")
     .filter({ hasText: "Browser smoke article" });
@@ -283,7 +297,7 @@ try {
     "",
     "## inside",
     "",
-    "Long text: " + "long-text-".repeat(80),
+    ...Array.from({ length: 8 }, (_, index) => `Long section ${index + 1}: ` + "long-text-".repeat(80)),
   ].join("\n");
   await markdown.fill(preservedMarkdown);
   page.once("dialog", (dialog) => dialog.accept());
@@ -400,6 +414,7 @@ try {
   await page.setViewportSize({ width: 390, height: 844 });
   await assertActionRow();
   await page.screenshot({ path: "/tmp/potem-article-actions-mobile.png" });
+  await page.evaluate((id) => localStorage.setItem(`later-reading-position:${encodeURIComponent(id)}`, JSON.stringify({ revision: "replaced-copy-revision", block: 1, fraction: 0, scrollTop: 400 })), entryFixture.id);
   await entryLead.click();
   await reader.getByRole("heading", { name: "Reader entry smoke" }).waitFor();
   await reader.locator("#reader-body").getByText("Rendered from the saved copy.").waitFor();
@@ -514,8 +529,32 @@ try {
   });
   const originalUrl = await article.locator(".original-link").getAttribute("href");
   await page.route(originalUrl, (route) => route.abort());
+  await page.evaluate(() => {
+    const spacer = document.createElement("div");
+    spacer.id = "reader-smoke-scroll-spacer";
+    spacer.style.height = "1600px";
+    document.body.append(spacer);
+    window.scrollTo(0, 160);
+  });
+  await page.waitForFunction(() => window.scrollY > 0);
+  await title.scrollIntoViewIfNeeded();
+  const requestedBackgroundScroll = await page.evaluate(() => window.scrollY);
+  assert.ok(requestedBackgroundScroll > 0, "Background-scroll coverage requires a nonzero page position.");
+  await title.evaluate((link) => link.addEventListener("click", () => {
+    window.__readerClickStartScroll = window.scrollY;
+  }, { capture: true, once: true }));
   await title.click();
+  const backgroundScroll = await page.evaluate(() => window.__readerClickStartScroll);
+  assert.ok(backgroundScroll > 0, "The clicked reader link should remain at a nonzero background position.");
   await reader.getByRole("heading", { name: "Browser smoke article" }).waitFor();
+  assert.equal(await page.evaluate(() => document.activeElement?.id), "reader-title",
+    "Opening the reader should focus its article title.");
+  const readerBounds = await reader.boundingBox();
+  assert.ok(readerBounds && Math.abs(readerBounds.x) <= 1 && Math.abs(readerBounds.y) <= 1 &&
+    Math.abs(readerBounds.width - 1440) <= 1 && Math.abs(readerBounds.height - 1000) <= 1,
+    `Desktop reader should cover the viewport: ${JSON.stringify(readerBounds)}.`);
+  assert.equal(await page.evaluate(() => window.scrollY), backgroundScroll,
+    "Opening the reader should preserve the background page position.");
   const readerBody = reader.locator("#reader-body");
   await readerBody.getByRole("heading", { name: "Preserved copy — Ω" }).waitFor();
   await readerBody.getByRole("link", { name: "Relative" }).waitFor();
@@ -544,6 +583,40 @@ try {
   assert.deepEqual(activeMarkup, [], "Sanitized reader DOM must contain only allowed attributes and safe links.");
   assert.match(await readerBody.textContent(), /<img src=/, "Raw HTML should display as literal text.");
   assert.match(await readerBody.textContent(), /Image reference: Remote marker/);
+  const aboutCopy = reader.locator("details");
+  const aboutSummary = aboutCopy.locator("summary");
+  assert.equal(await aboutSummary.innerText(), "About this copy");
+  assert.equal(await aboutCopy.evaluate((details) => details.open), false,
+    "About this copy should start collapsed for a fresh reader open.");
+  await aboutSummary.click();
+  await aboutCopy.getByText(/Captured .*captured or pasted Markdown/).waitFor();
+  await aboutCopy.locator("#reader-image-note").getByText(/Image references are shown as text/).waitFor();
+  await aboutSummary.click();
+  await reader.evaluate((dialog) => { dialog.scrollTop = 700; });
+  await aboutSummary.click();
+  const expandedAboutBlock = await reader.evaluate((dialog) => {
+    const toolbarBottom = dialog.querySelector(".reader-toolbar").getBoundingClientRect().bottom;
+    return [...dialog.querySelector("#reader-body").children].findIndex((block) => block.getBoundingClientRect().bottom > toolbarBottom);
+  });
+  await closeReader(title);
+  await title.click();
+  await reader.getByRole("heading", { name: "Browser smoke article" }).waitFor();
+  await page.evaluate(() => new Promise((resolve) => requestAnimationFrame(() => requestAnimationFrame(resolve))));
+  const collapsedAboutBlock = await reader.evaluate((dialog) => {
+    const toolbarBottom = dialog.querySelector(".reader-toolbar").getBoundingClientRect().bottom;
+    return [...dialog.querySelector("#reader-body").children].findIndex((block) => block.getBoundingClientRect().bottom > toolbarBottom);
+  });
+  assert.equal(collapsedAboutBlock, expandedAboutBlock,
+    "Reopening after expanding About this copy should keep the same article block in view.");
+  assert.equal(await reader.locator("#reader-about").evaluate((details) => details.open), false,
+    "About this copy should collapse while preserving the article position.");
+  const alignedBlocks = await Promise.all([
+    reader.locator("#reader-title"), aboutCopy, readerBody,
+  ].map((element) => element.boundingBox()));
+  assert.ok(alignedBlocks.every(Boolean), "Reader title, disclosure, and copy should all be visible.");
+  assert.ok(Math.max(...alignedBlocks.map((bounds) => bounds.x)) - Math.min(...alignedBlocks.map((bounds) => bounds.x)) <= 2 &&
+    Math.max(...alignedBlocks.map((bounds) => bounds.x + bounds.width)) - Math.min(...alignedBlocks.map((bounds) => bounds.x + bounds.width)) <= 2,
+    `Reader blocks should share a column: ${JSON.stringify(alignedBlocks)}.`);
   const validLink = readerBody.getByRole("link", { name: "valid HTTPS link" });
   assert.equal(await validLink.getAttribute("href"), "https://example.net/read");
   assert.equal(imageMarkerRequests, 0, "Markdown images and hostile HTML must not trigger network requests.");
@@ -551,8 +624,82 @@ try {
   await page.screenshot({ path: "/tmp/potem-a03-desktop.png" });
   await page.setViewportSize({ width: 390, height: 844 });
   assert.equal(await page.evaluate(() => document.documentElement.scrollWidth > innerWidth), false, "Reader must fit a 390px viewport.");
+  const phoneReaderBounds = await reader.boundingBox();
+  assert.ok(phoneReaderBounds && Math.abs(phoneReaderBounds.x) <= 1 && Math.abs(phoneReaderBounds.y) <= 1 &&
+    Math.abs(phoneReaderBounds.width - 390) <= 1 && Math.abs(phoneReaderBounds.height - 844) <= 1,
+    `Phone reader should cover the viewport: ${JSON.stringify(phoneReaderBounds)}.`);
+  assert.ok(await reader.evaluate((dialog) => dialog.scrollWidth <= dialog.clientWidth + 1),
+    "Wide copy must not cause horizontal overflow in the reader dialog.");
   await page.screenshot({ path: "/tmp/potem-a03-mobile.png" });
   await page.setViewportSize({ width: 1440, height: 1000 });
+  await reader.evaluate((dialog) => { dialog.scrollTop = dialog.scrollHeight; });
+  await expect.poll(() => reader.evaluate((dialog) => dialog.scrollTop), { message: "Long reader content should scroll inside the dialog." }).toBeGreaterThan(0);
+  await reader.evaluate((dialog) => { dialog.dispatchEvent(new Event("scroll")); window.dispatchEvent(new Event("pagehide")); });
+  const pagehidePosition = await page.evaluate((id) => JSON.parse(localStorage.getItem(`later-reading-position:${encodeURIComponent(id)}`)), articleId);
+  assert.ok(pagehidePosition?.scrollTop > 0, "pagehide should flush a pending reader position synchronously.");
+  await page.mouse.move(700, 500);
+  await page.mouse.wheel(0, 300);
+  await page.waitForTimeout(100);
+  assert.equal(await page.evaluate(() => window.scrollY), backgroundScroll,
+    "Wheel input at the bottom of the reader must not chain to the background page.");
+  const backBounds = await reader.locator(".reader-close button").boundingBox();
+  assert.ok(backBounds && backBounds.width >= 44 && backBounds.height >= 44 && backBounds.y >= 0 && backBounds.y + backBounds.height <= 1000,
+    `Reader Back control should remain reachable after a long scroll: ${JSON.stringify(backBounds)}.`);
+  await reader.evaluate((dialog) => { dialog.scrollTop = 600; window.dispatchEvent(new Event("pagehide")); });
+  await closeReader(title);
+  assert.equal(await page.evaluate(() => window.scrollY), backgroundScroll,
+    "Closing the reader should restore the background page position.");
+  assert.equal(await page.evaluate(() => document.activeElement?.textContent?.trim()), "Browser smoke article",
+    "Closing the reader should return focus to the article that opened it.");
+  await page.mouse.move(700, 500);
+  await page.mouse.wheel(0, 120);
+  await page.waitForTimeout(100);
+  assert.ok(await page.evaluate((before) => window.scrollY > before, backgroundScroll),
+    "The background page should scroll normally again after the reader closes.");
+  const positionStorage = await page.evaluate((id) => {
+    const key = `later-reading-position:${encodeURIComponent(id)}`;
+    return { key, raw: localStorage.getItem(key) };
+  }, articleId);
+  assert.ok(positionStorage.raw, "Closing a scrolled reader should synchronously persist its position.");
+  const savedPosition = JSON.parse(positionStorage.raw);
+  await page.evaluate((scrollTop) => {
+    window.scrollTo(0, scrollTop);
+    document.querySelector("#reader-smoke-scroll-spacer")?.remove();
+  }, backgroundScroll);
+  await title.click();
+  await reader.getByRole("heading", { name: "Browser smoke article" }).waitFor();
+  await page.evaluate(() => new Promise((resolve) => requestAnimationFrame(() => requestAnimationFrame(resolve))));
+  const restoredSameLayout = await reader.evaluate((dialog) => dialog.scrollTop);
+  assert.equal(typeof savedPosition.revision, "string");
+  assert.ok(Number.isInteger(savedPosition.block) && savedPosition.block >= 0);
+  assert.ok(Number.isFinite(savedPosition.fraction) && savedPosition.fraction >= -100 && savedPosition.fraction <= 100);
+  assert.ok(Number.isFinite(savedPosition.scrollTop) && savedPosition.scrollTop > 0);
+  assert.doesNotMatch(positionStorage.raw, /Browser smoke article|example\.com|Preserved copy/,
+    "Position storage must not contain article titles, URLs, or copy text.");
+  assert.equal(await page.evaluate((id) => localStorage.getItem(`later-reading-position:${encodeURIComponent(id)}`), entryFixture.id), entryPositionBaseline,
+    "Reading another article must not overwrite its position record.");
+  assert.ok(Math.abs(restoredSameLayout - savedPosition.scrollTop) <= 2,
+    `Reopen should restore same-layout pixels: expected ${savedPosition.scrollTop}, got ${restoredSameLayout}.`);
+  assert.equal(await reader.locator("details").evaluate((details) => details.open), false,
+    "About this copy should collapse on each fresh reader open.");
+  await page.evaluate(() => window.dispatchEvent(new Event("pagehide")));
+  assert.equal(await page.evaluate((id) => JSON.parse(localStorage.getItem(`later-reading-position:${encodeURIComponent(id)}`)).scrollTop, articleId), savedPosition.scrollTop,
+    "pagehide should preserve the current restored position.");
+  await page.reload();
+  await title.waitFor();
+  await reader.getByRole("heading", { name: "Browser smoke article" }).waitFor();
+  assert.equal(new URL(page.url()).pathname, await title.getAttribute("href"),
+    "Reloading a canonical article URL should reopen that saved copy.");
+  await page.evaluate(() => new Promise((resolve) => requestAnimationFrame(() => requestAnimationFrame(resolve))));
+  const restoredAfterReload = await reader.evaluate((dialog) => dialog.scrollTop);
+  const reloadStoredPosition = await page.evaluate((id) => JSON.parse(localStorage.getItem(`later-reading-position:${encodeURIComponent(id)}`)), articleId);
+  assert.ok(Math.abs(restoredAfterReload - savedPosition.scrollTop) <= 2,
+    `Reload should restore same-layout pixels: expected ${savedPosition.scrollTop}, got ${restoredAfterReload}; record ${JSON.stringify(reloadStoredPosition)}, viewport ${await page.evaluate(() => innerWidth)}.`);
+  assert.equal(await page.evaluate(async (id) => (await (await fetch(`/api/articles/${id}`)).json()).article.readAt, articleId), readStateBefore,
+    "Restoring a saved position must not change read state.");
+  await reader.evaluate((dialog) => { dialog.scrollTop = 0; });
+  await expect.poll(() => page.evaluate((id) => JSON.parse(localStorage.getItem(`later-reading-position:${encodeURIComponent(id)}`))?.scrollTop, articleId), { message: "Scrolling to the top should persist a zero position." }).toBe(0);
+  // Reload discarded the in-memory opener; this close only restores the URL.
   await reader.getByRole("button", { name: "Close saved copy" }).click();
   await page.waitForFunction(() => !location.pathname.startsWith("/read/"));
   assert.equal(await reader.locator("#reader-body").textContent(), "", "Closing the reader must discard its private DOM.");
@@ -706,8 +853,9 @@ try {
     .getByRole("button", { name: "Close", exact: true })
     .click();
   await page.unroute("**/api/articles");
-  await page.route("**/api/articles?*", (route) =>
-    route.fulfill({
+  await page.locator("#search-toggle").click();
+  await page.route("**/api/articles?*", async (route) =>
+    await route.fulfill({
       status: 503,
       contentType: "application/json",
       body: JSON.stringify({ error: { message: "Simulated list outage" } }),
@@ -983,7 +1131,13 @@ try {
   await retryClip.popup.reload();
   await retryClip.popup.locator("#capture-copy").waitFor({ state: "visible" });
   assert.equal(await retryClip.popup.locator("#capture-markdown").inputValue(), capturedText, "The captured draft must survive reload.");
+  const retryCopyResponsePromise = retryClip.popup.waitForResponse((response) =>
+    new URL(response.url()).pathname.endsWith("/copy") && response.request().method() === "PUT");
   await retryClip.popup.locator("#add-form button").click();
+  const retryCopyResponse = await retryCopyResponsePromise;
+  assert.equal(retryCopyResponse.status(), 200, "The retried Markdown copy save must complete before the dialog closes.");
+  const retryCopy = await retryCopyResponse.json();
+  assert.match(retryCopy.copy.markdown, /important formatting/);
   await retryClip.popup.locator("#add-dialog").waitFor({ state: "hidden" });
   captureArticles = await retryClip.popup.evaluate(async () => (await (await fetch("/api/articles?status=all")).json()).items);
   capturedArticle = captureArticles.find((item) => item.url === `${sourceBase}/retry`);
@@ -1055,6 +1209,17 @@ try {
     if (failedItem) failedItem.extraction = { state: "failed", attempts: 3, errorCode: "source_unavailable", nextAttemptAt: null, paused: false };
     await route.fulfill({ response, body: JSON.stringify(data) });
   });
+  for (const fixture of [asyncFixture, failedFixture]) {
+    await urlPage.route(`**/api/articles/${fixture.id}`, async (route) => {
+      if (route.request().method() !== "GET") return route.continue();
+      const response = await route.fetch();
+      const data = await response.json();
+      data.article.extraction = fixture.id === asyncFixture.id
+        ? { state: asyncState, attempts: 0, errorCode: null, nextAttemptAt: null, paused: false }
+        : { state: "failed", attempts: 3, errorCode: "source_unavailable", nextAttemptAt: null, paused: false };
+      await route.fulfill({ response, body: JSON.stringify(data) });
+    });
+  }
   await urlPage.route(`**/api/articles/${asyncFixture.id}/copy`, async (route) => {
     if (route.request().method() === "GET") {
       await route.fulfill({ contentType: "application/json", body: JSON.stringify({ copy: asyncState === "ready" ? asyncCopy : null }) });

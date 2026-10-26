@@ -1,0 +1,63 @@
+{
+  "runtime": "deployed Cloudflare Worker",
+  "recordedAt": "2026-10-20T07:06:14.098Z",
+  "version": "218017a8-a56b-4a5a-983b-02420b4a3bcb",
+  "destination": "fixed public GitHub endpoint",
+  "records": [
+    {
+      "sample": 1,
+      "status": 200,
+      "outcomes": {
+        "tls_ip_expected_github": {
+          "outcome": "malformed_or_empty_response"
+        },
+        "tls_ip_expected_mismatch": {
+          "outcome": "malformed_or_empty_response"
+        },
+        "tls_hostname_control": {
+          "outcome": "tls_http_response"
+        },
+        "http_ip_port80_control": {
+          "outcome": "http_status_301"
+        }
+      }
+    },
+    {
+      "sample": 2,
+      "status": 200,
+      "outcomes": {
+        "tls_ip_expected_github": {
+          "outcome": "malformed_or_empty_response"
+        },
+        "tls_ip_expected_mismatch": {
+          "outcome": "malformed_or_empty_response"
+        },
+        "tls_hostname_control": {
+          "outcome": "tls_http_response"
+        },
+        "http_ip_port80_control": {
+          "outcome": "http_status_301"
+        }
+      }
+    },
+    {
+      "sample": 3,
+      "status": 200,
+      "outcomes": {
+        "tls_ip_expected_github": {
+          "outcome": "malformed_or_empty_response"
+        },
+        "tls_ip_expected_mismatch": {
+          "outcome": "malformed_or_empty_response"
+        },
+        "tls_hostname_control": {
+          "outcome": "tls_http_response"
+        },
+        "http_ip_port80_control": {
+          "outcome": "http_status_301"
+        }
+      }
+    }
+  ],
+  "conclusion": "Pinned-IP TLS failed before an HTTP response for both expected and mismatched hostname. Hostname TLS and pinned HTTP controls succeeded. This does not establish working SNI or certificate-hostname verification for pinned TLS. No production app, database, credentials, or arbitrary URL input."
+}

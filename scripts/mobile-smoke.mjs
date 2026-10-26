@@ -1,4 +1,5 @@
 import { chromium, webkit, devices } from "playwright";
+import { expect } from "playwright/test";
 import { spawn } from "node:child_process";
 import { mkdtemp, mkdir, rm, writeFile } from "node:fs/promises";
 import os from "node:os";
@@ -239,6 +240,9 @@ async function runProfile(name, browserType, device) {
   const article = page.locator(".article").filter({ hasText: shareTitle });
   await article.locator(".extraction-badge").getByText("Capture paused").waitFor();
   const shareArticleId = await article.getAttribute("data-id");
+  assert.match(shareArticleId || "", /^[a-z0-9]{8}$/, `${name}: newly saved article IDs should be short and URL-safe.`);
+  assert.equal(await titleButton.getAttribute("href"), `/read/${shareArticleId}/${shareTitle.toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-|-$/g, "")}`,
+    `${name}: article title should link to its canonical readable path.`);
   const persistedIntent = await page.evaluate(async (id) => (await (await fetch(`/api/articles/${id}`)).json()).article, shareArticleId);
   assert.equal(persistedIntent.extraction.state, "queued", `${name}: capture intent was not persisted with the article.`);
   assert.equal(persistedIntent.extraction.paused, true, `${name}: disabled processor state was not exposed.`);
@@ -248,19 +252,98 @@ async function runProfile(name, browserType, device) {
   await titleButton.tap();
   const pendingReader = page.locator("#reader-dialog");
   await pendingReader.locator("#reader-pending").waitFor({ state: "visible" });
+  assert.equal(new URL(page.url()).pathname, await titleButton.getAttribute("href"),
+    `${name}: opening a saved link should navigate to its canonical article path.`);
+  const pendingReaderBounds = await pendingReader.boundingBox();
+  assert.ok(pendingReaderBounds && Math.abs(pendingReaderBounds.x) <= 1 && Math.abs(pendingReaderBounds.y) <= 1 &&
+    Math.abs(pendingReaderBounds.width - page.viewportSize().width) <= 1 &&
+    Math.abs(pendingReaderBounds.height - page.viewportSize().height) <= 1,
+    `${name}: pending reader should cover the phone viewport: ${JSON.stringify(pendingReaderBounds)}.`);
   await pendingReader.getByText(/Capture is paused/).waitFor();
   assert.equal(await pendingReader.locator("#reader-original").getAttribute("href"), shareUrl,
     `${name}: pending reader should preserve the source link.`);
   await pendingReader.getByRole("button", { name: "Paste or upload Markdown" }).tap();
   const shareDetail = page.locator("#detail-content");
   const markdownDraft = `# ${shareTitle}\n\nManually saved while the background processor is paused. **Important formatting** stays readable.\n\n| Fixture | State |\n| --- | --- |\n| Mobile | paused |`;
-  await shareDetail.getByRole("textbox", { name: "Markdown copy" }).fill(markdownDraft);
+  const shareMarkdown = `${markdownDraft}\n\n${Array.from({ length: 8 }, (_, index) => `Long section ${index + 1}: ${"mobile-reader-scroll-".repeat(28)}`).join("\n\n")}`;
+  await shareDetail.getByRole("textbox", { name: "Markdown copy" }).fill(shareMarkdown);
+  const shareMarkdownSaveResponse = page.waitForResponse((response) =>
+    new URL(response.url()).pathname === `/api/articles/${encodeURIComponent(shareArticleId)}/copy` &&
+    response.request().method() === "PUT");
   await shareDetail.getByRole("button", { name: "Save Markdown copy" }).tap();
+  assert.equal((await shareMarkdownSaveResponse).status(), 200,
+    `${name}: manually saving Markdown did not complete.`);
+  await shareDetail.getByText(new RegExp(`${new TextEncoder().encode(shareMarkdown).byteLength.toLocaleString()} UTF-8 bytes`)).waitFor();
   await shareDetail.getByText(/pasted Markdown/).waitFor();
-  await shareDetail.getByRole("button", { name: "Read saved copy" }).tap();
-  await page.locator("#reader-dialog #reader-body").getByRole("heading", { name: shareTitle }).waitFor();
-  assert.equal(await page.locator("#reader-dialog #reader-body table tbody tr").count(), 1,
+  const readCopyAction = shareDetail.getByRole("button", { name: "Read saved copy" });
+  await readCopyAction.tap();
+  const readyReader = page.locator("#reader-dialog");
+  await readyReader.locator("#reader-body").getByRole("heading", { name: shareTitle }).waitFor();
+  assert.equal(await readyReader.locator("#reader-body table tbody tr").count(), 1,
     `${name}: manually persisted Markdown should remain readable while extraction is paused.`);
+  assert.equal(await page.evaluate(() => document.activeElement?.id), "reader-title",
+    `${name}: opening a copy should focus its title.`);
+  const readyReaderBounds = await readyReader.boundingBox();
+  assert.ok(readyReaderBounds && Math.abs(readyReaderBounds.x) <= 1 && Math.abs(readyReaderBounds.y) <= 1 &&
+    Math.abs(readyReaderBounds.width - page.viewportSize().width) <= 1 &&
+    Math.abs(readyReaderBounds.height - page.viewportSize().height) <= 1,
+    `${name}: ready reader should cover the phone viewport: ${JSON.stringify(readyReaderBounds)}.`);
+  assert.equal(await readyReader.evaluate((dialog) => dialog.scrollWidth <= dialog.clientWidth + 1), true,
+    `${name}: wide copy must not overflow the reader dialog horizontally.`);
+  const aboutCopy = readyReader.locator("details");
+  assert.equal(await aboutCopy.locator("summary").innerText(), "About this copy");
+  assert.equal(await aboutCopy.evaluate((details) => details.open), false,
+    `${name}: About this copy should start collapsed.`);
+  await aboutCopy.locator("summary").tap();
+  await aboutCopy.getByText(/Captured .*pasted Markdown/).waitFor();
+  await aboutCopy.locator("#reader-image-note").getByText(/Image references are shown as text/).waitFor();
+  await aboutCopy.locator("summary").tap();
+  await page.screenshot({ path: screenshot("portrait-reader-dark") });
+  const sharedEdges = await Promise.all([
+    readyReader.locator("#reader-title"), aboutCopy, readyReader.locator("#reader-body"),
+  ].map((element) => element.boundingBox()));
+  assert.ok(sharedEdges.every(Boolean), `${name}: reader content blocks should be visible.`);
+  assert.ok(Math.max(...sharedEdges.map((bounds) => bounds.x)) - Math.min(...sharedEdges.map((bounds) => bounds.x)) <= 2 &&
+    Math.max(...sharedEdges.map((bounds) => bounds.x + bounds.width)) - Math.min(...sharedEdges.map((bounds) => bounds.x + bounds.width)) <= 2,
+    `${name}: reader blocks should share a column: ${JSON.stringify(sharedEdges)}.`);
+  await readyReader.evaluate((dialog) => { dialog.scrollTop = dialog.scrollHeight; });
+  const readerBack = readyReader.locator(".reader-close button");
+  const readerBackBounds = await readerBack.boundingBox();
+  assert.ok(readerBackBounds && readerBackBounds.width >= 44 && readerBackBounds.height >= 44 &&
+    readerBackBounds.y >= 0 && readerBackBounds.y + readerBackBounds.height <= page.viewportSize().height,
+    `${name}: Back control should remain reachable after long scrolling: ${JSON.stringify(readerBackBounds)}.`);
+  assert.ok(await readyReader.evaluate((dialog) => dialog.scrollTop > 0), `${name}: long copy should scroll within the reader.`);
+  await page.locator("#reader-dialog .reader-close button").tap();
+  await page.waitForFunction(() => document.activeElement?.textContent?.trim() === "Read saved copy" &&
+    document.activeElement.closest("#detail-content") !== null, null, { timeout: 3000 });
+  assert.equal(await readCopyAction.evaluate((button) => button === document.activeElement), true,
+    `${name}: closing the reader should restore focus to the editor action that opened it: ${JSON.stringify(await page.evaluate(() => ({
+      url: location.href,
+      readerOpen: document.querySelector("#reader-dialog")?.open,
+      detailOpen: document.querySelector("#detail-dialog")?.open,
+      activeElement: document.activeElement?.outerHTML?.slice(0, 300),
+    })))}; opener: ${JSON.stringify(await readCopyAction.evaluate((button) => ({
+      connected: button.isConnected,
+      detailContains: document.querySelector("#detail-dialog")?.contains(button),
+      hidden: button.hidden,
+    })))}.`);
+  const mobilePosition = await page.evaluate((id) => JSON.parse(localStorage.getItem(`later-reading-position:${encodeURIComponent(id)}`)), shareArticleId);
+  assert.ok(mobilePosition && mobilePosition.block >= 0, `${name}: mobile scroll should save a stable Markdown block.`);
+  const beforeResize = page.viewportSize();
+  await page.setViewportSize({ width: Math.max(320, beforeResize.width - 32), height: beforeResize.height });
+  await readCopyAction.tap();
+  await readyReader.locator("#reader-body").getByRole("heading", { name: shareTitle }).waitFor();
+  await page.evaluate(() => new Promise((resolve) => requestAnimationFrame(() => requestAnimationFrame(resolve))));
+  assert.ok(await readyReader.evaluate((dialog) => dialog.scrollTop > 0), `${name}: reopening should restore the saved reader position: ${JSON.stringify({ mobilePosition, viewport: page.viewportSize() })}.`);
+  const restoredMobileBlock = await readyReader.evaluate((dialog) => {
+    const toolbarBottom = dialog.querySelector(".reader-toolbar").getBoundingClientRect().bottom;
+    return [...dialog.querySelector("#reader-body").children].findIndex((block) => block.getBoundingClientRect().bottom > toolbarBottom);
+  });
+  assert.equal(restoredMobileBlock, mobilePosition.block,
+    `${name}: viewport width change should keep the same paragraph in view.`);
+  await page.setViewportSize(beforeResize);
+  assert.equal(await readyReader.locator("details").evaluate((details) => details.open), false,
+    `${name}: reopening should collapse About this copy.`);
   await page.locator("#reader-dialog .reader-close button").tap();
   await page.waitForFunction(() => !location.pathname.startsWith("/read/"));
   await page.locator("#detail-dialog .dialog-close button").tap();
@@ -336,6 +419,21 @@ async function runProfile(name, browserType, device) {
   await page.getByText("Nothing here yet").waitFor();
   await page.locator("#search").fill("");
   await page.locator('[data-status="unread"]').tap();
+  await page.locator("#search-toggle").tap();
+  await page.locator("#search").waitFor({ state: "visible" });
+  await page.evaluate(() => {
+    const tabs = document.querySelector("#status-tabs");
+    if (!tabs) throw new Error("Status tabs are unavailable.");
+    const emit = (type, clientX) => {
+      const event = new Event(type, { bubbles: true });
+      Object.defineProperty(event, "changedTouches", { value: [{ clientX, clientY: 100 }] });
+      tabs.dispatchEvent(event);
+    };
+    emit("touchstart", 320);
+    emit("touchend", 100);
+  });
+  await page.waitForFunction(() => document.querySelector('[data-status="read"]')?.getAttribute("aria-pressed") === "true");
+  await page.locator("#search").waitFor({ state: "hidden" });
   await page.locator('[data-status="all"]').tap();
   await article.getByRole("button", { name: "Mark unread" }).tap();
   await article.getByRole("button", { name: "Mark read" }).waitFor();
@@ -356,8 +454,17 @@ async function runProfile(name, browserType, device) {
     `${name}: detail dialog opened with its close button focused.`);
   await detail.getByRole("textbox", { name: "Markdown copy" }).fill(`# Wide reader check\n\n${"word-without-breaks-".repeat(24)}\n\n${"A long reader paragraph keeps the document scrollable on a phone. It stays unread until the reader action is chosen. ".repeat(36)}\n\n| left | ${"column-header-".repeat(8)} |\n| --- | --- |\n| text | ${"wide-cell-".repeat(24)} |`);
   page.once("dialog", (dialog) => dialog.accept());
+  const updatedCopyResponsePromise = page.waitForResponse((response) =>
+    new URL(response.url()).pathname === `/api/articles/${encodeURIComponent(articleId)}/copy` &&
+    response.request().method() === "PUT");
   await detail.getByRole("button", { name: "Save Markdown copy" }).tap();
+  const updatedCopyResponse = await updatedCopyResponsePromise;
+  assert.equal(updatedCopyResponse.status(), 200, `${name}: replacing the saved Markdown copy did not complete.`);
+  const updatedCopy = await updatedCopyResponse.json();
+  assert.match(updatedCopy.copy.markdown, /^# Wide reader check/m,
+    `${name}: replacement Markdown was not persisted before opening the reader.`);
   await detail.getByText(/pasted Markdown/).waitFor();
+  await detail.getByRole("button", { name: "Read saved copy" }).waitFor({ state: "visible" });
   await detail.getByRole("button", { name: "Read saved copy" }).tap();
   await page.locator("#reader-body").getByRole("heading", { name: "Wide reader check" }).waitFor();
   assert.equal(await page.evaluate(() => document.documentElement.scrollWidth > innerWidth), false,
@@ -428,6 +535,22 @@ async function runProfile(name, browserType, device) {
   assert.ok(addBounds && addBounds.x >= 0 && addBounds.x + addBounds.width <= 844 && addBounds.y < 390,
     `${name}: Add control is not reachable in short landscape.`);
   await page.screenshot({ path: screenshot("landscape-short") });
+  await titleButton.tap();
+  await readyReader.locator("#reader-body").getByRole("heading", { name: "Wide reader check" }).waitFor();
+  const landscapeReaderBounds = await readyReader.boundingBox();
+  assert.ok(landscapeReaderBounds && Math.abs(landscapeReaderBounds.x) <= 1 && Math.abs(landscapeReaderBounds.y) <= 1 &&
+    Math.abs(landscapeReaderBounds.width - 844) <= 1 && Math.abs(landscapeReaderBounds.height - 390) <= 1,
+    `${name}: short landscape reader should cover the viewport: ${JSON.stringify(landscapeReaderBounds)}.`);
+  assert.equal(await readyReader.evaluate((dialog) => dialog.scrollWidth <= dialog.clientWidth + 1), true,
+    `${name}: short landscape reader has horizontal overflow.`);
+  await readyReader.evaluate((dialog) => { dialog.scrollTop = dialog.scrollHeight; });
+  const landscapeBackBounds = await readyReader.locator(".reader-close button").boundingBox();
+  assert.ok(landscapeBackBounds && landscapeBackBounds.width >= 44 && landscapeBackBounds.height >= 44 &&
+    landscapeBackBounds.y >= 0 && landscapeBackBounds.y + landscapeBackBounds.height <= 390,
+    `${name}: Back control must remain reachable in short landscape: ${JSON.stringify(landscapeBackBounds)}.`);
+  await page.screenshot({ path: screenshot("landscape-reader-short") });
+  await page.locator("#reader-dialog .reader-close button").tap();
+  await waitForList(titleButton);
   await page.locator("#add-open").tap();
   await page.locator("#add-dialog").waitFor({ state: "visible" });
   await page.screenshot({ path: screenshot("landscape-add-review") });

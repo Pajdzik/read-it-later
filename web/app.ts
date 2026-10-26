@@ -70,6 +70,11 @@ type GitHubBackupStatus = {
   configured: boolean; message?: string; repository?: string; branch?: string;
   path?: string; url?: string; state?: "not_saved" | "saved" | "outdated"; backedUpAt?: string;
 };
+function matchesGitHubDestination(configuration: GitHubCaptureConfiguration, expected: ExtensionDestination | undefined): boolean {
+  return Boolean(expected && configuration.configured &&
+    configuration.repository === expected.repository && configuration.branch === expected.branch &&
+    (configuration.folder || "") === expected.folder);
+}
 const $ = <T extends HTMLElement = HTMLElement>(selector: string): T =>
   document.querySelector<T>(selector)!;
 const searchControl = $<HTMLElement>("#search-control");
@@ -1063,7 +1068,17 @@ async function renderCopyEditor(article: Article) {
     save.disabled = true;
   }
 }
-function openReader(article: Article, copy: ArticleCopy) {
+function rememberReaderOpener(opener?: HTMLElement) {
+  if ($<HTMLDialogElement>("#reader-dialog").open) return;
+  const activeElement = document.activeElement;
+  const candidate = opener ?? (activeElement instanceof HTMLElement ? activeElement : null);
+  readerReturnFocus = candidate?.isConnected ? candidate : null;
+}
+function ensureReaderOpener(opener?: HTMLElement) {
+  if ($<HTMLDialogElement>("#reader-dialog").open) return;
+  if (opener || !readerReturnFocus) rememberReaderOpener(opener);
+}
+function openReader(article: Article, copy: ArticleCopy, opener?: HTMLElement) {
   if (state.selected?.id !== article.id) return;
   readerArticleId = article.id;
   const title = $("#reader-title");
@@ -1074,9 +1089,14 @@ function openReader(article: Article, copy: ArticleCopy) {
   $("#reader-copy-status").textContent = "";
   $<HTMLInputElement>("#reader-copy-fallback").hidden = true;
   title.textContent = article.title;
+  readerArticleId = article.id;
+  setArticleTitle(article);
+  const canonicalPath = articlePath(article);
+  if (location.pathname !== canonicalPath) history.replaceState(readerHistoryState(article.id, readerFromList), "", canonicalPath);
   author.textContent = article.author ? `By ${article.author}` : "";
   author.hidden = !article.author;
   metadata.textContent = `Captured ${dateLabel(copy.capturedAt)} · ${copy.source === "upload" ? "uploaded file" : "captured or pasted Markdown"} · ${sourceHost(article.url)}`;
+  about.open = false;
   $("#reader-pending").hidden = true;
   $("#reader-footer").hidden = false;
   const markRead = $<HTMLButtonElement>("#reader-mark-read");
@@ -1181,7 +1201,12 @@ function clearReader() {
   if (notice.textContent === "Loading Markdown copy…") showNotice("");
   const dialog = document.querySelector<HTMLDialogElement>("#reader-dialog");
   if (!dialog) return;
-  if (dialog.open) dialog.close();
+  if (dialog.open) {
+    readerCloseEvents.push({ generation: readerLoadGeneration, opener: readerReturnFocus });
+    dialog.close();
+  } else readerReturnFocus = null;
+  readerArticleId = null;
+  dialog.scrollTop = 0;
   $("#reader-body").replaceChildren();
   $("#reader-title").textContent = "";
   $("#reader-author").textContent = "";
@@ -1283,6 +1308,7 @@ $("#reader-mark-read").addEventListener("click", async () => {
   } finally {
     if (generation === readerLoadGeneration && readerArticleId === articleId) readerMarkReadPending = false;
   }
+  restoreReaderFocus(closed?.opener);
 });
 $("#reader-dialog .reader-close").addEventListener("submit", (event) => {
   event.preventDefault();
@@ -1463,6 +1489,11 @@ async function initialize() {
     return;
   }
   if (!state.session.authenticated) {
+    if (reconcileGitHubButton) reconcileGitHubButton.hidden = true;
+    const unauthenticatedRoute = parseReaderPath(location.pathname);
+    if (unauthenticatedRoute && "id" in unauthenticatedRoute) {
+      try { sessionStorage.setItem(pendingReaderStorageKey, JSON.stringify({ version: 1, articleId: unauthenticatedRoute.id, createdAt: Date.now() })); } catch {}
+    }
     const title = $("#add-heading");
     title.textContent = "Your private reading list";
     const form = $("#add-form");
@@ -1471,13 +1502,14 @@ async function initialize() {
     $("#add-url-copy-option").hidden = true;
     $("#sign-in-prompt").className = "sign-in-prompt";
     $("#sign-in-prompt").hidden = false;
-    $("#sign-in-prompt a").addEventListener("click", stashDraft);
+    $("#sign-in-prompt a").addEventListener("click", () => { rememberReaderForAuthentication(); stashDraft(); });
     $("#library-sign-in").hidden = false;
-    $("#library-sign-in").addEventListener("click", stashDraft);
+    $("#library-sign-in").addEventListener("click", () => { rememberReaderForAuthentication(); stashDraft(); });
     $("#empty h3").textContent = "Your list is waiting";
     $("#empty p").textContent =
       "Sign in to see saved articles across your devices.";
   } else {
+    if (reconcileGitHubButton) reconcileGitHubButton.hidden = false;
     $("#account").hidden = false;
     $("#account").textContent = "Your private library";
     $("#logout").hidden = false;
@@ -2249,6 +2281,8 @@ $("#logout").addEventListener("click", async () => {
   try {
     await request("/auth/logout", { method: "POST" });
     copyDrafts.clear();
+    history.replaceState(listHistoryState(), "", "/");
+    setListTitle();
     location.assign("/");
   } catch (e) {
     showNotice((e as Error).message, true);

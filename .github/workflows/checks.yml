@@ -14,12 +14,14 @@ concurrency:
 
 jobs:
   verify:
-    name: Verify
+    name: Verify core
     runs-on: ubuntu-latest
     timeout-minutes: 20
     steps:
       - name: Check out repository
         uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
 
       - name: Set up pnpm
         uses: pnpm/action-setup@v4
@@ -32,11 +34,16 @@ jobs:
           node-version: 22
           cache: pnpm
 
+      - name: Test extension change detection
+        run: node --test scripts/ci-extension-changes.test.mjs
+
       - name: Install dependencies
         run: pnpm install --frozen-lockfile
 
       - name: Check TypeScript across all runtimes
-        run: pnpm check
+        run: |
+          pnpm check
+          pnpm typecheck:fetcher
 
       - name: Run Worker and D1 tests
         run: pnpm test
@@ -53,14 +60,14 @@ jobs:
       - name: Build for deployment (dry run)
         run: pnpm build
 
-      - name: Install Playwright Chromium and WebKit
-        run: pnpm exec playwright install --with-deps chromium webkit
+      - name: Package the safe fetch probe (dry run)
+        run: pnpm build:fetch-probe
 
-      - name: Run prototype smoke test
-        run: pnpm test:prototype
+      - name: Test pinned safe fetch and gateway protocol
+        run: pnpm test:fetcher
 
-      - name: Run browser smoke test
-        run: pnpm test:browser
+      - name: Package the safe fetch gateway Worker (dry run)
+        run: pnpm build:fetcher-dry-run
 
       - name: Run browser extension checks
         run: pnpm test:extension
@@ -77,9 +84,78 @@ jobs:
       - name: Test GitHub Markdown recovery and local restore
         run: pnpm test:github
 
+  browser-checks:
+    name: Browser checks
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        playwright-version: [1.62.1]
+    # The image contains the browser binaries and OS libraries for this exact
+    # Playwright release, so CI never runs apt-based `install --with-deps`.
+    container:
+      image: mcr.microsoft.com/playwright:v${{ matrix.playwright-version }}-noble
+      options: --ipc=host --init
+    timeout-minutes: 20
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Set up pnpm
+        uses: pnpm/action-setup@v4
+        with:
+          version: 12.4.1
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: pnpm
+
+      - name: Detect extension changes
+        id: extension_changes
+        run: |
+          git config --global --add safe.directory "$GITHUB_WORKSPACE"
+          node scripts/ci-extension-changes.mjs
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Check Playwright image version matches the project
+        env:
+          EXPECTED_PLAYWRIGHT_VERSION: ${{ matrix.playwright-version }}
+        run: |
+          node -e 'const actual = require("./package.json").devDependencies.playwright; if (actual !== process.env.EXPECTED_PLAYWRIGHT_VERSION) { console.error(`Playwright image is ${process.env.EXPECTED_PLAYWRIGHT_VERSION}, package.json requires ${actual}`); process.exit(1); }'
+
+      - name: Run prototype smoke test
+        run: pnpm test:prototype
+
+      - name: Run browser smoke test
+        run: pnpm test:browser
+
+      - name: Run browser extension checks
+        if: steps.extension_changes.outputs.run == 'true'
+        run: pnpm test:extension
+
+      - name: Run mobile browser smoke test
+        run: pnpm test:mobile
+
+      - name: Rehearse archive restoration
+        run: pnpm test:archive
+
+  verify-result:
+    name: Verify
+    if: always()
+    needs: [verify, browser-checks]
+    runs-on: ubuntu-latest
+    steps:
+      - name: Require all verification jobs to pass
+        run: test "${{ needs.verify.result }}" = success && test "${{ needs.browser-checks.result }}" = success
+
   deploy-production:
     name: Deploy production
-    needs: verify
+    needs: verify-result
     if: github.event_name == 'push' && github.ref == 'refs/heads/main'
     runs-on: ubuntu-latest
     timeout-minutes: 30

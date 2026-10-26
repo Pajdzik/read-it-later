@@ -284,10 +284,19 @@ describe('article HTTP handlers', () => {
       Cookie: `read_later_session=${sessionToken}`, Origin: 'https://service.example', 'X-CSRF-Token': csrf, 'Content-Type': 'application/json',
     }, body: JSON.stringify({ label: 'Rate test' }) }), ownerEnv);
     const token2 = (await token2Result!.json() as { id: string; token: string });
-    await env.DB.prepare('INSERT INTO capture_rate_buckets(token_id,window_start,count) VALUES(?,?,60)')
-      .bind(token2.id, Math.floor(Date.now() / 60_000)).run();
-    const limited = await handleArticles(new Request('https://service.example/api/capture', { method: 'POST', headers: { Authorization: `Bearer ${token2.token}`, 'Content-Type': 'application/json' }, body: JSON.stringify({ url: 'https://example.com/rate-limited' }) }), ownerEnv);
-    expect(limited?.status).toBe(429);
+    // Keep bucket setup and requests on the same clock, even at a minute boundary.
+    const windowEnd = Date.UTC(2026, 0, 1, 12, 0, 59, 999);
+    const clock = vi.spyOn(Date, 'now').mockReturnValue(windowEnd);
+    try {
+      await env.DB.prepare('INSERT INTO capture_rate_buckets(token_id,window_start,count) VALUES(?,?,60)')
+        .bind(token2.id, Math.floor(windowEnd / 60_000)).run();
+      const rateRequest = () => new Request('https://service.example/api/capture', { method: 'POST', headers: { Authorization: `Bearer ${token2.token}`, 'Content-Type': 'application/json' }, body: JSON.stringify({ url: 'https://example.com/rate-limited', captureMarkdown: false }) });
+      expect((await handleArticles(rateRequest(), ownerEnv))?.status).toBe(429);
+      clock.mockReturnValue(windowEnd + 1);
+      expect((await handleArticles(rateRequest(), ownerEnv))?.status).toBe(201);
+    } finally {
+      clock.mockRestore();
+    }
   });
 
   it('binds OAuth to its initiating browser, accepts only the configured numeric owner, and consumes state once', async () => {
