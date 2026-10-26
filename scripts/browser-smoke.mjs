@@ -163,7 +163,7 @@ try {
   await page.screenshot({ path: path.join(os.tmpdir(), "potem-anonymous-sign-in-desktop.png") });
   await page.unroute("**/api/session");
   await page.reload();
-  await page.locator("#account").waitFor();
+  await page.locator("#loading").waitFor({ state: "hidden" });
   assert.equal(await signIn.isHidden(), true, "Signed-in owners must not see the sign-in prompt.");
   await page.locator("#add-open").click();
   await page
@@ -243,7 +243,7 @@ try {
     } }) });
   });
   await page.reload();
-  await page.locator("#account").waitFor();
+  await page.locator("#loading").waitFor({ state: "hidden" });
   await title.waitFor();
   await article.getByRole("button", { name: "Edit", exact: true }).click();
   await page.locator("#detail-content .copy-status").getByText(/uploaded file/).waitFor();
@@ -340,7 +340,7 @@ try {
     await route.fulfill({ status: 200, contentType: "application/json", body: JSON.stringify(data) });
   });
   await page.reload();
-  await page.locator("#account").waitFor();
+  await page.locator("#loading").waitFor({ state: "hidden" });
   const entryArticle = page.locator(".article").filter({ hasText: "Reader entry smoke" });
   const entryTitle = entryArticle.getByRole("link", { name: "Reader entry smoke", exact: true });
   await entryTitle.waitFor();
@@ -495,7 +495,7 @@ try {
   await page.unroute("**/api/articles?*");
   await page.setViewportSize({ width: 1440, height: 1000 });
   await page.reload();
-  await page.locator("#account").waitFor();
+  await page.locator("#loading").waitFor({ state: "hidden" });
   await title.waitFor();
   let releasePendingCopy;
   let signalPendingCopy;
@@ -1176,7 +1176,7 @@ try {
   const urlPage = await urlContext.newPage();
   urlPage.on("pageerror", (error) => errors.push(error.message));
   await urlPage.goto(base);
-  await urlPage.locator("#account").waitFor();
+  await urlPage.locator("#loading").waitFor({ state: "hidden" });
   const asyncFixture = await urlPage.evaluate(async ({ url }) => {
     const session = await (await fetch("/api/session")).json();
     const response = await fetch("/api/articles", {

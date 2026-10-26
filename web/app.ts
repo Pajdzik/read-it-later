@@ -508,6 +508,10 @@ function extractionLabel(extraction?: ExtractionStatus) {
   if (extraction.paused) return "Capture paused";
   return extraction.state === "retry_wait" ? "Capture retrying" : "Capturing Markdown";
 }
+function articleMetaLabel(article: Article) {
+  const pausedLabel = article.extraction?.paused ? " · Capture paused" : "";
+  return `${sourceHost(article.url)}${article.author ? ` · By ${article.author}` : ""} · Saved ${dateLabel(article.createdAt)}${pausedLabel}`;
+}
 function extractionIsPending(extraction?: ExtractionStatus) {
   return Boolean(extraction && ["queued", "running", "retry_wait"].includes(extraction.state));
 }
@@ -555,8 +559,14 @@ function scheduleExtractionPoll(article: Article) {
       state.selected = updated;
       const row = list.querySelector<HTMLElement>(`[data-id="${CSS.escape(article.id)}"]`);
       if (row) {
+        const meta = row.querySelector<HTMLElement>(".article-meta");
+        if (meta) meta.textContent = articleMetaLabel({ ...article, extraction: result.extraction });
         const badge = row.querySelector<HTMLElement>(".extraction-badge");
-        if (badge) { badge.textContent = extractionLabel(result.extraction); badge.hidden = !extractionLabel(result.extraction); }
+        if (badge) {
+          const label = result.extraction.paused ? "" : extractionLabel(result.extraction);
+          badge.textContent = label;
+          badge.hidden = !label;
+        }
       }
       if (result.extraction.state === "ready") {
         if ($<HTMLDialogElement>("#reader-dialog").open) {
@@ -657,10 +667,10 @@ function renderArticle(article: Article) {
   });
   const meta = el(
     "p",
-    `${sourceHost(article.url)}${article.author ? ` · By ${article.author}` : ""} · Saved ${dateLabel(article.createdAt)}`,
+    articleMetaLabel(article),
     "article-meta",
   );
-  const extractionBadge = el("span", extractionLabel(article.extraction), "extraction-badge");
+  const extractionBadge = el("span", article.extraction?.paused ? "" : extractionLabel(article.extraction), "extraction-badge");
   extractionBadge.hidden = !extractionBadge.textContent;
   const description = article.description
     ? el("a", article.description, "article-description article-lead")
@@ -1522,8 +1532,6 @@ async function initialize() {
       "Sign in to see saved articles across your devices.";
   } else {
     if (reconcileGitHubButton) reconcileGitHubButton.hidden = false;
-    $("#account").hidden = false;
-    $("#account").textContent = "Your private library";
     $("#logout").hidden = false;
     setListTitle();
     void load();
