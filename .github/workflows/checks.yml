@@ -74,7 +74,9 @@ jobs:
 
       - name: Run browser extension checks
         if: steps.extension_changes.outputs.run == 'true'
-        run: pnpm test:extension
+        run: |
+          pnpm exec playwright install chromium
+          pnpm test:extension
 
       - name: Run mobile browser smoke test
         run: pnpm test:mobile
@@ -125,6 +127,10 @@ jobs:
 
       - name: Install dependencies
         run: pnpm install --frozen-lockfile
+
+      - name: Install extension packaging tools
+        if: steps.extension_changes.outputs.run == 'true'
+        run: apt-get update && apt-get install -y zip
 
       - name: Check Playwright image version matches the project
         env:
