@@ -9,6 +9,7 @@ import os from 'node:os';
 import path from 'node:path';
 import { build } from 'esbuild';
 import { chromium } from 'playwright';
+import { openExtensionOptions } from './extension-test-utils.mjs';
 
 const scratch = await mkdtemp(path.join(os.tmpdir(), 'potem-extension-e2e-'));
 const portServer = net.createServer();
@@ -99,8 +100,7 @@ try {
   });
   const worker = context.serviceWorkers()[0] || await context.waitForEvent('serviceworker');
   const extensionId = new URL(worker.url()).host;
-  const options = await context.newPage();
-  await options.goto(`chrome-extension://${extensionId}/options.html`);
+  const options = await openExtensionOptions(context, extensionId);
   await options.locator('#connect').click();
   await options.waitForFunction(async () => {
     const data = await chrome.storage.local.get('settings');
@@ -228,6 +228,20 @@ try {
   assert.equal(copyWrites.length, writesBeforeRetry, 'GitHub retry never rewrites the D1 copy');
   const lastCalls = githubCalls.slice(-2);
   assert.equal(lastCalls[0].expectedRevision, lastCalls[1].expectedRevision);
+  assert.equal(await outage.target.evaluate(() => [
+    'later-extension-capture', 'later-extension-request', 'later-browser-capture-draft', 'later-add-draft',
+  ].some((key) => sessionStorage.getItem(key) !== null)), false, 'successful retry clears capture session storage');
+  const callsAfterRetry = githubCalls.length;
+  const writesAfterRetry = copyWrites.length;
+  await outage.target.reload();
+  await outage.target.locator('#loading').waitFor({ state: 'hidden' });
+  assert.equal(await outage.target.locator('#add-dialog').evaluate((dialog) => dialog.open), false, 'reload does not restore the completed capture dialog');
+  assert.equal(await outage.target.locator('#capture-github-retry').isVisible(), false, 'reload does not restore a completed GitHub retry');
+  assert.equal(githubCalls.length, callsAfterRetry, 'reload does not issue another GitHub request');
+  assert.equal(copyWrites.length, writesAfterRetry, 'reload does not write another saved copy');
+  await outage.target.locator('#add-open').click();
+  assert.equal(await outage.target.locator('#add-dialog').evaluate((dialog) => dialog.open), true, 'ordinary Add remains available after a capture completes');
+  assert.equal(await outage.target.locator('#add-url').isEnabled(), true);
   await outage.target.close();
   await outage.source.close();
 
