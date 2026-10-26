@@ -272,7 +272,8 @@ async function verifyReader(base: string, envelope: BackupEnvelope, temporary: s
     diagnosticStage = "restored reader app navigation";
     await page.goto(base);
     diagnosticStage = "restored reader app readiness";
-    await page.locator("#account:not([hidden])").waitFor({ state: "attached" });
+    await page.locator("#add-open").waitFor();
+    await page.locator("#loading").waitFor({ state: "hidden" });
     diagnosticStage = "restored reader list filter";
     await page.getByRole("button", { name: "All", exact: true }).click();
     await page.locator("#search-toggle").click();
