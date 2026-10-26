@@ -20,6 +20,8 @@ jobs:
     steps:
       - name: Check out repository
         uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
 
       - name: Set up pnpm
         uses: pnpm/action-setup@v4
@@ -32,14 +34,32 @@ jobs:
           node-version: 22
           cache: pnpm
 
+      - name: Detect extension changes
+        id: extension_changes
+        run: |
+          node --test scripts/ci-extension-changes.test.mjs
+          node scripts/ci-extension-changes.mjs
+
       - name: Install dependencies
         run: pnpm install --frozen-lockfile
 
       - name: Check TypeScript across all runtimes
         run: pnpm check
 
+      - name: Check fetch gateway and adapter types
+        run: pnpm check:fetch-gateway
+
+      - name: Dry-run staging adapter build
+        run: pnpm build:fetcher:staging
+
+      - name: Dry-run production adapter build
+        run: pnpm build:fetcher:production
+
       - name: Run Worker and D1 tests
         run: pnpm test
+
+      - name: Run fetch gateway and adapter tests
+        run: pnpm test:fetch-gateway
 
       - name: Build for deployment (dry run)
         run: pnpm build
@@ -52,6 +72,10 @@ jobs:
 
       - name: Run browser smoke test
         run: pnpm test:browser
+
+      - name: Run browser extension checks
+        if: steps.extension_changes.outputs.run == 'true'
+        run: pnpm test:extension
 
       - name: Run mobile browser smoke test
         run: pnpm test:mobile

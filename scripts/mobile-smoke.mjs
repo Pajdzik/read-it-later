@@ -350,13 +350,20 @@ async function runProfile(name, browserType, device) {
   // overflow. Paste the copy through article details, then open the title.
   await article.getByRole("button", { name: "Edit", exact: true }).tap();
   const detail = page.locator("#detail-content");
-  const wideMarkdown = `# Wide reader check\n\n${"word-without-breaks-".repeat(24)}\n\n| left | ${"column-header-".repeat(8)} |\n| --- | --- |\n| text | ${"wide-cell-".repeat(24)} |`;
+  await detail.locator(".copy-editor > .copy-status")
+    .filter({ hasText: /^Saved .*captured or pasted Markdown/ }).waitFor();
+  const wideMarkdown = `# Wide reader check\n\n${"word-without-breaks-".repeat(24)}\n\n${"A long reader paragraph keeps the document scrollable on a phone. It stays unread until the reader action is chosen. ".repeat(36)}\n\n| left | ${"column-header-".repeat(8)} |\n| --- | --- |\n| text | ${"wide-cell-".repeat(24)} |`;
   await detail.getByRole("textbox", { name: "Markdown copy" }).fill(wideMarkdown);
   page.once("dialog", (dialog) => dialog.accept());
   const wideSaveResponse = page.waitForResponse((response) =>
-    new URL(response.url()).pathname.endsWith("/copy") && response.request().method() === "PUT");
+    new URL(response.url()).pathname === `/api/articles/${encodeURIComponent(articleId)}/copy` &&
+    response.request().method() === "PUT");
   await detail.getByRole("button", { name: "Save Markdown copy" }).tap();
-  assert.equal((await wideSaveResponse).status(), 200);
+  const updatedCopyResponse = await wideSaveResponse;
+  assert.equal(updatedCopyResponse.status(), 200, `${name}: replacing the saved Markdown copy did not complete.`);
+  const updatedCopy = await updatedCopyResponse.json();
+  assert.match(updatedCopy.copy.markdown, /^# Wide reader check/m,
+    `${name}: replacement Markdown was not persisted before opening the reader.`);
   await detail.getByText(new RegExp(`${new TextEncoder().encode(wideMarkdown).byteLength.toLocaleString()} UTF-8 bytes`)).waitFor();
   await detail.getByRole("button", { name: "Read saved copy" }).waitFor({ state: "visible" });
   await detail.getByRole("button", { name: "Read saved copy" }).tap();
@@ -366,6 +373,7 @@ async function runProfile(name, browserType, device) {
   const readerMetrics = await page.locator("#reader-dialog").evaluate((dialog) => ({
     clientWidth: dialog.clientWidth, scrollWidth: dialog.scrollWidth,
     bounds: dialog.getBoundingClientRect().toJSON(),
+    viewport: { width: innerWidth, height: innerHeight },
     wideBlocks: [...dialog.querySelectorAll("pre, table")].map((element) => ({
       tag: element.tagName, clientWidth: element.clientWidth, scrollWidth: element.scrollWidth,
       bounds: element.getBoundingClientRect().toJSON(),
@@ -374,11 +382,26 @@ async function runProfile(name, browserType, device) {
   await page.screenshot({ path: screenshot("portrait-reader") });
   assert.ok(readerMetrics.scrollWidth <= readerMetrics.clientWidth + 1,
     `${name}: reader dialog content exceeds its scrollport: ${JSON.stringify(readerMetrics)}`);
+  assert.ok(Math.abs(readerMetrics.bounds.x) <= 1 && Math.abs(readerMetrics.bounds.y) <= 1
+    && Math.abs(readerMetrics.bounds.width - readerMetrics.viewport.width) <= 1
+    && Math.abs(readerMetrics.bounds.height - readerMetrics.viewport.height) <= 1,
+  `${name}: reader dialog does not fill the viewport: ${JSON.stringify(readerMetrics)}`);
+  const readerDialog = page.locator("#reader-dialog");
+  const closeButton = readerDialog.locator(".reader-close button");
+  await readerDialog.evaluate((dialog) => { dialog.scrollTop = dialog.scrollHeight; });
+  assert.ok(await readerDialog.evaluate((dialog) => dialog.scrollTop > 0),
+    `${name}: long reader content did not scroll.`);
+  const closeBoundsAfterScroll = await closeButton.boundingBox();
+  assert.ok(closeBoundsAfterScroll && closeBoundsAfterScroll.x >= 0
+    && closeBoundsAfterScroll.x + closeBoundsAfterScroll.width <= readerMetrics.viewport.width
+    && closeBoundsAfterScroll.y >= 0
+    && closeBoundsAfterScroll.y + closeBoundsAfterScroll.height <= readerMetrics.viewport.height,
+  `${name}: floating reader close control is unreachable after scrolling: ${JSON.stringify(closeBoundsAfterScroll)}`);
   assert.equal(await page.evaluate(async (id) => {
     const pageData = await fetch("/api/articles?status=all", { cache: "no-store" }).then((response) => response.json());
     return pageData.items.find((item) => item.id === id)?.readAt;
   }, articleId), null, `${name}: opening the saved title changed read state.`);
-  await page.locator("#reader-dialog .reader-close button").tap();
+  await closeButton.tap();
   await page.reload();
   await page.locator("#logout").waitFor();
   await page.locator('[data-status="unread"]').tap();
@@ -390,7 +413,18 @@ async function runProfile(name, browserType, device) {
     const pageData = await fetch("/api/articles?status=all", { cache: "no-store" }).then((response) => response.json());
     return pageData.items.find((item) => item.id === id)?.readAt;
   }, articleId), null, `${name}: reopening a persisted reader changed read state.`);
-  await page.locator("#reader-dialog .reader-close button").tap();
+  const readerFooter = page.locator("#reader-footer");
+  await readerFooter.waitFor({ state: "visible" });
+  assert.equal(await page.locator("#reader-body").evaluate((body) =>
+    Boolean(body.compareDocumentPosition(document.querySelector("#reader-footer")) & Node.DOCUMENT_POSITION_FOLLOWING)), true,
+  `${name}: reader footer must follow the Markdown article in normal document order.`);
+  const markReadButton = page.locator("#reader-mark-read");
+  await markReadButton.tap();
+  await page.locator("#reader-dialog").waitFor({ state: "hidden" });
+  assert.ok(await page.evaluate(async (id) => {
+    const pageData = await fetch("/api/articles?status=all", { cache: "no-store" }).then((response) => response.json());
+    return pageData.items.find((item) => item.id === id)?.readAt;
+  }, articleId), `${name}: reader footer Mark as read did not persist read state.`);
 
   // Narrow and short landscape layouts must keep the Add and navigation
   // controls reachable by touch without document-level horizontal scrolling.

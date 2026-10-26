@@ -299,7 +299,7 @@ try {
     const { article: item } = await created.json();
     const saved = await fetch(`/api/articles/${encodeURIComponent(item.id)}/copy`, {
       method: "PUT", headers,
-      body: JSON.stringify({ markdown: "# Reader entry copy\n\nRendered from the saved copy.", source: "paste", expectedRevision: null }),
+      body: JSON.stringify({ markdown: "# Reader entry copy\n\nRendered from the saved copy.\n\n" + "Long reader content. ".repeat(220), source: "paste", expectedRevision: null }),
     });
     if (!saved.ok) throw new Error(`Couldn’t save reader-entry fixture: ${saved.status}`);
     return { id: item.id };
@@ -337,8 +337,16 @@ try {
   const reader = page.locator("#reader-dialog");
   await reader.getByRole("heading", { name: "Reader entry smoke" }).waitFor();
   await reader.locator("#reader-body").getByText("Rendered from the saved copy.").waitFor();
+  const readerBounds = await reader.boundingBox();
+  assert.ok(readerBounds && readerBounds.x >= 0 && readerBounds.y >= 0 && readerBounds.x + readerBounds.width <= 1440 && readerBounds.y + readerBounds.height <= 1000, "Fullscreen reader must fit within the viewport.");
+  const readerFooter = reader.locator("#reader-footer");
+  assert.ok(await reader.locator("#reader-body").evaluate((body, footer) => Boolean(body.compareDocumentPosition(footer) & Node.DOCUMENT_POSITION_FOLLOWING), await readerFooter.elementHandle()), "Reader footer must follow the saved content in document order.");
+  await reader.evaluate((dialog) => { dialog.scrollTop = dialog.scrollHeight; });
+  assert.ok(await readerFooter.isVisible(), "Reader footer must be reachable after scrolling through long content.");
   assert.equal(await page.evaluate(async (id) => (await (await fetch(`/api/articles/${id}`)).json()).article.readAt, entryFixture.id), entryReadState, "Opening a title must not change read state.");
-  await reader.getByRole("button", { name: "Close saved copy" }).click();
+  await page.keyboard.press("Escape");
+  await reader.waitFor({ state: "hidden" });
+  assert.equal(await entryTitle.evaluate((button) => document.activeElement === button), true, "Escape must return focus to the title that opened the reader.");
   const entryLead = entryArticle.getByRole("button", { name: "Read saved copy of Reader entry smoke" });
   await entryLead.waitFor();
   await page.setViewportSize({ width: 390, height: 844 });
@@ -347,8 +355,40 @@ try {
   await entryLead.click();
   await reader.getByRole("heading", { name: "Reader entry smoke" }).waitFor();
   await reader.locator("#reader-body").getByText("Rendered from the saved copy.").waitFor();
+  const mobileReaderBounds = await reader.boundingBox();
+  assert.ok(mobileReaderBounds && mobileReaderBounds.x >= 0 && mobileReaderBounds.y >= 0 && mobileReaderBounds.x + mobileReaderBounds.width <= 390 && mobileReaderBounds.y + mobileReaderBounds.height <= 844, "Fullscreen reader must fit a narrow viewport.");
   assert.equal(await page.evaluate(async (id) => (await (await fetch(`/api/articles/${id}`)).json()).article.readAt, entryFixture.id), entryReadState, "Opening a lead must not change read state.");
   await reader.getByRole("button", { name: "Close saved copy" }).click();
+  assert.equal(await entryLead.evaluate((button) => document.activeElement === button), true, "Closing the reader must return focus to its opener.");
+  let failReaderRead = true;
+  await page.route(`**/api/articles/${entryFixture.id}`, async (route) => {
+    if (route.request().method() === "PATCH" && failReaderRead) {
+      await route.fulfill({ status: 503, contentType: "application/json", body: JSON.stringify({ error: { message: "Simulated read outage" } }) });
+    } else await route.continue();
+  });
+  await entryTitle.click();
+  await reader.getByRole("heading", { name: "Reader entry smoke" }).waitFor();
+  await reader.locator("#reader-mark-read").click();
+  await reader.locator("#reader-status").getByText(/Simulated read outage|could not|failed/i).waitFor();
+  assert.equal(await reader.isVisible(), true, "A failed mark-as-read request must leave the saved copy open.");
+  assert.equal(await page.evaluate(async (id) => (await (await fetch(`/api/articles/${id}`)).json()).article.readAt, entryFixture.id), null, "A failed mark-as-read request must not change persisted state.");
+  failReaderRead = false;
+  await reader.locator("#reader-mark-read").click();
+  await reader.waitFor({ state: "hidden" });
+  const markedReadAt = await page.evaluate(async (id) => (await (await fetch(`/api/articles/${id}`)).json()).article.readAt, entryFixture.id);
+  assert.ok(markedReadAt, "Marking the saved copy read must persist readAt before closing.");
+  await page.waitForFunction(() => document.activeElement !== document.body && document.activeElement?.isConnected);
+  await page.unroute(`**/api/articles/${entryFixture.id}`);
+  await page.reload();
+  const readEntry = page.locator(".article").filter({ hasText: "Reader entry smoke" });
+  const readEntryTitle = readEntry.getByRole("button", { name: "Reader entry smoke", exact: true });
+  await page.getByRole("button", { name: "Read", exact: true }).click();
+  await readEntryTitle.waitFor();
+  await readEntryTitle.click();
+  await reader.getByRole("heading", { name: "Reader entry smoke" }).waitFor();
+  assert.equal(await reader.locator("#reader-mark-read").innerText(), "Done reading", "Already-read articles must show the Done reading action.");
+  await reader.getByRole("button", { name: "Done reading" }).click();
+  assert.equal(await page.evaluate(async (id) => (await (await fetch(`/api/articles/${id}`)).json()).article.readAt, entryFixture.id), markedReadAt, "Closing an already-read preview must preserve its read state.");
   const removeEntryFixture = await page.evaluate(async (id) => {
     const session = await (await fetch("/api/session")).json();
     const response = await fetch(`/api/articles/${encodeURIComponent(id)}`, { method: "DELETE", headers: { "X-CSRF-Token": session.csrfToken } });
@@ -359,6 +399,7 @@ try {
   await page.setViewportSize({ width: 1440, height: 1000 });
   await page.reload();
   await page.locator("#logout").waitFor();
+  await page.getByRole("button", { name: "Unread", exact: true }).click();
   await title.waitFor();
   let releasePendingCopy;
   let signalPendingCopy;

@@ -299,6 +299,20 @@ button {
   padding: 9px 12px;
   background: transparent;
 }
+#capture-description {
+  display: block;
+  flex-basis: 100%;
+  width: 100%;
+  min-width: 0;
+  margin-top: 3px;
+  padding: 9px 12px;
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  background: transparent;
+  color: var(--ink);
+  font: inherit;
+  resize: vertical;
+}
 .sign-in-prompt {
   margin: 14px 0 0;
   color: var(--muted);
@@ -678,19 +692,45 @@ button {
   gap: 8px;
   margin: 10px 0 16px;
 }
-.reader-dialog {
-  width: min(820px, calc(100% - 24px));
-  max-height: calc(100% - 24px);
-  padding: clamp(20px, 5vw, 54px);
+.dialog.reader-dialog {
+  position: fixed;
+  inset: 0;
+  width: 100%;
+  max-width: none;
+  height: 100vh;
+  height: 100dvh;
+  max-height: none;
+  margin: 0;
+  overflow: auto;
+  overscroll-behavior: contain;
+  border: 0;
+  border-radius: 0;
+  padding: calc(76px + env(safe-area-inset-top, 0px))
+    max(24px, env(safe-area-inset-right, 0px))
+    calc(38px + env(safe-area-inset-bottom, 0px))
+    max(24px, env(safe-area-inset-left, 0px));
 }
 .reader-header {
   max-width: 68ch;
   margin: 0 auto 22px;
 }
 .reader-close {
-  display: flex;
-  justify-content: flex-end;
-  margin: -18px -20px 15px;
+  position: fixed;
+  z-index: 2;
+  top: calc(14px + env(safe-area-inset-top, 0px));
+  right: calc(14px + env(safe-area-inset-right, 0px));
+  margin: 0;
+}
+.reader-close .icon-button {
+  display: grid;
+  place-items: center;
+  width: 46px;
+  height: 46px;
+  border-color: var(--line);
+  background: color-mix(in srgb, var(--white) 94%, transparent);
+  box-shadow: var(--shadow);
+  font-size: 24px;
+  line-height: 1;
 }
 .reader-header h2 {
   font-size: clamp(27px, 5vw, 40px);
@@ -738,6 +778,29 @@ button {
   max-width: 68ch;
   margin: 0 auto;
   font: 17px/1.75 Georgia, "Times New Roman", serif;
+  overflow-wrap: anywhere;
+}
+.reader-footer {
+  max-width: 68ch;
+  margin: 42px auto 0;
+  padding-top: 18px;
+  border-top: 1px solid var(--line);
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 10px 14px;
+}
+.reader-footer[hidden] {
+  display: none;
+}
+#reader-mark-read {
+  background: var(--green);
+  color: var(--white);
+}
+[data-theme="dark"] #reader-mark-read { color: var(--paper); }
+.reader-status {
+  color: var(--orange);
+  font-size: 13px;
   overflow-wrap: anywhere;
 }
 .reader-body h1,
@@ -824,11 +887,19 @@ button {
   .copy-editor button {
     width: 100%;
   }
-  .reader-dialog {
-    width: calc(100% - 12px);
-    max-height: calc(100% - 12px);
-    padding: 18px 15px;
-    border-radius: 13px;
+  .dialog.reader-dialog {
+    padding: calc(70px + env(safe-area-inset-top, 0px))
+      max(16px, env(safe-area-inset-right, 0px))
+      calc(28px + env(safe-area-inset-bottom, 0px))
+      max(16px, env(safe-area-inset-left, 0px));
+  }
+  .reader-close {
+    top: calc(10px + env(safe-area-inset-top, 0px));
+    right: calc(10px + env(safe-area-inset-right, 0px));
+  }
+  .reader-close .icon-button {
+    width: 44px;
+    height: 44px;
   }
   .reader-body {
     font-size: 16px;
@@ -1001,3 +1072,8 @@ button {
       border-color 0.15s ease;
   }
 }
+.extension-actions { display: flex; flex-wrap: wrap; gap: .65rem; margin-top: 1rem; align-items: center; }
+#capture-preview-details { margin: .75rem 0 1rem; border-top: 1px solid var(--line, #deded5); padding-top: .65rem; }
+#capture-preview-details summary { cursor: pointer; color: var(--muted, #65655b); }
+#capture-preview { margin-top: .75rem; max-height: 28rem; overflow: auto; }
+#capture-byte-count { text-align: right; margin: .2rem 0; }

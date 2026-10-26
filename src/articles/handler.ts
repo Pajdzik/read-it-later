@@ -68,9 +68,18 @@ export async function handleArticles(request: Request, env: Env): Promise<Respon
         return jsonResponse({ backup: await getGitHubBackupStatus(env, article, await getArticleCopy(env.DB, id)) });
       }
       if (method === 'POST') {
-        const input = parseObject(await readJson(request), ['expectedRevision'], ['expectedRevision']);
+        const input = parseObject(await readJson(request), ['expectedRevision', 'expectedDestination'], ['expectedRevision']);
         if (typeof input.expectedRevision !== 'string' || !/^[A-Za-z0-9_-]{1,128}$/.test(input.expectedRevision)) throw new ValidationError('expectedRevision must be a valid saved copy revision');
-        return jsonResponse(await saveGitHubBackup(env, id, input.expectedRevision));
+        let expectedDestination: { repository: string; branch: string; folder: string } | undefined;
+        if (input.expectedDestination !== undefined) {
+          const destination = parseObject(input.expectedDestination, ['repository', 'branch', 'folder'], ['repository', 'branch', 'folder']);
+          if (typeof destination.repository !== 'string' || typeof destination.branch !== 'string' || typeof destination.folder !== 'string' ||
+              destination.repository.length > 140 || destination.branch.length > 255 || destination.folder.length > 512) {
+            throw new ValidationError('expectedDestination is invalid');
+          }
+          expectedDestination = { repository: destination.repository, branch: destination.branch, folder: destination.folder };
+        }
+        return jsonResponse(await saveGitHubBackup(env, id, input.expectedRevision, expectedDestination));
       }
     }
     const detail = /^\/api\/articles\/([^/]+)$/.exec(url.pathname);
@@ -126,15 +135,18 @@ async function putArticleCopy(request: Request, env: Env, id: string): Promise<R
 }
 
 async function createArticle(request: Request, env: Env, tokenCapture = false): Promise<Response> {
-  const input = parseObject(await readJson(request), ['url', 'title', 'captureMarkdown'], ['url']);
+  const input = parseObject(await readJson(request), ['url', 'title', 'author', 'description', 'captureMarkdown'], ['url']);
+  if (tokenCapture && ('author' in input || 'description' in input)) throw new ValidationError('capture tokens cannot set article metadata');
   if (input.captureMarkdown !== undefined && typeof input.captureMarkdown !== 'boolean') throw new ValidationError('captureMarkdown must be a boolean');
   const extractionRequested = input.captureMarkdown === true || (tokenCapture && input.captureMarkdown !== false);
   const normalized = normalizeArticleUrl(input.url);
   const fallbackTitle = defaultTitle(normalized.url);
   const suppliedTitle = input.title === undefined ? undefined : validateTitle(input.title, fallbackTitle);
   const title = suppliedTitle || fallbackTitle;
+  const author = input.author === undefined ? undefined : optionalMetadata(input.author, 'author', 200);
+  const description = input.description === undefined ? undefined : optionalMetadata(input.description, 'description', 500);
   const result = await saveArticle(env.DB, {
-    ...normalized, title, extractionRequested,
+    ...normalized, title, author: author ?? undefined, description: description ?? undefined, extractionRequested,
     titleOrigin: suppliedTitle ? 'supplied' : 'fallback',
   });
   if (extractionRequested) {
@@ -180,10 +192,10 @@ async function listRoute(url: URL, env: Env): Promise<Response> {
 }
 
 async function patchArticle(request: Request, env: Env, id: string): Promise<Response> {
-  const input = parseObject(await readJson(request), ['read', 'title']);
+  const input = parseObject(await readJson(request), ['read', 'title', 'author', 'description']);
   if (!Object.keys(input).length) throw new ValidationError('at least one field is required');
   if ('read' in input && typeof input.read !== 'boolean') throw new ValidationError('read must be a boolean');
-  const patch: { read?: boolean; title?: string } = {};
+  const patch: { read?: boolean; title?: string; author?: string | null; description?: string | null } = {};
   if ('read' in input) patch.read = input.read as boolean;
   if ('title' in input) {
     if (typeof input.title !== 'string') throw new ValidationError('title must be a string');
@@ -191,10 +203,19 @@ async function patchArticle(request: Request, env: Env, id: string): Promise<Res
     if (!title || title.length > MAX_TITLE_LENGTH) throw new ValidationError('title must contain 1 to 500 characters');
     patch.title = title;
   }
+  if ('author' in input) patch.author = input.author === null ? null : optionalMetadata(input.author, 'author', 200);
+  if ('description' in input) patch.description = input.description === null ? null : optionalMetadata(input.description, 'description', 500);
   const article = await updateArticle(env.DB, id, patch);
   if (!article) return fail(404, 'not_found', 'Article not found.');
   const extraction = await getExtractionStatus(env.DB, id, isBackgroundCapturePaused(env));
   return jsonResponse({ article: { ...article, hasCopy: extraction?.state === 'ready', extraction } });
+}
+
+function optionalMetadata(value: unknown, field: string, limit: number): string | null {
+  if (typeof value !== 'string') throw new ValidationError(`${field} must be a string`);
+  const trimmed = value.trim();
+  if (trimmed.length > limit) throw new ValidationError(`${field} must be at most ${limit} characters`);
+  return trimmed || null;
 }
 
 async function exportArticles(env: Env): Promise<Response> {

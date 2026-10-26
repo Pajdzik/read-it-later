@@ -1,49 +1,13 @@
-.git
-.gitignore
-
-# Local secrets and credentials
-.env
-.env.*
-!.env.example
-*.pem
-*.key
-*.crt
-*.p12
-*.pfx
-id_rsa*
-id_ed25519*
-
-# Dependencies
-node_modules
-
-# Logs and diagnostics
-logs
-*.log
-npm-debug.log*
-yarn-debug.log*
-yarn-error.log*
-
-# Build, cache, and coverage output
-dist
-build
-coverage
-.cache
-.parcel-cache
-.next
-out
-tmp
-temp
-
-# Local/editor files
-.DS_Store
-.vscode
-.idea
-
-Dockerfile
-.dockerignore
-
-# Private Worker configuration and article data
-.dev.vars
-.dev.vars.*
-articles
-.wrangler
+**
+!package.json
+!pnpm-lock.yaml
+!pnpm-workspace.yaml
+!src/
+!src/articles/
+!src/articles/url-policy.ts
+!services/
+!services/article-fetch-gateway/
+!services/article-fetch-gateway/package.json
+!services/article-fetch-gateway/tsconfig.json
+!services/article-fetch-gateway/src/
+!services/article-fetch-gateway/src/**

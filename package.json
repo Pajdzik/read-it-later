@@ -11,12 +11,20 @@
     "start": "pnpm build:prototype && node dist/prototype/server.mjs",
     "check": "pnpm typecheck",
     "dev": "pnpm build:web && CLOUDFLARE_LOAD_DEV_VARS_FROM_DOT_ENV=false wrangler dev",
-    "typecheck": "tsc --noEmit && tsc --noEmit -p web/tsconfig.json && tsc --noEmit -p web/tsconfig.sw.json && tsc --noEmit -p public/tsconfig.json && tsc --noEmit -p tsconfig.node.json",
+    "typecheck": "tsc --noEmit && tsc --noEmit -p web/tsconfig.json && tsc --noEmit -p web/tsconfig.sw.json && tsc --noEmit -p public/tsconfig.json && tsc --noEmit -p tsconfig.node.json && tsc --noEmit -p extension/tsconfig.json",
     "build": "pnpm build:web && pnpm build:prototype && CLOUDFLARE_LOAD_DEV_VARS_FROM_DOT_ENV=false wrangler deploy --dry-run --env=\"\" --outdir dist/worker",
     "test": "CLOUDFLARE_LOAD_DEV_VARS_FROM_DOT_ENV=false vitest run",
+    "types:fetcher": "wrangler types services/article-fetcher/src/worker-configuration.d.ts --config services/article-fetcher/wrangler.jsonc --include-runtime=false",
+    "check:fetch-gateway": "wrangler types services/article-fetcher/src/worker-configuration.d.ts --config services/article-fetcher/wrangler.jsonc --include-runtime=false --check && tsc --noEmit -p services/article-fetch-gateway/tsconfig.json && tsc --noEmit -p services/article-fetcher/tsconfig.json",
+    "build:fetcher:staging": "wrangler deploy --dry-run --config services/article-fetcher/wrangler.jsonc --env staging",
+    "build:fetcher:production": "wrangler deploy --dry-run --config services/article-fetcher/wrangler.jsonc --env production",
+    "test:fetch-gateway": "node --import tsx --test services/article-fetcher/test/*.test.ts services/article-fetch-gateway/test/*.test.ts",
     "db:migrate:local": "CLOUDFLARE_LOAD_DEV_VARS_FROM_DOT_ENV=false wrangler d1 migrations apply read-later --local",
     "db:migrate:remote": "CLOUDFLARE_LOAD_DEV_VARS_FROM_DOT_ENV=false wrangler d1 migrations apply read-later --remote",
     "build:web": "tsx scripts/build-web.ts",
+    "build:extension": "tsx scripts/build-extension.ts",
+    "test:extension:chromium": "pnpm build:extension && node scripts/extension-chromium-smoke.mjs",
+    "test:extension": "pnpm test:extension:chromium && node scripts/extension-e2e.mjs",
     "test:browser": "node --import tsx scripts/browser-smoke.mjs",
     "test:mobile": "node --import tsx scripts/mobile-smoke.mjs",
     "archive:rehearse": "tsx scripts/archive-rehearsal.ts",
@@ -37,6 +45,7 @@
     "@types/node": "22.20.4",
     "esbuild": "0.28.1",
     "playwright": "1.62.1",
+    "sharp": "0.35.4",
     "tsx": "4.23.15",
     "typescript": "5.9.3",
     "vitest": "4.1.11",
@@ -47,6 +56,6 @@
     "dompurify": "3.4.16",
     "linkedom": "0.18.13",
     "markdown-it": "15.0.2",
-    "yaml": "2.8.1"
+    "yaml": "2.8.3"
   }
 }
