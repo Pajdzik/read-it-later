@@ -492,23 +492,6 @@ button {
   height: 11px;
   stroke-width: 2.5;
 }
-.extraction-badge-pending {
-  width: 18px;
-  height: 18px;
-  display: inline-grid;
-  place-items: center;
-  padding: 0;
-  border-radius: 50%;
-}
-.extraction-badge-pending svg {
-  width: 11px;
-  height: 11px;
-  fill: none;
-  stroke: currentColor;
-  stroke-width: 2;
-  stroke-linecap: round;
-  stroke-linejoin: round;
-}
 .article-description {
   display: block;
   width: 100%;
@@ -1232,3 +1215,22 @@ body:has(#reader-dialog[open]) {
 #capture-preview-details summary { cursor: pointer; color: var(--muted, #65655b); }
 #capture-preview { margin-top: .75rem; max-height: 28rem; overflow: auto; }
 #capture-byte-count { text-align: right; margin: .2rem 0; }
+.extraction-badge[aria-label="Capturing Markdown"],
+.extraction-badge[aria-label="Capture retrying"] {
+  width: 18px;
+  height: 18px;
+  display: inline-grid;
+  place-items: center;
+  padding: 0;
+  border-radius: 50%;
+}
+.extraction-badge[aria-label="Capturing Markdown"] svg,
+.extraction-badge[aria-label="Capture retrying"] svg {
+  width: 11px;
+  height: 11px;
+  fill: none;
+  stroke: currentColor;
+  stroke-width: 2;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+}
