@@ -351,22 +351,18 @@ try {
   assert.equal(await page.locator(".article").count(), 51, "The second list page should append once without dropping the first page.");
   const entryActions = entryArticle.locator(".article-actions");
   const entryMetaRow = entryArticle.locator(".article-meta-row");
-  const entryRead = entryMetaRow.getByRole("button", { name: "Mark read", exact: true });
+  const entryRead = entryActions.getByRole("button", { name: "Mark read", exact: true });
   const entryEdit = entryActions.getByRole("button", { name: "Edit", exact: true });
   const entryOriginal = entryActions.getByRole("link", { name: "Open original" });
   const assertControlLayout = async () => {
-    assert.equal(await entryActions.locator("button, a").count(), 2, "Open original and Edit must share the action container.");
-    assert.equal(await entryMetaRow.locator("button").count(), 1, "Mark read must share the metadata row.");
-    const actionCenters = await Promise.all([entryEdit, entryOriginal].map(async (control) => {
+    assert.equal(await entryActions.locator("button, a").count(), 3, "Read, Edit, and Open original must share the action container.");
+    assert.equal(await entryMetaRow.locator("button").count(), 0, "Mark read must stay out of the metadata row.");
+    const actionCenters = await Promise.all([entryRead, entryEdit, entryOriginal].map(async (control) => {
       const bounds = await control.boundingBox();
       assert.ok(bounds, "Each article action must be visible.");
       return bounds.y + bounds.height / 2;
     }));
     assert.ok(Math.max(...actionCenters) - Math.min(...actionCenters) <= 3, "Article actions must stay on one row.");
-    const [readBounds, metaBounds] = await Promise.all([entryRead.boundingBox(), entryArticle.locator(".article-meta").boundingBox()]);
-    assert.ok(readBounds && metaBounds, "The read control and article metadata must be visible.");
-    assert.ok(Math.abs((readBounds.y + readBounds.height / 2) - (metaBounds.y + metaBounds.height / 2)) <= 3,
-      "The read control must stay inline with article metadata.");
   };
   const entryReadState = await page.evaluate(async (id) => (await (await fetch(`/api/articles/${id}`)).json()).article.readAt, entryFixture.id);
   await page.setViewportSize({ width: 1440, height: 1000 });
