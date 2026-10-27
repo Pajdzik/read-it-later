@@ -707,7 +707,6 @@ function renderArticle(article: Article) {
   link.target = "_blank";
   link.rel = "noopener noreferrer";
   link.addEventListener("click", (e) => e.stopPropagation());
-  if (description) main.append(description);
   const actions = el("div", undefined, "article-actions");
   const read = iconButton(
     article.readAt ? "Mark unread" : "Mark read",
@@ -719,7 +718,9 @@ function renderArticle(article: Article) {
   const edit = iconButton("Edit", "edit", "subtle edit-action");
   edit.addEventListener("click", () => openDetail(article));
   actions.append(edit, link);
-  main.append(title, metaRow, extractionBadge);
+  main.append(title);
+  if (description) main.append(description);
+  main.append(metaRow, extractionBadge);
   li.append(main, actions);
   return li;
 }
