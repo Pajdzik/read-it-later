@@ -65,7 +65,7 @@ test("adapter requires protocol v2 and preserves only valid trusted typed errors
   assert.equal(malformedLength.headers.get(FETCH_FAILURE_HEADER), "network_error");
 });
 
-test("adapter round-trips the exact 512 KiB raw limit and handles bodyless and redirect statuses", async () => {
+test("adapter round-trips the exact 2 MiB raw limit and handles bodyless and redirect statuses", async () => {
   const sourceBytes = new Uint8Array(MAX_SOURCE_BYTES).fill(0x5a);
   const response = await fetchViaContainer("https://news.example.com/", liveSignal(), async () => rawResponse(sourceBytes));
   assert.equal((await response.arrayBuffer()).byteLength, MAX_SOURCE_BYTES);
@@ -105,7 +105,7 @@ test("adapter cancels oversized gateway responses and deadlines hanging bindings
   let canceled = false;
   const oversized = await fetchViaContainer("https://news.example.com/", liveSignal(), async () => new Response(new ReadableStream({
     cancel() { canceled = true; },
-  }), { headers: { [FETCH_PROTOCOL_HEADER]: "2", "content-length": "800000" } }));
+  }), { headers: { [FETCH_PROTOCOL_HEADER]: "2", "content-length": String(MAX_SOURCE_BYTES + 1) } }));
   assert.equal(oversized.headers.get(FETCH_FAILURE_HEADER), "network_error");
   assert.equal(canceled, true);
 

@@ -8,7 +8,9 @@ The scheduled Worker processes one eligible D1 job per minute, with conditional 
 
 Details and the reader show capturing, retrying, ready, failed, and paused states. An open view polls while capture is pending and pauses in hidden tabs. The ready copy uses the existing sanitized reader, survives reload, and remains in version-2 exports. Reading never marks the article read automatically. A dirty editor draft remains available when a background copy arrives.
 
-The private Cloudflare Container executor accepts public complete UTF-8 HTML up to 512 KiB, parses with inert LinkeDOM/Defuddle without scripts, embedded requests, cookies, or third-party fallback APIs, and requires nonempty Markdown at most 256 KiB UTF-8. Manual redirects are bounded and validated. Blocked/authenticated/dynamic/non-HTML/oversized sources may require browser capture or paste/upload instead.
+The private Cloudflare Container executor accepts public complete UTF-8 HTML up to 2 MiB, parses with inert LinkeDOM/Defuddle without scripts, embedded requests, cookies, or third-party fallback APIs, and requires nonempty Markdown at most 256 KiB UTF-8. Manual redirects are bounded and validated. Blocked/authenticated/dynamic/non-HTML/oversized sources may require browser capture or paste/upload instead.
+
+The 2 MiB source bound accommodates large prerendered pages: the Cursor article `/blog/git-at-any-scale` returned 718,354 bytes with the capture user agent on 2026-10-27, after production recorded `source_too_large` for article `h4r92shc`. Extraction remains bounded by its existing five-second thread deadline and 256 KiB Markdown output limit.
 
 Background captures keep the compatible `source: "paste"` copy value. GitHub publishing remains an explicit separate action. The bookmarklet explicitly opts out of background extraction before saving its reviewed local draft, avoiding a race with server content.
 

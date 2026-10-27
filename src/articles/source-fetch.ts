@@ -1,14 +1,13 @@
 import type { Env } from "../contracts";
 import { failSourceFetch as fail, SourceFetchError, validateSourceTarget } from "./source-policy";
 import { FETCH_FAILURE_HEADER, isFetchErrorCode } from "../../fetcher/protocol";
-import { CONTAINER_STARTUP_TIMEOUT_MS, SOURCE_HOP_TIMEOUT_MS, SOURCE_TOTAL_TIMEOUT_MS } from "./capture-limits";
+import { CONTAINER_STARTUP_TIMEOUT_MS, MAX_SOURCE_HTML_BYTES, SOURCE_HOP_TIMEOUT_MS, SOURCE_TOTAL_TIMEOUT_MS } from "./capture-limits";
 
 export { SourceFetchError } from "./source-policy";
 export { validateSourceTarget as validateTarget } from "./source-policy";
 
 export type SourceFetchEnv = Pick<Env, "APP_ORIGIN" | "BACKGROUND_CAPTURE_ENABLED" | "ARTICLE_FETCHER">;
 
-const MAX_HTML_BYTES = 512 * 1024;
 const MAX_REDIRECTS = 3;
 
 export function isBackgroundCapturePaused(env: SourceFetchEnv): boolean {
@@ -49,7 +48,7 @@ async function readHtml(response: Response, signal: AbortSignal): Promise<string
     throw error;
   }
   const length = response.headers.get("content-length");
-  if (length && /^\d+$/.test(length) && Number(length) > MAX_HTML_BYTES) {
+  if (length && /^\d+$/.test(length) && Number(length) > MAX_SOURCE_HTML_BYTES) {
     await response.body?.cancel().catch(() => undefined);
     fail("source_too_large");
   }
@@ -65,7 +64,7 @@ async function readHtml(response: Response, signal: AbortSignal): Promise<string
       const { done, value } = await reader.read();
       if (done) break;
       size += value.byteLength;
-      if (size > MAX_HTML_BYTES) fail("source_too_large");
+      if (size > MAX_SOURCE_HTML_BYTES) fail("source_too_large");
       chunks.push(value);
     }
   } catch (error) {

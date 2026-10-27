@@ -109,14 +109,26 @@ describe("bounded source fetching", () => {
     await expectFetchError(fetchSourcePage("https://news.example.com/post", envWith(async () => new Response("   ", { headers: { "Content-Type": "text/html" } }))), "empty_source");
     const invalidUtf8 = new Response(new Uint8Array([60, 104, 116, 109, 108, 62, 0xff]), { headers: { "Content-Type": "text/html" } });
     await expectFetchError(fetchSourcePage("https://news.example.com/post", envWith(async () => invalidUtf8)), "invalid_encoding");
+    const bodyOfSize = (size: number) => {
+      const prefix = new TextEncoder().encode("<!doctype html><html><body><article>Cursor article fixture</article></body></html>");
+      const bytes = new Uint8Array(size).fill(0x20);
+      bytes.set(prefix);
+      return bytes;
+    };
+    const largeButAllowed = bodyOfSize(718_354);
+    const largeResult = await fetchSourcePage("https://news.example.com/large", envWith(async () => new Response(largeButAllowed, { headers: { "Content-Type": "text/html" } })));
+    expect(new TextEncoder().encode(largeResult.html).byteLength).toBe(718_354);
+    const atLimit = new Response(bodyOfSize(2 * 1024 * 1024), { headers: { "Content-Type": "text/html" } });
+    expect(new TextEncoder().encode((await fetchSourcePage("https://news.example.com/at-limit", envWith(async () => atLimit))).html).byteLength).toBe(2 * 1024 * 1024);
     const oversized = new Response(new ReadableStream<Uint8Array>({
       start(controller) {
-        controller.enqueue(new Uint8Array(512 * 1024));
+        controller.enqueue(bodyOfSize(2 * 1024 * 1024));
         controller.enqueue(new Uint8Array(1));
         controller.close();
       },
     }), { headers: { "Content-Type": "text/html" } });
     await expectFetchError(fetchSourcePage("https://news.example.com/post", envWith(async () => oversized)), "source_too_large");
+    await expectFetchError(fetchSourcePage("https://news.example.com/declared-oversized", envWith(async () => new Response("<html/>", { headers: { "Content-Type": "text/html", "Content-Length": String(2 * 1024 * 1024 + 1) } }))), "source_too_large");
   });
 
   it("bounds first-hop startup plus fetching even when a fetcher ignores abort", async () => {
