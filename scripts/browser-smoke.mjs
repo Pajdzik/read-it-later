@@ -346,9 +346,22 @@ try {
   await entryTitle.waitFor();
   assert.match(await entryTitle.getAttribute("href"), /^\/read\/[a-z0-9]{8}\/reader-entry-smoke$/,
     "Saved article titles must use the canonical short-ID readable path.");
+  assert.deepEqual(await entryArticle.locator(".article-main").evaluate((main) =>
+    Array.from(main.children, (child) => child.classList.contains("article-title") ? "title"
+      : child.classList.contains("article-description") ? "description"
+        : child.classList.contains("article-meta-row") ? "metadata" : "status")),
+  ["title", "description", "metadata", "status"],
+  "Article rows with a description must show the title before the description and metadata.");
   await page.getByRole("button", { name: "Show more" }).click();
   await page.waitForFunction(() => document.querySelectorAll("#articles .article").length === 51);
   assert.equal(await page.locator(".article").count(), 51, "The second list page should append once without dropping the first page.");
+  const noDescriptionArticle = page.locator(".article").filter({ hasText: "Synthetic final row" });
+  assert.deepEqual(await noDescriptionArticle.locator(".article-main").evaluate((main) =>
+    Array.from(main.children, (child) => child.classList.contains("article-title") ? "title"
+      : child.classList.contains("article-description") ? "description"
+        : child.classList.contains("article-meta-row") ? "metadata" : "status")),
+  ["title", "metadata", "status"],
+  "Article rows without a description must retain their title and metadata order.");
   const entryActions = entryArticle.locator(".article-actions");
   const entryMetaRow = entryArticle.locator(".article-meta-row");
   const entryRead = entryActions.getByRole("button", { name: "Mark read", exact: true });

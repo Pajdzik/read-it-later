@@ -720,6 +720,7 @@ function renderArticle(article: Article) {
   edit.addEventListener("click", () => openDetail(article));
   actions.append(read, edit, link);
   main.append(title, metaRow, extractionBadge);
+  if (description) title.after(description);
   li.append(main, actions);
   return li;
 }
