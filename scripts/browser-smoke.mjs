@@ -350,21 +350,27 @@ try {
   await page.waitForFunction(() => document.querySelectorAll("#articles .article").length === 51);
   assert.equal(await page.locator(".article").count(), 51, "The second list page should append once without dropping the first page.");
   const entryActions = entryArticle.locator(".article-actions");
-  const entryRead = entryActions.getByRole("button", { name: "Mark read", exact: true });
+  const entryMetaRow = entryArticle.locator(".article-meta-row");
+  const entryRead = entryMetaRow.getByRole("button", { name: "Mark read", exact: true });
   const entryEdit = entryActions.getByRole("button", { name: "Edit", exact: true });
   const entryOriginal = entryActions.getByRole("link", { name: "Open original" });
-  const assertActionRow = async () => {
-    assert.equal(await entryActions.locator("button, a").count(), 3, "Open original, Mark read, and Edit must share one action container.");
-    const centers = await Promise.all([entryRead, entryEdit, entryOriginal].map(async (control) => {
+  const assertControlLayout = async () => {
+    assert.equal(await entryActions.locator("button, a").count(), 2, "Open original and Edit must share the action container.");
+    assert.equal(await entryMetaRow.locator("button").count(), 1, "Mark read must share the metadata row.");
+    const actionCenters = await Promise.all([entryEdit, entryOriginal].map(async (control) => {
       const bounds = await control.boundingBox();
       assert.ok(bounds, "Each article action must be visible.");
       return bounds.y + bounds.height / 2;
     }));
-    assert.ok(Math.max(...centers) - Math.min(...centers) <= 3, "Article actions must stay on one row.");
+    assert.ok(Math.max(...actionCenters) - Math.min(...actionCenters) <= 3, "Article actions must stay on one row.");
+    const [readBounds, metaBounds] = await Promise.all([entryRead.boundingBox(), entryArticle.locator(".article-meta").boundingBox()]);
+    assert.ok(readBounds && metaBounds, "The read control and article metadata must be visible.");
+    assert.ok(Math.abs((readBounds.y + readBounds.height / 2) - (metaBounds.y + metaBounds.height / 2)) <= 3,
+      "The read control must stay inline with article metadata.");
   };
   const entryReadState = await page.evaluate(async (id) => (await (await fetch(`/api/articles/${id}`)).json()).article.readAt, entryFixture.id);
   await page.setViewportSize({ width: 1440, height: 1000 });
-  await assertActionRow();
+  await assertControlLayout();
   await page.screenshot({ path: "/tmp/potem-article-actions-desktop.png" });
   await entryTitle.click();
   const reader = page.locator("#reader-dialog");
@@ -452,7 +458,7 @@ try {
   const entryLead = entryArticle.getByRole("link", { name: "Read saved copy of Reader entry smoke" });
   await entryLead.waitFor();
   await page.setViewportSize({ width: 390, height: 844 });
-  await assertActionRow();
+  await assertControlLayout();
   await page.screenshot({ path: "/tmp/potem-article-actions-mobile.png" });
   await page.evaluate((id) => localStorage.setItem(`later-reading-position:${encodeURIComponent(id)}`, JSON.stringify({ revision: "replaced-copy-revision", block: 1, fraction: 0, scrollTop: 400 })), entryFixture.id);
   await entryLead.click();
