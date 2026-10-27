@@ -184,6 +184,10 @@ async function runProfile(name, browserType, device) {
   await context.unroute("**/api/session");
   await page.goto(base);
   await page.locator("#add-open").waitFor();
+  // Finish the initial authenticated list load before navigating to the share
+  // target. WebKit can report the in-flight same-origin fetch as an access
+  // control page error when navigation aborts it.
+  await page.locator("#loading").waitFor({ state: "hidden" });
 
   // Exercise the manifest's exact GET parameter names. The review dialog must
   // stay open with the candidate URL, and a reload before Save writes nothing.
