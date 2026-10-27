@@ -521,6 +521,7 @@ function renderArticleMeta(article: Article) {
   return meta;
 }
 function updateExtractionBadge(badge: HTMLElement, extraction?: ExtractionStatus) {
+  badge.classList.toggle("extraction-badge-pending", extractionIsPending(extraction));
   const ready = extraction?.state === "ready";
   const label = extraction?.paused ? "" : extractionLabel(extraction);
   badge.classList.toggle("extraction-badge-ready", ready);
