@@ -453,10 +453,19 @@ button {
 .article-title:hover {
   color: var(--green);
 }
+.article-meta-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+}
 .article-meta {
   margin: 5px 0 3px;
   color: var(--muted);
   font-size: 12px;
+}
+.article-meta-date {
+  opacity: 0.72;
 }
 .extraction-badge {
   display: inline-block;

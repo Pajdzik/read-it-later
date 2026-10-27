@@ -508,9 +508,17 @@ function extractionLabel(extraction?: ExtractionStatus) {
   if (extraction.paused) return "Capture paused";
   return extraction.state === "retry_wait" ? "Capture retrying" : "Capturing Markdown";
 }
-function articleMetaLabel(article: Article) {
-  const pausedLabel = article.extraction?.paused ? " · Capture paused" : "";
-  return `${sourceHost(article.url)}${article.author ? ` · By ${article.author}` : ""} · Saved ${dateLabel(article.createdAt)}${pausedLabel}`;
+function renderArticleMeta(article: Article) {
+  const meta = el("p", undefined, "article-meta");
+  meta.append(el("span", sourceHost(article.url), "article-meta-domain"));
+  if (article.author) {
+    meta.append(document.createTextNode(" · "));
+    meta.append(el("span", `By ${article.author}`));
+  }
+  meta.append(document.createTextNode(" · "));
+  meta.append(el("span", `Saved ${dateLabel(article.createdAt)}`, "article-meta-date"));
+  if (article.extraction?.paused) meta.append(document.createTextNode(" · Capture paused"));
+  return meta;
 }
 function extractionIsPending(extraction?: ExtractionStatus) {
   return Boolean(extraction && ["queued", "running", "retry_wait"].includes(extraction.state));
@@ -560,7 +568,7 @@ function scheduleExtractionPoll(article: Article) {
       const row = list.querySelector<HTMLElement>(`[data-id="${CSS.escape(article.id)}"]`);
       if (row) {
         const meta = row.querySelector<HTMLElement>(".article-meta");
-        if (meta) meta.textContent = articleMetaLabel({ ...article, extraction: result.extraction });
+        if (meta) meta.replaceWith(renderArticleMeta({ ...article, extraction: result.extraction }));
         const badge = row.querySelector<HTMLElement>(".extraction-badge");
         if (badge) {
           const label = result.extraction.paused ? "" : extractionLabel(result.extraction);
@@ -665,11 +673,8 @@ function renderArticle(article: Article) {
     if (event.button !== 0 || event.metaKey || event.ctrlKey || event.shiftKey || event.altKey) return;
     event.preventDefault(); void navigateToArticle(article.id, title);
   });
-  const meta = el(
-    "p",
-    articleMetaLabel(article),
-    "article-meta",
-  );
+  const metaRow = el("div", undefined, "article-meta-row");
+  const meta = renderArticleMeta(article);
   const extractionBadge = el("span", article.extraction?.paused ? "" : extractionLabel(article.extraction), "extraction-badge");
   extractionBadge.hidden = !extractionBadge.textContent;
   const description = article.description
@@ -689,7 +694,6 @@ function renderArticle(article: Article) {
   link.target = "_blank";
   link.rel = "noopener noreferrer";
   link.addEventListener("click", (e) => e.stopPropagation());
-  main.append(title, meta, extractionBadge);
   if (description) main.append(description);
   const actions = el("div", undefined, "article-actions");
   const read = iconButton(
@@ -698,9 +702,11 @@ function renderArticle(article: Article) {
     "read-action",
   );
   read.addEventListener("click", () => mutateRead(article, !article.readAt));
+  metaRow.append(meta, read);
   const edit = iconButton("Edit", "edit", "subtle edit-action");
   edit.addEventListener("click", () => openDetail(article));
-  actions.append(read, edit, link);
+  actions.append(edit, link);
+  main.append(title, metaRow, extractionBadge);
   li.append(main, actions);
   return li;
 }
