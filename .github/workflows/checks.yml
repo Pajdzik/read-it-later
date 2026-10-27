@@ -9,7 +9,10 @@ permissions:
   contents: read
 
 concurrency:
-  group: checks-${{ github.workflow }}-${{ github.ref }}
+  # Push and pull_request events for an open branch should share one run;
+  # otherwise a slower duplicate can leave a red aggregate check beside a
+  # successful run for the same commit.
+  group: checks-${{ github.workflow }}-${{ github.head_ref || github.ref_name }}
   cancel-in-progress: true
 
 jobs:
