@@ -522,14 +522,23 @@ function renderArticleMeta(article: Article) {
 }
 function updateExtractionBadge(badge: HTMLElement, extraction?: ExtractionStatus) {
   const ready = extraction?.state === "ready";
+  const failed = extraction?.state === "failed";
   const label = extraction?.paused ? "" : extractionLabel(extraction);
   badge.classList.toggle("extraction-badge-ready", ready);
+  badge.classList.toggle("extraction-badge-failed", failed);
   badge.hidden = !label;
   if (ready) {
     badge.setAttribute("role", "img");
     badge.setAttribute("aria-label", "Markdown ready");
     badge.title = "Markdown ready";
     badge.innerHTML = iconMarkup("mark-read");
+    return;
+  }
+  if (failed) {
+    badge.setAttribute("role", "img");
+    badge.setAttribute("aria-label", "Capture failed");
+    badge.title = "Capture failed";
+    badge.innerHTML = iconMarkup("capture-failed");
     return;
   }
   badge.removeAttribute("role");
@@ -647,9 +656,11 @@ function el<K extends keyof HTMLElementTagNameMap>(
   if (className) node.className = className;
   return node;
 }
-type IconName = "edit" | "external" | "mark-read" | "mark-unread";
+type IconName = "capture-failed" | "edit" | "external" | "mark-read" | "mark-unread";
 function iconMarkup(name: IconName): string {
   switch (name) {
+    case "capture-failed":
+      return '<svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="9" /><path d="M12 7v6m0 4h.01" /></svg>';
     case "edit":
       return '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="m4 16.5-.8 3.3 3.3-.8L18.7 6.8a2.3 2.3 0 0 0-3.3-3.3L4 16.5Z" /><path d="m13.9 5.1 5 5" /></svg>';
     case "external":
