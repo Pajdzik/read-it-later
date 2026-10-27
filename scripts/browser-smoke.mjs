@@ -1282,7 +1282,7 @@ try {
   await urlReader.getByRole("button", { name: "Close saved copy" }).click();
   await urlPage.locator("#detail-dialog .dialog-close button").click();
   const failedArticle = urlPage.locator(`.article[data-id="${failedFixture.id}"]`);
-  await failedArticle.locator(".extraction-badge").getByText("Capture failed").waitFor();
+  await failedArticle.getByRole("img", { name: "Capture failed" }).waitFor();
   await failedArticle.getByRole("link", { name: "Failed capture smoke", exact: true }).click();
   await urlReader.getByText(/The source site could not be reached/).waitFor();
   await urlReader.getByRole("button", { name: "Retry capture" }).click();
