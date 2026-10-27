@@ -521,12 +521,20 @@ function renderArticleMeta(article: Article) {
   return meta;
 }
 function updateExtractionBadge(badge: HTMLElement, extraction?: ExtractionStatus) {
+  badge.classList.toggle("extraction-badge-pending", extractionIsPending(extraction));
   const ready = extraction?.state === "ready";
   const failed = extraction?.state === "failed";
   const label = extraction?.paused ? "" : extractionLabel(extraction);
   badge.classList.toggle("extraction-badge-ready", ready);
   badge.classList.toggle("extraction-badge-failed", failed);
   badge.hidden = !label;
+  if (extractionIsPending(extraction)) {
+    badge.setAttribute("role", "img");
+    badge.setAttribute("aria-label", label);
+    badge.title = label;
+    badge.innerHTML = '<svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="8.5" /><path d="M12 7v5l3 2" /></svg>';
+    return;
+  }
   if (ready) {
     badge.setAttribute("role", "img");
     badge.setAttribute("aria-label", "Markdown ready");
