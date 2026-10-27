@@ -479,6 +479,19 @@ button {
   letter-spacing: .02em;
 }
 .extraction-badge[hidden] { display: none; }
+.extraction-badge-ready {
+  width: 18px;
+  height: 18px;
+  display: inline-grid;
+  place-items: center;
+  padding: 0;
+  border-radius: 50%;
+}
+.extraction-badge-ready svg {
+  width: 11px;
+  height: 11px;
+  stroke-width: 2.5;
+}
 .article-description {
   display: block;
   width: 100%;
@@ -492,6 +505,7 @@ button {
   font: inherit;
   font-size: 14px;
   line-height: 1.5;
+  text-decoration: none;
 }
 .article-lead {
   cursor: pointer;

@@ -948,6 +948,11 @@ try {
     await source.evaluate((href) => (0, eval)(href.slice("javascript:".length)), bookmarklet);
     const popup = await popupPromise;
     await popup.locator("#add-url").waitFor();
+    // The blocked-extractor path can return before the popup finishes its
+    // session initialization. Wait for the authenticated list load before
+    // submitting, otherwise the form can redirect to sign-in instead of
+    // saving the link.
+    await popup.locator("#loading").waitFor({ state: "hidden" });
     await popup.locator("#add-url").waitFor();
     return { source, popup, unexpectedRequests };
   };
