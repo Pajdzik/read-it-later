@@ -1259,7 +1259,9 @@ try {
   await urlPage.locator("#add-form button").click();
   await urlPage.locator("#notice").getByText(/Link saved\. Capturing Markdown in the background/).waitFor();
   const asyncArticle = urlPage.locator(`.article[data-id="${asyncFixture.id}"]`);
-  await asyncArticle.locator(".extraction-badge").getByText("Capturing Markdown").waitFor();
+  const pendingBadge = asyncArticle.locator(".extraction-badge");
+  await expect(pendingBadge).toHaveAttribute("aria-label", "Capturing Markdown");
+  await expect(pendingBadge.locator("svg")).toHaveCount(1);
   const urlReader = urlPage.locator("#reader-dialog");
   await asyncArticle.getByRole("link", { name: "Background capture smoke", exact: true }).click();
   await urlReader.locator("#reader-pending").waitFor({ state: "visible" });

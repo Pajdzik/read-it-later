@@ -522,9 +522,18 @@ function renderArticleMeta(article: Article) {
 }
 function updateExtractionBadge(badge: HTMLElement, extraction?: ExtractionStatus) {
   const ready = extraction?.state === "ready";
+  const pending = extractionIsPending(extraction);
   const label = extraction?.paused ? "" : extractionLabel(extraction);
   badge.classList.toggle("extraction-badge-ready", ready);
+  badge.classList.toggle("extraction-badge-pending", pending);
   badge.hidden = !label;
+  if (pending) {
+    badge.setAttribute("role", "img");
+    badge.setAttribute("aria-label", label);
+    badge.title = label;
+    badge.innerHTML = iconMarkup("capture-pending");
+    return;
+  }
   if (ready) {
     badge.setAttribute("role", "img");
     badge.setAttribute("aria-label", "Markdown ready");
@@ -647,7 +656,7 @@ function el<K extends keyof HTMLElementTagNameMap>(
   if (className) node.className = className;
   return node;
 }
-type IconName = "edit" | "external" | "mark-read" | "mark-unread";
+type IconName = "edit" | "external" | "mark-read" | "mark-unread" | "capture-pending";
 function iconMarkup(name: IconName): string {
   switch (name) {
     case "edit":
@@ -658,6 +667,8 @@ function iconMarkup(name: IconName): string {
       return '<svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="7" /></svg>';
     case "mark-read":
       return '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="m5 12 4.5 4.5L19 7" /></svg>';
+    case "capture-pending":
+      return '<svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="8.5" /><path d="M12 7v5l3 2" /></svg>';
   }
 }
 function iconButton(label: string, icon: IconName, className = "") {

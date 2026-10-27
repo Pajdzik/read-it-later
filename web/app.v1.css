@@ -492,6 +492,23 @@ button {
   height: 11px;
   stroke-width: 2.5;
 }
+.extraction-badge-pending {
+  width: 18px;
+  height: 18px;
+  display: inline-grid;
+  place-items: center;
+  padding: 0;
+  border-radius: 50%;
+}
+.extraction-badge-pending svg {
+  width: 11px;
+  height: 11px;
+  fill: none;
+  stroke: currentColor;
+  stroke-width: 2;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+}
 .article-description {
   display: block;
   width: 100%;
