@@ -80,6 +80,7 @@ export async function readerCompletionSmoke(context, base, sourceBase) {
     await expect.poll(() => patchCount, { message: "Only the failure and one retry should be submitted." }).toBe(2);
     release();
     await expect(page.locator("#notice")).toHaveText("Marked as read.");
+    await expect(page.locator("#last-opened")).toHaveAttribute("aria-label", "Picked for you");
     assert.equal(new URL(page.url()).pathname, "/");
     await expect(reader).not.toBeVisible();
     await expect(detail).not.toBeVisible();
@@ -101,6 +102,7 @@ export async function readerCompletionSmoke(context, base, sourceBase) {
     await page.screenshot({ path: "/tmp/potem-reader-completion-desktop-dark.png" });
     await toggle.click();
     await expect(page.locator("#notice")).toHaveText("Marked as unread.");
+    await expect(page.locator("#last-opened")).toHaveAttribute("aria-label", "Last opened");
     await expect(row(first.id)).toHaveCount(0);
     await page.reload();
     assert.equal(await page.evaluate(async (id) => (await (await fetch(`/api/articles/${id}`)).json()).article.readAt, first.id), null, "Marking unread must persist across reloads.");

@@ -31,6 +31,14 @@ export interface UpdateArticleInput {
 
 export interface SaveArticleCopyInput extends ArticleCopy {}
 
+export async function suggestArticle(db: D1Database, exclude?: string): Promise<{ article: Article | null; hasAlternative: boolean }> {
+  // Prefer a different article on shuffle, but keep the sole unread article available.
+  const { results } = await db.prepare(`SELECT id,url,title,author,description,created_at,updated_at,read_at
+    FROM articles WHERE read_at IS NULL
+    ORDER BY (id = ?) ASC, RANDOM() LIMIT 2`).bind(exclude ?? "").all<Record<string, unknown>>();
+  return { article: mapArticle(results[0] ?? null), hasAlternative: results.length > 1 };
+}
+
 function mapArticleCopy(row: Record<string, unknown> | null): ArticleCopy | null {
   if (!row) return null;
   return {

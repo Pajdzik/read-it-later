@@ -377,6 +377,11 @@ button {
 .last-opened-label { grid-column: 1 / -1; color: var(--muted); font-size: .82rem; }
 .last-opened-title { min-width: 0; color: var(--ink); font-weight: 650; overflow-wrap: anywhere; }
 .last-opened-title:hover { color: var(--green); }
+.last-opened-source { grid-column: 1; font-size: .82rem; overflow-wrap: anywhere; }
+.suggestion-shuffle { grid-column: 2; grid-row: 2 / 4; display: inline-flex; align-items: center; gap: 7px; justify-self: start; }
+.suggestion-shuffle svg { width: 16px; height: 16px; flex-shrink: 0; }
+.suggestion-shuffle[hidden], .last-opened-source[hidden] { display: none; }
+.suggestion-shuffle:disabled { opacity: .55; cursor: wait; }
 .last-opened-status { grid-column: 1 / -1; }
 .last-opened[hidden] { display: none; }
 .tabs {
@@ -1088,6 +1093,7 @@ body:has(#reader-dialog[open]) {
   .last-opened { grid-template-columns: 1fr; gap: 8px; }
   .last-opened-label { grid-column: auto; }
   .last-opened-status { grid-column: auto; }
+  .suggestion-shuffle { grid-column: 1; grid-row: auto; }
   .copy-editor textarea {
     min-height: 150px;
   }

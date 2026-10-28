@@ -241,14 +241,27 @@ function renderLastOpened() {
   const status = document.querySelector<HTMLElement>("#last-opened-status");
   if (!row || !link || !status) return;
   const scrollX = window.scrollX, scrollY = window.scrollY;
-  row.hidden = !state.session?.authenticated || (!lastOpenedArticle && !lastOpenedError);
-  link.hidden = !lastOpenedArticle;
-  status.hidden = !lastOpenedError;
-  status.textContent = lastOpenedError;
+  const inProgress = lastOpenedArticle && !lastOpenedArticle.readAt ? lastOpenedArticle : null;
+  const article = inProgress || (!lastOpenedError ? suggestedArticle : null);
+  const error = lastOpenedError || suggestionError;
+  const label = inProgress || lastOpenedError ? "Last opened" : "Picked for you";
+  row.hidden = !state.session?.authenticated || (!article && !error && !suggestionLoading);
+  row.setAttribute("aria-label", label);
+  row.setAttribute("aria-busy", String(suggestionLoading));
+  $("#last-opened-label").textContent = label;
+  link.hidden = !article;
+  status.hidden = !error && (!suggestionLoading || Boolean(article));
+  status.textContent = error || (suggestionLoading ? "Picking something from your unread articles…" : "");
   const retry = document.querySelector<HTMLButtonElement>("#last-opened-retry");
-  if (retry) retry.hidden = !lastOpenedError;
-  if (lastOpenedArticle) {
-    link.textContent = lastOpenedArticle.title; link.href = articlePath(lastOpenedArticle); link.dataset.articleId = lastOpenedArticle.id;
+  if (retry) retry.hidden = !error || suggestionLoading;
+  const shuffle = $<HTMLButtonElement>("#suggestion-shuffle");
+  shuffle.hidden = Boolean(inProgress || lastOpenedError || !suggestedArticle || !suggestionHasAlternative);
+  shuffle.disabled = suggestionLoading;
+  const source = $("#last-opened-source");
+  source.hidden = !article || Boolean(inProgress);
+  source.textContent = article && !inProgress ? `${sourceHost(article.url)}${article.author ? ` · ${article.author}` : ""}` : "";
+  if (article) {
+    link.textContent = article.title; link.href = articlePath(article); link.dataset.articleId = article.id;
     if (!link.dataset.navigationBound) {
       link.dataset.navigationBound = "true";
       link.addEventListener("click", (event) => {
@@ -256,31 +269,72 @@ function renderLastOpened() {
         event.preventDefault(); void navigateToArticle(link.dataset.articleId || "", link);
       });
     }
+  } else {
+    link.textContent = ""; link.removeAttribute("href"); delete link.dataset.articleId;
   }
   // Updating the shortcut above the list must not move its background view.
   window.scrollTo(scrollX, scrollY);
 }
+async function loadSuggestion(shuffle = false) {
+  if (!state.session?.authenticated || !lastOpenedReady || lastOpenedError ||
+      (lastOpenedArticle && !lastOpenedArticle.readAt) || suggestionLoading || ((suggestionLoaded || suggestionError) && !shuffle)) return;
+  const generation = ++suggestionFetchGeneration;
+  suggestionLoading = true;
+  suggestionError = "";
+  renderLastOpened();
+  try {
+    const query = shuffle && suggestedArticle ? `?exclude=${encodeURIComponent(suggestedArticle.id)}` : "";
+    const result = await request<{ article: Article | null; hasAlternative: boolean }>(`/api/articles/suggestion${query}`);
+    if (generation !== suggestionFetchGeneration) return;
+    suggestedArticle = result.article;
+    suggestionHasAlternative = result.hasAlternative;
+    suggestionLoaded = true;
+  } catch {
+    if (generation !== suggestionFetchGeneration) return;
+    suggestionError = "Couldn’t pick an article. Try again.";
+  } finally {
+    if (generation === suggestionFetchGeneration) {
+      suggestionLoading = false;
+      renderLastOpened();
+    }
+  }
+}
+function resetSuggestion() {
+  suggestionFetchGeneration++;
+  suggestedArticle = null;
+  suggestionLoaded = false;
+  suggestionLoading = false;
+  suggestionError = "";
+  suggestionHasAlternative = false;
+}
 async function loadLastOpened() {
   const generation = ++lastOpenedFetchGeneration;
   const id = readLastOpenedId();
-  if (!state.session?.authenticated || !id) { lastOpenedArticle = null; renderLastOpened(); return; }
+  if (!state.session?.authenticated || !id) {
+    lastOpenedArticle = null; lastOpenedError = ""; lastOpenedReady = true;
+    renderLastOpened(); void loadSuggestion(); return;
+  }
   try {
     const { article } = await request<{ article: Article }>(`/api/articles/${encodeURIComponent(id)}`);
     if (generation !== lastOpenedFetchGeneration || readLastOpenedId() !== id) return;
-    lastOpenedArticle = article; lastOpenedError = ""; renderLastOpened();
+    lastOpenedArticle = article; lastOpenedError = ""; lastOpenedReady = true;
+    renderLastOpened(); void loadSuggestion();
   } catch (error) {
     if (generation !== lastOpenedFetchGeneration) return;
     if ((error as Error & { status?: number }).status === 404) {
       try { localStorage.removeItem(lastOpenedStorageKey); } catch {}
       lastOpenedArticle = null; lastOpenedError = "";
     } else { lastOpenedArticle = null; lastOpenedError = "Couldn’t load the last opened article."; }
-    renderLastOpened();
+    lastOpenedReady = true;
+    renderLastOpened(); void loadSuggestion();
   }
 }
 function saveLastOpened(article: Article) {
   lastOpenedFetchGeneration++;
+  resetSuggestion();
   try { localStorage.setItem(lastOpenedStorageKey, JSON.stringify({ version: 1, articleId: article.id, openedAt: new Date().toISOString() })); } catch {}
-  lastOpenedArticle = article; lastOpenedError = ""; renderLastOpened();
+  lastOpenedArticle = article; lastOpenedError = ""; lastOpenedReady = true;
+  renderLastOpened(); void loadSuggestion();
 }
 function clearReaderLinkFeedback() {
   const input = document.querySelector<HTMLInputElement>("#reader-copy-fallback");
@@ -289,10 +343,11 @@ function clearReaderLinkFeedback() {
   if (status) status.textContent = "";
 }
 function clearLastOpened(id?: string) {
+  if (!id || suggestionLoading || suggestedArticle?.id === id) resetSuggestion();
   if (id && readLastOpenedId() !== id) return;
   lastOpenedFetchGeneration++;
   try { localStorage.removeItem(lastOpenedStorageKey); } catch {}
-  lastOpenedArticle = null; lastOpenedError = ""; renderLastOpened();
+  lastOpenedArticle = null; lastOpenedError = ""; lastOpenedReady = true; renderLastOpened();
 }
 function rememberReaderForAuthentication() {
   const route = parseReaderPath(location.pathname);
@@ -362,6 +417,13 @@ let readerArticleId: string | null = null;
 let lastOpenedFetchGeneration = 0;
 let lastOpenedArticle: Article | null = null;
 let lastOpenedError = "";
+let lastOpenedReady = false;
+let suggestedArticle: Article | null = null;
+let suggestionFetchGeneration = 0;
+let suggestionLoading = false;
+let suggestionLoaded = false;
+let suggestionHasAlternative = false;
+let suggestionError = "";
 let readerFromList = false;
 let readerReturnPending = false;
 let pendingReadCompletion: string | null = null;
@@ -798,6 +860,8 @@ async function load(reset = true) {
     if (generation !== loadGeneration) return;
     state.cursor = page.nextCursor;
     render(page.items, !reset);
+    if (reset && !suggestedArticle && !suggestionError) suggestionLoaded = false;
+    void loadSuggestion();
     return true;
   } catch (e) {
     if (generation !== loadGeneration) return;
@@ -823,10 +887,22 @@ async function saveReadState(article: Article, read: boolean): Promise<Article> 
   );
   return result.article;
 }
+function applyReadState(article: Article) {
+  if (state.selected?.id === article.id) state.selected = article;
+  if (lastOpenedArticle?.id === article.id || readLastOpenedId() === article.id) {
+    lastOpenedFetchGeneration++;
+    lastOpenedArticle = article;
+    lastOpenedReady = true;
+    lastOpenedError = "";
+  }
+  if (suggestionLoading || (suggestedArticle?.id === article.id && article.readAt)) resetSuggestion();
+  renderLastOpened();
+  void loadSuggestion();
+}
 async function mutateRead(article: Article, read: boolean) {
   try {
     const updated = await saveReadState(article, read);
-    if (state.selected?.id === article.id) state.selected = updated;
+    applyReadState(updated);
     await load();
     if (state.selected?.id === article.id) renderDetail(state.selected);
   } catch (e) {
@@ -865,6 +941,10 @@ function renderDetail(article: Article) {
       state.selected = result.article;
       if (lastOpenedArticle?.id === result.article.id || readLastOpenedId() === result.article.id) {
         lastOpenedArticle = result.article;
+        renderLastOpened();
+      }
+      if (suggestedArticle?.id === result.article.id) {
+        suggestedArticle = result.article;
         renderLastOpened();
       }
       if (readerArticleId === result.article.id) {
@@ -1238,7 +1318,7 @@ $("#reader-read-toggle").addEventListener("click", async () => {
   try {
     const updated = await saveReadState(article, !article.readAt);
     if (!isCurrent()) return;
-    state.selected = updated;
+    applyReadState(updated);
     pendingReadCompletion = updated.readAt ? "Marked as read." : "Marked as unread.";
     if (listSnapshot && !listSnapshot.focusArticleId) {
       listSnapshot = { ...listSnapshot, focus: null, focusArticleId: article.id, focusKind: "title" };
@@ -1392,6 +1472,12 @@ function restoreReaderFocus(opener = readerReturnFocus) {
 }
 function discardPrivateContent() {
   pendingReadCompletion = null;
+  lastOpenedFetchGeneration++;
+  lastOpenedArticle = null;
+  lastOpenedError = "";
+  lastOpenedReady = false;
+  resetSuggestion();
+  renderLastOpened();
   clearReader();
   const detailDialog = $<HTMLDialogElement>("#detail-dialog");
   if (detailDialog.open) detailDialog.close();
@@ -1472,7 +1558,7 @@ async function openArticleById(id: string) {
   } catch (error) {
     if (generation !== readerLoadGeneration) return;
     const status = (error as Error & { status?: number }).status;
-    if (status === 404) clearLastOpened(id);
+    if (status === 404) { clearLastOpened(id); void loadSuggestion(); }
     showNotice(status === 404 ? "This article is no longer in your library." : `Couldn’t open the saved article. ${(error as Error).message}`, true);
     if (status === 404) {
       const back = el("a", "Back to list"); back.href = "/";
@@ -1533,7 +1619,11 @@ window.addEventListener("popstate", () => {
   restoreListView();
 });
 const lastOpenedRetry = document.querySelector<HTMLButtonElement>("#last-opened-retry");
-lastOpenedRetry?.addEventListener("click", () => void loadLastOpened());
+lastOpenedRetry?.addEventListener("click", () => {
+  if (lastOpenedError) void loadLastOpened();
+  else void loadSuggestion(true);
+});
+$("#suggestion-shuffle").addEventListener("click", () => void loadSuggestion(true));
 const reconcileGitHubButton = document.querySelector<HTMLButtonElement>("#github-reconcile");
 reconcileGitHubButton?.addEventListener("click", async () => {
   if (!state.session?.authenticated || !reconcileGitHubButton) return;
