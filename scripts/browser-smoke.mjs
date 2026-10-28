@@ -7,6 +7,7 @@ import path from "node:path";
 import assert from "node:assert/strict";
 import net from "node:net";
 import { createServer } from "node:http";
+import { checkReadingSuggestion } from "./reading-suggestion-smoke.mjs";
 
 const storage = await mkdtemp(path.join(os.tmpdir(), "read-later-smoke-"));
 const portServer = net.createServer();
@@ -104,6 +105,7 @@ try {
       ? { executablePath: process.env.BROWSER_EXECUTABLE }
       : {}),
   });
+  await checkReadingSuggestion(browser, base);
   const context = await browser.newContext({
     viewport: { width: 1440, height: 1000 },
   });
