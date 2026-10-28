@@ -336,12 +336,6 @@ function saveLastOpened(article: Article) {
   lastOpenedArticle = article; lastOpenedError = ""; lastOpenedReady = true;
   renderLastOpened(); void loadSuggestion();
 }
-function clearReaderLinkFeedback() {
-  const input = document.querySelector<HTMLInputElement>("#reader-copy-fallback");
-  if (input) { input.value = ""; input.hidden = true; }
-  const status = document.querySelector<HTMLElement>("#reader-copy-status");
-  if (status) status.textContent = "";
-}
 function clearLastOpened(id?: string) {
   if (!id || suggestionLoading || suggestedArticle?.id === id) resetSuggestion();
   if (id && readLastOpenedId() !== id) return;
@@ -1338,7 +1332,6 @@ $("#reader-read-toggle").addEventListener("click", async () => {
 });
 function openReader(article: Article, copy: ArticleCopy, opener?: HTMLElement) {
   if (state.selected?.id !== article.id) return;
-  clearReaderLinkFeedback();
   if (readerPositionContext && (readerPositionContext.id !== article.id || readerPositionContext.revision !== copy.revision)) saveReadingPosition();
   const title = $("#reader-title");
   const author = $("#reader-author");
@@ -1438,7 +1431,6 @@ $("#reader-retry").addEventListener("click", async () => {
 });
 function clearReader() {
   resetReaderCompletion();
-  clearReaderLinkFeedback();
   saveReadingPosition();
   readerPositionContext = null;
   readerLoadGeneration++;
@@ -1638,26 +1630,6 @@ reconcileGitHubButton?.addEventListener("click", async () => {
   } finally { reconcileGitHubButton.disabled = false; }
 });
 $("#add-dialog").addEventListener("close", () => window.setTimeout(resumePendingReader, 0));
-const copyArticleLinkButton = document.querySelector<HTMLButtonElement>("#reader-copy-link");
-copyArticleLinkButton?.addEventListener("click", async () => {
-  const article = state.selected;
-  if (!article || readerArticleId !== article.id) return;
-  const articleId = article.id;
-  const input = document.querySelector<HTMLInputElement>("#reader-copy-fallback");
-  const status = document.querySelector<HTMLElement>("#reader-copy-status");
-  const url = new URL(articlePath(article), location.origin).href;
-  try {
-    if (!navigator.clipboard?.writeText) throw new Error("Clipboard unavailable");
-    await navigator.clipboard.writeText(url);
-    if (readerArticleId !== articleId || state.selected?.id !== articleId) return;
-    if (input) input.hidden = true;
-    if (status) status.textContent = "Article link copied.";
-  } catch {
-    if (readerArticleId !== articleId || state.selected?.id !== articleId) return;
-    if (input) { input.value = url; input.hidden = false; input.focus(); input.select(); }
-    if (status) status.textContent = "Clipboard unavailable. The article link is selected for copying.";
-  }
-});
 async function openSavedCopy(article: Article, opener?: HTMLElement) {
   ensureReaderOpener(opener);
   const generation = ++readerLoadGeneration;

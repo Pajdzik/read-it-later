@@ -917,18 +917,6 @@ button {
   color: var(--muted);
   font-size: 13px;
 }
-.reader-share {
-  display: flex;
-  align-items: baseline;
-  flex-wrap: wrap;
-  gap: 4px 12px;
-  margin-top: 10px;
-  font-size: 13px;
-}
-.reader-copy-link { border: 0; padding: 0; color: var(--green); background: none; font: inherit; cursor: pointer; }
-.reader-copy-fallback { display: block; width: min(100%, 34rem); margin-top: 8px; }
-.reader-copy-fallback[hidden] { display: none; }
-.reader-share .muted { overflow-wrap: anywhere; }
 .reader-about summary {
   width: fit-content;
   min-height: 36px;
@@ -1023,6 +1011,11 @@ button {
 .reader-body ol,
 .reader-body blockquote {
   margin: 0 0 1.15em;
+}
+.reader-body p,
+.reader-body li,
+.reader-body blockquote {
+  text-align: justify;
 }
 .reader-body blockquote {
   margin-inline: 0;

@@ -397,11 +397,6 @@ try {
     "Opening a title should navigate to its canonical readable URL.");
   assert.match(canonicalReaderUrl, /^http:\/\/127\.0\.0\.1:[0-9]+\/read\/[a-z0-9]{8}\/reader-entry-smoke$/);
   assert.equal(await page.title(), "Reader entry smoke · Potem", "The reader tab title must identify the open article.");
-  await reader.getByRole("button", { name: "Copy article link" }).click();
-  await page.locator("#reader-copy-status").getByText(/copied|selected for copying/i).waitFor();
-  if (await page.locator("#reader-copy-fallback").isVisible())
-    assert.equal(await page.locator("#reader-copy-fallback").inputValue(), canonicalReaderUrl,
-      "Copy article link must expose the canonical URL when clipboard access is unavailable.");
   assert.equal(await page.evaluate(async (id) => (await (await fetch(`/api/articles/${id}`)).json()).article.readAt, entryFixture.id), entryReadState, "Opening a title must not change read state.");
   await page.keyboard.press("Escape");
   await reader.waitFor({ state: "hidden" });
