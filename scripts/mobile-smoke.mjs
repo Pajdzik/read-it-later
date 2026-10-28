@@ -118,7 +118,31 @@ async function runProfile(name, browserType, device) {
   const context = await browser.newContext({ ...device, serviceWorkers: "allow" });
   const page = await context.newPage();
   const errors = [];
-  page.on("pageerror", (error) => errors.push(error.message));
+  const failedRequests = [];
+  const pendingListRequests = new Set();
+  page.on("request", (request) => {
+    if (request.method() === "GET" && new URL(request.url()).pathname === "/api/articles") pendingListRequests.add(request);
+  });
+  page.on("requestfinished", (request) => pendingListRequests.delete(request));
+  page.on("pageerror", (error) => errors.push({ message: error.message, stack: error.stack, url: page.url() }));
+  page.on("requestfailed", (request) => {
+    pendingListRequests.delete(request);
+    failedRequests.push({ url: request.url(), error: request.failure()?.errorText });
+  });
+  const waitForListIdle = async () => {
+    // WebKit can report a same-origin fetch as an access-control page error
+    // when navigation or the offline simulation aborts it.
+    await expect(page.locator("#loading")).toBeHidden();
+    await expect.poll(() => pendingListRequests.size, { message: `${name}: list requests must settle before navigation or going offline.` }).toBe(0);
+  };
+  const navigate = async (url) => {
+    if (page.url() !== "about:blank") await waitForListIdle();
+    await page.goto(url);
+  };
+  const reload = async () => {
+    await waitForListIdle();
+    await page.reload();
+  };
   const screenshot = (suffix) => `/tmp/read-it-later-mobile-${name}-${suffix}.png`;
 
   // A share target is safe navigation: the manifest values prefill the form,
@@ -154,7 +178,7 @@ async function runProfile(name, browserType, device) {
   await context.route("**/api/session", (route) => route.fulfill({
     status: 200, contentType: "application/json", body: JSON.stringify({ authenticated: false }),
   }));
-  await page.goto(base);
+  await navigate(base);
   const signIn = page.locator("#library-sign-in");
   await signIn.waitFor({ state: "visible" });
   const signInBounds = await signIn.boundingBox();
@@ -182,12 +206,8 @@ async function runProfile(name, browserType, device) {
   await logoutPage.locator("#sign-in-prompt").waitFor({ state: "visible" });
   await logoutContext.close();
   await context.unroute("**/api/session");
-  await page.goto(base);
+  await navigate(base);
   await page.locator("#add-open").waitFor();
-  // Finish the initial authenticated list load before navigating to the share
-  // target. WebKit can report the in-flight same-origin fetch as an access
-  // control page error when navigation aborts it.
-  await page.locator("#loading").waitFor({ state: "hidden" });
 
   // Exercise the manifest's exact GET parameter names. The review dialog must
   // stay open with the candidate URL, and a reload before Save writes nothing.
@@ -198,7 +218,7 @@ async function runProfile(name, browserType, device) {
     [shareParams.title]: shareTitle,
     [shareParams.text]: `${shareTitle} ${shareUrl}`,
   });
-  await page.goto(`${base}${manifest.share_target.action}?${shareQuery}`);
+  await navigate(`${base}${manifest.share_target.action}?${shareQuery}`);
   await page.locator("#add-url").waitFor();
   assert.equal(await page.locator("#add-dialog").evaluate((dialog) => dialog.open), true);
   assert.equal(await page.locator("#add-url").inputValue(), shareUrl);
@@ -218,14 +238,14 @@ async function runProfile(name, browserType, device) {
   const ambiguousQuery = new URLSearchParams({
     [shareParams.text]: "Compare https://example.com/first and https://example.com/second",
   });
-  await page.goto(`${base}${manifest.share_target.action}?${ambiguousQuery}`);
+  await navigate(`${base}${manifest.share_target.action}?${ambiguousQuery}`);
   await page.locator("#add-dialog").waitFor({ state: "visible" });
   assert.equal(await page.locator("#add-url").inputValue(), "");
   await page.locator("#add-notice").waitFor({ state: "visible" });
   await page.screenshot({ path: screenshot("portrait-ambiguous-share") });
   assert.match((await page.locator("#add-notice").textContent()) || "", /clear link/i,
     `${name}: ambiguous share notice was missing.`);
-  await page.goto(`${base}${manifest.share_target.action}?${shareQuery}`);
+  await navigate(`${base}${manifest.share_target.action}?${shareQuery}`);
   await page.locator("#add-url").waitFor();
 
   await page.locator("#add-capture-markdown").check();
@@ -405,6 +425,9 @@ async function runProfile(name, browserType, device) {
   await page.locator("#add-url").fill(retryUrl);
   await page.locator("#add-title").fill(retryTitle);
   await page.locator("#add-capture-markdown").uncheck();
+  // WebKit reports aborted background list fetches as access-control errors.
+  // The failure scenario should interrupt only the intentional save request.
+  await waitForListIdle();
   await context.setOffline(true);
   await page.locator("#add-form button").tap();
   await page.waitForFunction(() => document.querySelector("#add-notice")?.textContent?.includes("Couldn’t save this link"));
@@ -431,7 +454,7 @@ async function runProfile(name, browserType, device) {
     return pageData.items.find((item) => item.id === id)?.readAt;
   }, articleId);
   assert.ok(readAtAfterSave);
-  await page.reload();
+  await reload();
   await page.locator('[data-status="read"]').tap();
   await page.locator("#search-toggle").tap();
   await page.locator("#articles").getByRole("link", { name: shareTitle, exact: true }).waitFor();
@@ -459,7 +482,7 @@ async function runProfile(name, browserType, device) {
   await page.locator('[data-status="all"]').tap();
   await article.getByRole("button", { name: "Mark unread" }).tap();
   await article.getByRole("button", { name: "Mark read" }).waitFor();
-  await page.reload();
+  await reload();
   await page.locator('[data-status="unread"]').tap();
   await article.getByRole("button", { name: "Mark read" }).waitFor();
   assert.equal(await page.evaluate(async (id) => {
@@ -510,7 +533,7 @@ async function runProfile(name, browserType, device) {
   }, articleId), null, `${name}: opening the saved title changed read state.`);
   await page.locator("#reader-dialog .reader-close button").tap();
   await waitForList(detail.getByRole("button", { name: "Read saved copy" }));
-  await page.reload();
+  await reload();
   await page.locator('[data-status="unread"]').tap();
   await titleButton.waitFor();
   await titleButton.tap();
@@ -635,7 +658,7 @@ async function runProfile(name, browserType, device) {
   await page.screenshot({ path: screenshot("short-portrait-settings") });
   await page.locator("#settings-dialog .dialog-close button").tap();
 
-  assert.deepEqual(errors, [], `${name}: browser runtime errors.`);
+  assert.deepEqual(errors, [], `${name}: browser runtime errors. Failed requests: ${JSON.stringify(failedRequests)}`);
   console.log(`${name}: ${browser.version()} passed (${device.viewport.width}x${device.viewport.height} device profile, touch, portrait/landscape/short viewports).`);
   await context.close();
 }
