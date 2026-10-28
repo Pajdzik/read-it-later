@@ -977,6 +977,29 @@ button {
   overflow-wrap: anywhere;
 }
 .reader-body > :first-child { margin-top: 0; }
+.reader-completion {
+  margin-top: 24px;
+  padding-top: 24px;
+  border-top: 1px solid var(--line);
+}
+.reader-completion .button {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  min-height: 44px;
+}
+.reader-completion svg {
+  width: 20px;
+  height: 20px;
+  fill: none;
+  stroke: currentColor;
+  stroke-width: 1.8;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+}
+[data-theme="dark"] .reader-completion .primary { color: var(--paper); }
+.reader-completion .notice { margin-bottom: 0; }
 .reader-body h1,
 .reader-body h2,
 .reader-body h3,
@@ -1080,6 +1103,7 @@ body:has(#reader-dialog[open]) {
   .reader-content-column { padding-top: 12px; }
   .reader-header { margin-bottom: 14px; }
   .reader-header h2 { font-size: clamp(26px, 8vw, 32px); }
+  .reader-completion .button { width: 100%; }
   .reader-body {
     font-size: 17px;
     line-height: 1.68;

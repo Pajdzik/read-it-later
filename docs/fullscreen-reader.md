@@ -17,6 +17,8 @@ Opening an article replaces the library visually with an edge-to-edge reading su
 │             Article text begins here.        │
 │             One uninterrupted scroll.        │
 │             …                                │
+│             ────────────────────             │
+│             ✓ Mark as read                    │  end-of-article action
 └──────────────────────────────────────────────┘
 ```
 
@@ -26,6 +28,12 @@ Opening an article replaces the library visually with an edge-to-edge reading su
 - Typography: retain Georgia for the title and body, system sans for controls and metadata. Body is 18px with roughly 1.7 line height on desktop and 17px on phones. Keep title sizing responsive and avoid an empty band above it. Remove the body's first-child top margin.
 - Secondary information: put capture metadata and the image-reference explanation in a native `details` disclosure labeled “About this copy,” collapsed each time another article opens. Keep source access visible in the toolbar. The article should begin within roughly the first 220px on a phone with an ordinary two-line title.
 - Scrolling: the dialog is the single vertical scroll container, sized to `100dvh` with a `100vh` fallback. Lock background page scrolling only while the reader is open. Code and tables scroll horizontally within the column; long URLs wrap. Short landscape screens must still allow reading and exiting.
+
+## End-of-article action
+
+After a saved copy's final paragraph, show **Mark as read**, or **Mark as unread** for a read article. The footer shares the reading column, with a thin divider and 24px spacing. Its green button has a visible label and state icon, a minimum 44px height, accessible light/dark colors, and full column width on phones. It scrolls with the article and is hidden until a copy loads successfully.
+
+Clicking explicitly saves the new state through the existing article PATCH endpoint. Disable the button and show **Saving…** while pending. After confirmation, close the reader and any underlying editor, return to the library, refresh its existing filter/search and loaded-page depth, and announce the saved state. Preserve scroll where possible; focus the article if still present, otherwise the active filter. Markdown editor drafts remain available when reopening details. A failed save keeps the reader and its position, with an inline error and retry through the same button. A failed library refresh after a successful save reports the successful change separately and offers a refresh retry. Responses from a closed or replaced reader cannot affect the current reader. Opening or scrolling a copy never changes read state.
 
 ## Behavior and validation
 

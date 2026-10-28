@@ -256,6 +256,7 @@ async function runProfile(name, browserType, device) {
   await titleButton.tap();
   const pendingReader = page.locator("#reader-dialog");
   await pendingReader.locator("#reader-pending").waitFor({ state: "visible" });
+  await expect(pendingReader.locator("#reader-completion")).toBeHidden();
   assert.equal(new URL(page.url()).pathname, await titleButton.getAttribute("href"),
     `${name}: opening a saved link should navigate to its canonical article path.`);
   const pendingReaderBounds = await pendingReader.boundingBox();
@@ -519,8 +520,41 @@ async function runProfile(name, browserType, device) {
     const pageData = await fetch("/api/articles?status=all", { cache: "no-store" }).then((response) => response.json());
     return pageData.items.find((item) => item.id === id)?.readAt;
   }, articleId), null, `${name}: reopening a persisted reader changed read state.`);
-  await page.locator("#reader-dialog .reader-close button").tap();
-  await waitForList(titleButton);
+  const completion = readyReader.locator("#reader-completion");
+  const completionToggle = readyReader.locator("#reader-read-toggle");
+  await expect(completionToggle).toHaveText("Mark as read");
+  await readyReader.evaluate((dialog) => { dialog.scrollTop = dialog.scrollHeight; });
+  const completionMetrics = await completion.evaluate((footer) => ({
+    left: footer.getBoundingClientRect().left,
+    width: footer.getBoundingClientRect().width,
+    button: footer.querySelector("button").getBoundingClientRect().toJSON(),
+    top: footer.getBoundingClientRect().top,
+    bodyBottom: document.querySelector("#reader-body").getBoundingClientRect().bottom,
+  }));
+  assert.ok(completionMetrics.button.height >= 44 && Math.abs(completionMetrics.width - completionMetrics.button.width) < 1 &&
+    completionMetrics.top >= completionMetrics.bodyBottom + 23,
+    `${name}: completion button must follow the article and fill the mobile column: ${JSON.stringify(completionMetrics)}`);
+  await page.emulateMedia({ reducedMotion: "reduce" });
+  for (const theme of ["light", "dark"]) {
+    await page.evaluate((value) => document.documentElement.setAttribute("data-theme", value), theme);
+    await page.evaluate(() => new Promise((resolve) => requestAnimationFrame(() => requestAnimationFrame(resolve))));
+    await readyReader.evaluate((dialog) => { dialog.scrollTop = dialog.scrollHeight; });
+    await page.screenshot({ path: screenshot(`portrait-reader-completion-${theme}`) });
+  }
+  await page.emulateMedia({ reducedMotion: "no-preference" });
+  await completionToggle.tap();
+  await expect(page.locator("#notice")).toHaveText("Marked as read.");
+  assert.ok(!new URL(page.url()).pathname.startsWith("/read/"), `${name}: marking read should return to the library.`);
+  await expect(readyReader).not.toBeVisible();
+  await expect(titleButton).toHaveCount(0);
+  await page.locator('[data-status="read"]').tap();
+  await titleButton.tap();
+  await expect(completionToggle).toHaveText("Mark as unread");
+  await completionToggle.tap();
+  await expect(page.locator("#notice")).toHaveText("Marked as unread.");
+  await expect(titleButton).toHaveCount(0);
+  await page.locator('[data-status="unread"]').tap();
+  await titleButton.waitFor();
 
   // Narrow and short landscape layouts must keep the Add and navigation
   // controls reachable by touch without document-level horizontal scrolling.
