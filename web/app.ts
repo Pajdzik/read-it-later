@@ -734,11 +734,11 @@ function renderArticle(article: Article) {
     "read-action",
   );
   read.addEventListener("click", () => mutateRead(article, !article.readAt));
-  metaRow.append(meta);
+  metaRow.append(meta, extractionBadge);
   const edit = iconButton("Edit", "edit", "subtle edit-action");
   edit.addEventListener("click", () => openDetail(article));
   actions.append(read, edit, link);
-  main.append(title, metaRow, extractionBadge);
+  main.append(title, metaRow);
   if (description) title.after(description);
   li.append(main, actions);
   return li;
