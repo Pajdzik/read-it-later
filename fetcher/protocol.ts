@@ -1,5 +1,7 @@
+import { MAX_SOURCE_HTML_BYTES } from "../src/articles/capture-limits.js";
+
 export const PROTOCOL_VERSION = 2;
-export const MAX_SOURCE_BYTES = 512 * 1024;
+export const MAX_SOURCE_BYTES = MAX_SOURCE_HTML_BYTES;
 export const MAX_MESSAGE_BYTES = 12 * 1024;
 export const MAX_RESPONSE_BYTES = MAX_SOURCE_BYTES;
 export const MAX_TARGET_BYTES = 8 * 1024;
