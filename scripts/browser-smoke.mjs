@@ -7,6 +7,7 @@ import path from "node:path";
 import assert from "node:assert/strict";
 import net from "node:net";
 import { createServer } from "node:http";
+import { readerCompletionSmoke } from "./reader-completion-smoke.mjs";
 import { checkReadingSuggestion } from "./reading-suggestion-smoke.mjs";
 
 const storage = await mkdtemp(path.join(os.tmpdir(), "read-later-smoke-"));
@@ -1280,6 +1281,7 @@ try {
   const urlReader = urlPage.locator("#reader-dialog");
   await asyncArticle.getByRole("link", { name: "Background capture smoke", exact: true }).click();
   await urlReader.locator("#reader-pending").waitFor({ state: "visible" });
+  await expect(urlReader.locator("#reader-completion")).toBeHidden();
   await urlReader.getByText(/being prepared in the background/).waitFor();
   await urlPage.setViewportSize({ width: 390, height: 844 });
   assert.equal(await urlPage.evaluate(() => document.documentElement.scrollWidth > innerWidth), false, "The pending reader must fit a phone screen.");
@@ -1360,6 +1362,7 @@ try {
   await urlPage.unroute(`**/api/articles/${failedFixture.id}/extraction/retry`);
   await urlPage.unroute("**/api/articles?*");
   await urlContext.close();
+  await readerCompletionSmoke(context, base, sourceBase);
   const cachedPaths = await page.evaluate(async () => {
     const paths = [];
     for (const name of await caches.keys()) {

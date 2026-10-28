@@ -185,21 +185,44 @@ function rememberListView(opener?: HTMLElement) {
   listSnapshot = { scrollY: window.scrollY, cursor: state.cursor, pageCount: Math.max(1, Math.ceil(list.children.length / 50)), focus: active, focusArticleId: article?.dataset.id || null, focusKind: active?.classList.contains("article-lead") ? "lead" : article ? "title" : "other", status: state.status, query: state.query, rowCount: list.children.length };
 }
 async function restoreListView() {
-  if (!listSnapshot) return;
+  const completion = pendingReadCompletion;
+  pendingReadCompletion = null;
+  if (!listSnapshot && !completion) return;
   const snapshot = listSnapshot;
-  state.status = snapshot.status;
-  state.query = snapshot.query;
-  $<HTMLInputElement>("#search").value = snapshot.query;
-  document.querySelectorAll<HTMLButtonElement>("[data-status]").forEach((button) => button.setAttribute("aria-pressed", String(button.dataset.status === snapshot.status)));
-  if (list.children.length !== snapshot.rowCount) {
-    await load();
-    for (let page = 1; page < snapshot.pageCount && state.cursor; page++) await load(false);
+  if (snapshot) {
+    state.status = snapshot.status;
+    state.query = snapshot.query;
+    $<HTMLInputElement>("#search").value = snapshot.query;
+    document.querySelectorAll<HTMLButtonElement>("[data-status]").forEach((button) => button.setAttribute("aria-pressed", String(button.dataset.status === snapshot.status)));
   }
-  window.scrollTo(0, snapshot.scrollY);
-  const fallback = snapshot.focusArticleId
+  let refreshed = true;
+  if (completion || (snapshot && list.children.length !== snapshot.rowCount)) {
+    refreshed = await load() === true;
+    for (let page = 1; refreshed && page < (snapshot?.pageCount || 1) && state.cursor; page++) {
+      if (parseReaderPath(location.pathname)) return;
+      refreshed = await load(false) === true;
+    }
+  }
+  if (parseReaderPath(location.pathname)) return;
+  const fallback = snapshot?.focusArticleId
     ? list.querySelector<HTMLElement>(`.article[data-id="${CSS.escape(snapshot.focusArticleId)}"] .${snapshot.focusKind === "lead" ? "article-lead" : "article-title"}`)
     : null;
-  const target = snapshot.focus?.isConnected ? snapshot.focus : fallback || document.querySelector<HTMLElement>("#last-opened-title") || document.querySelector<HTMLElement>("[data-status][aria-pressed='true']") || document.querySelector<HTMLElement>("#search");
+  const target = !completion && snapshot?.focus?.isConnected ? snapshot.focus : fallback || (!completion && document.querySelector<HTMLElement>("#last-opened-title")) || document.querySelector<HTMLElement>("[data-status][aria-pressed='true']") || document.querySelector<HTMLElement>("#search");
+  if (completion) {
+    showNotice(refreshed ? completion : `${completion} Couldn’t refresh your library.`, !refreshed);
+    if (!refreshed) {
+      const retry = el("button", "Retry", "text-button");
+      retry.type = "button";
+      retry.addEventListener("click", () => {
+        pendingReadCompletion = completion;
+        void restoreListView();
+      });
+      notice.append(document.createTextNode(" "), retry);
+    }
+  }
+  // Announce the result before restoring scroll so the notice cannot shift
+  // the saved library position through browser scroll anchoring.
+  window.scrollTo(0, snapshot?.scrollY || 0);
   target?.focus({ preventScroll: true });
 }
 function readLastOpenedId(): string | null {
@@ -403,6 +426,8 @@ let suggestionHasAlternative = false;
 let suggestionError = "";
 let readerFromList = false;
 let readerReturnPending = false;
+let pendingReadCompletion: string | null = null;
+let readerReadRequest: object | null = null;
 let listSnapshot: { scrollY: number; cursor: string | null; pageCount: number; focus: HTMLElement | null; focusArticleId: string | null; focusKind: "title" | "lead" | "other"; status: string; query: string; rowCount: number } | null = null;
 let extractionPollTimer = 0;
 let extractionPollStartedAt = 0;
@@ -837,6 +862,7 @@ async function load(reset = true) {
     render(page.items, !reset);
     if (reset && !suggestedArticle && !suggestionError) suggestionLoaded = false;
     void loadSuggestion();
+    return true;
   } catch (e) {
     if (generation !== loadGeneration) return;
     showNotice((e as Error).message, true);
@@ -845,6 +871,7 @@ async function load(reset = true) {
       $("#empty h3").textContent = "We couldn’t load your list";
       $("#empty p").textContent = "Check your connection, then try again.";
     }
+    return false;
   } finally {
     if (generation === loadGeneration) {
       setBusy(false);
@@ -852,23 +879,30 @@ async function load(reset = true) {
     }
   }
 }
-async function mutateRead(article: Article, read: boolean) {
+async function saveReadState(article: Article, read: boolean): Promise<Article> {
   invalidateLoads();
+  const result = await request<{ article: Article }>(
+    `/api/articles/${encodeURIComponent(article.id)}`,
+    { method: "PATCH", body: JSON.stringify({ read }) },
+  );
+  return result.article;
+}
+function applyReadState(article: Article) {
+  if (state.selected?.id === article.id) state.selected = article;
+  if (lastOpenedArticle?.id === article.id || readLastOpenedId() === article.id) {
+    lastOpenedFetchGeneration++;
+    lastOpenedArticle = article;
+    lastOpenedReady = true;
+    lastOpenedError = "";
+  }
+  if (suggestionLoading || (suggestedArticle?.id === article.id && article.readAt)) resetSuggestion();
+  renderLastOpened();
+  void loadSuggestion();
+}
+async function mutateRead(article: Article, read: boolean) {
   try {
-    const result = await request<{ article: Article }>(
-      `/api/articles/${encodeURIComponent(article.id)}`,
-      { method: "PATCH", body: JSON.stringify({ read }) },
-    );
-    if (state.selected?.id === article.id) state.selected = result.article;
-    if (lastOpenedArticle?.id === article.id || readLastOpenedId() === article.id) {
-      lastOpenedFetchGeneration++;
-      lastOpenedArticle = result.article;
-      lastOpenedReady = true;
-      lastOpenedError = "";
-    }
-    if (suggestionLoading || (suggestedArticle?.id === article.id && read)) resetSuggestion();
-    renderLastOpened();
-    void loadSuggestion();
+    const updated = await saveReadState(article, read);
+    applyReadState(updated);
     await load();
     if (state.selected?.id === article.id) renderDetail(state.selected);
   } catch (e) {
@@ -1257,6 +1291,51 @@ function ensureReaderOpener(opener?: HTMLElement) {
   if ($<HTMLDialogElement>("#reader-dialog").open) return;
   if (opener || !readerReturnFocus) rememberReaderOpener(opener);
 }
+function resetReaderCompletion(article?: Article) {
+  readerReadRequest = null;
+  $("#reader-completion").hidden = !article;
+  $("#reader-read-error").hidden = true;
+  $("#reader-read-error").textContent = "";
+  const button = $<HTMLButtonElement>("#reader-read-toggle");
+  button.disabled = false;
+  button.removeAttribute("aria-busy");
+  $("#reader-read-label").textContent = article?.readAt ? "Mark as unread" : "Mark as read";
+  button.querySelector("svg")!.outerHTML = iconMarkup(article?.readAt ? "mark-unread" : "mark-read");
+}
+$("#reader-read-toggle").addEventListener("click", async () => {
+  const article = state.selected;
+  const dialog = $<HTMLDialogElement>("#reader-dialog");
+  if (!article || readerArticleId !== article.id || !dialog.open || $("#reader-completion").hidden || readerReadRequest) return;
+  const generation = readerLoadGeneration;
+  const operation = {};
+  readerReadRequest = operation;
+  const isCurrent = () => generation === readerLoadGeneration && readerReadRequest === operation && readerArticleId === article.id && dialog.open;
+  const button = $<HTMLButtonElement>("#reader-read-toggle");
+  button.disabled = true;
+  button.setAttribute("aria-busy", "true");
+  $("#reader-read-label").textContent = "Saving…";
+  $("#reader-read-error").hidden = true;
+  try {
+    const updated = await saveReadState(article, !article.readAt);
+    if (!isCurrent()) return;
+    applyReadState(updated);
+    pendingReadCompletion = updated.readAt ? "Marked as read." : "Marked as unread.";
+    if (listSnapshot && !listSnapshot.focusArticleId) {
+      listSnapshot = { ...listSnapshot, focus: null, focusArticleId: article.id, focusKind: "title" };
+    }
+    // Both layers must close before restoring the refreshed library's focus.
+    const detail = $<HTMLDialogElement>("#detail-dialog");
+    if (detail.open) detail.close();
+    navigateReaderAway();
+    clearReader();
+  } catch (error) {
+    if (!isCurrent()) return;
+    resetReaderCompletion(article);
+    const feedback = $("#reader-read-error");
+    feedback.textContent = `Couldn’t update this article. ${(error as Error).message} Try again.`;
+    feedback.hidden = false;
+  }
+});
 function openReader(article: Article, copy: ArticleCopy, opener?: HTMLElement) {
   if (state.selected?.id !== article.id) return;
   clearReaderLinkFeedback();
@@ -1281,6 +1360,7 @@ function openReader(article: Article, copy: ArticleCopy, opener?: HTMLElement) {
   body.hidden = false;
   original.href = safeHttpUrl(article.url) || "#";
   body.replaceChildren(renderMarkdown(copy.markdown, article.url));
+  resetReaderCompletion(article);
   saveLastOpened(article);
   const positionContext = { id: article.id, revision: copy.revision };
   const readerIsSameCopy = readerPositionContext?.id === positionContext.id && readerPositionContext.revision === positionContext.revision;
@@ -1296,6 +1376,7 @@ function openReader(article: Article, copy: ArticleCopy, opener?: HTMLElement) {
   stopExtractionPolling();
 }
 function renderPendingReader(article: Article) {
+  resetReaderCompletion();
   saveReadingPosition();
   readerPositionContext = null;
   state.selected = article;
@@ -1356,6 +1437,7 @@ $("#reader-retry").addEventListener("click", async () => {
   }
 });
 function clearReader() {
+  resetReaderCompletion();
   clearReaderLinkFeedback();
   saveReadingPosition();
   readerPositionContext = null;
@@ -1389,6 +1471,7 @@ function restoreReaderFocus(opener = readerReturnFocus) {
   opener.focus({ preventScroll: true });
 }
 function discardPrivateContent() {
+  pendingReadCompletion = null;
   lastOpenedFetchGeneration++;
   lastOpenedArticle = null;
   lastOpenedError = "";
@@ -1414,6 +1497,7 @@ $("#reader-dialog").addEventListener("close", () => {
   saveReadingPosition();
   readerPositionContext = null;
   dialog.scrollTop = 0;
+  resetReaderCompletion();
   $("#reader-body").replaceChildren();
   $("#reader-title").textContent = "";
   $("#reader-author").textContent = "";
