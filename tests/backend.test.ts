@@ -33,6 +33,38 @@ beforeEach(async () => {
 });
 
 describe('article HTTP handlers', () => {
+  it('suggests unread articles across the library, avoids an immediate repeat, and leaves read state unchanged', async () => {
+    expect(await (await route(request('/api/articles/suggestion'))).json()).toEqual({ article: null, hasAlternative: false });
+    const create = async (name: string) => {
+      const response = await route(request('/api/articles', 'POST', { url: `https://example.com/${name}`, title: name, captureMarkdown: false }));
+      return (await response.json() as { article: { id: string } }).article;
+    };
+    const first = await create('First suggestion');
+    const second = await create('Second suggestion');
+    const finished = await create('Already read');
+    await route(request(`/api/articles/${finished.id}`, 'PATCH', { read: true }));
+    // Even the oldest unread article is eligible, outside the latest list page.
+    await env.DB.prepare("UPDATE articles SET created_at = '2000-01-01T00:00:00.000Z' WHERE id = ?").bind(second.id).run();
+    const response = await route(request(`/api/articles/suggestion?exclude=${first.id}`));
+    expect(response.status).toBe(200);
+    expect(response.headers.get('Cache-Control')).toContain('no-store');
+    expect(await response.json()).toMatchObject({ article: { id: second.id, readAt: null }, hasAlternative: true });
+    expect(await (await route(request(`/api/articles/suggestion?exclude=${second.id}`))).json()).toMatchObject({ article: { id: first.id }, hasAlternative: true });
+    expect(await env.DB.prepare('SELECT count(*) AS count FROM articles WHERE read_at IS NULL').first()).toEqual({ count: 2 });
+    await route(request(`/api/articles/${second.id}`, 'PATCH', { read: true }));
+    expect(await (await route(request(`/api/articles/suggestion?exclude=${first.id}`))).json()).toMatchObject({ article: { id: first.id }, hasAlternative: false });
+    await route(request(`/api/articles/${first.id}`, 'DELETE', undefined, { Origin: origin, 'X-CSRF-Token': 'dev-bypass' }));
+    expect(await (await route(request('/api/articles/suggestion'))).json()).toEqual({ article: null, hasAlternative: false });
+  });
+
+  it('validates suggestion exclusions and keeps suggestions private', async () => {
+    expect((await route(request('/api/articles/suggestion?exclude=invalid'))).status).toBe(400);
+    const anonymous = await handleArticles(new Request('https://service.example/api/articles/suggestion'), ownerEnv);
+    expect(anonymous?.status).toBe(401);
+    const token = await handleArticles(new Request('https://service.example/api/articles/suggestion', { headers: { Authorization: 'Bearer capture-token' } }), ownerEnv);
+    expect(token?.status).toBe(401);
+  });
+
   it('uses short IDs and rejects legacy or malformed IDs at every article boundary', async () => {
     const created = await route(request('/api/articles', 'POST', { url: 'https://example.com/short-identity', title: 'Short identity' }));
     const { article } = await created.json() as { article: { id: string } };

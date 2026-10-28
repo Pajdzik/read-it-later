@@ -73,8 +73,10 @@
           <span id="result-count" class="muted"></span>
         </div>
         <section id="last-opened" class="last-opened" aria-label="Last opened" hidden>
-          <span class="last-opened-label">Last opened</span>
+          <span id="last-opened-label" class="last-opened-label">Last opened</span>
           <a id="last-opened-title" class="last-opened-title" href="#" hidden></a>
+          <span id="last-opened-source" class="last-opened-source muted" hidden></span>
+          <button id="suggestion-shuffle" class="text-button suggestion-shuffle" type="button" hidden><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M3 7h3c4 0 8 10 12 10h3m-4-4 4 4-4 4M3 17h3c1.5 0 3-1.5 4.5-3.5M13.5 10.5C15 8.5 16.5 7 18 7h3m-4-4 4 4-4 4"/></svg><span>Try another</span></button>
           <button id="last-opened-retry" class="text-button" type="button" hidden>Retry</button>
           <span id="last-opened-status" class="muted" role="status" aria-live="polite" hidden></span>
         </section>

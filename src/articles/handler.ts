@@ -1,7 +1,7 @@
 import type { Article, ArticleCopy, Env } from '../contracts.js';
 import { errorResponse } from '../contracts.js';
 import { exceptionResponse, jsonResponse, logUnexpectedError, PRIVATE_HEADERS } from '../http.js';
-import { deleteArticle, getArticle, getArticleCopy, listArticles, listArticlesForExport, saveArticle, saveArticleCopy, updateArticle } from './repository.js';
+import { deleteArticle, getArticle, getArticleCopy, listArticles, listArticlesForExport, saveArticle, saveArticleCopy, suggestArticle, updateArticle } from './repository.js';
 import {
   BodyTooLargeError, defaultTitle, MAX_IMPORT_BYTES, MAX_IMPORT_ITEMS, MAX_TITLE_LENGTH,
   normalizeArticleUrl, parseObject, readJson, ValidationError, validateTitle,
@@ -37,6 +37,11 @@ export async function handleArticles(request: Request, env: Env): Promise<Respon
     }
     if (url.pathname === '/api/articles' && method === 'POST') return await createArticle(request, env);
     if (url.pathname === '/api/articles' && method === 'GET') return await listRoute(url, env);
+    if (url.pathname === '/api/articles/suggestion' && method === 'GET') {
+      const exclude = url.searchParams.get('exclude');
+      if (exclude !== null && !isArticleId(exclude)) throw new ValidationError('exclude must be a valid article ID');
+      return jsonResponse(await suggestArticle(env.DB, exclude ?? undefined));
+    }
     if (url.pathname === '/api/export' && method === 'GET') return await exportArticles(env);
     if (url.pathname === '/api/import' && method === 'POST') return await importArticles(request, env);
     const extractionRoute = /^\/api\/articles\/([^/]+)\/extraction(\/retry)?$/.exec(url.pathname);
