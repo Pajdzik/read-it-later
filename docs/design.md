@@ -98,7 +98,7 @@ JSON uses camelCase. Article DTO: `{id, url, title, createdAt, updatedAt, readAt
 | `GET /auth/github`, `GET /auth/github/callback` | OAuth start and callback |
 | `POST /auth/logout` | Revoke session; CSRF protected |
 | `POST /api/articles` | `{url, title?}`; 201 `{article, duplicate:false}` or 200 `{article, duplicate:true}` |
-| `POST /api/capture` | Same save contract, capture bearer token only |
+| `POST /api/capture` | Capture bearer token only; HTTP 200 `{ok:true, extractionRequested}` for both new and duplicate saves, without article or membership details |
 | `GET /api/articles?status=unread&q=…&limit=50&cursor=…` | `{items, nextCursor}`; status unread/read/all, limit 1–100 |
 | `GET /api/articles/:id` | `{article}` or 404 |
 | `PATCH /api/articles/:id` | `{read?:boolean, title?:string}`; at least one field; return `{article}` |

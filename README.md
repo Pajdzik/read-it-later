@@ -102,7 +102,8 @@ All API payloads are JSON with camelCase fields. Errors use `{error: {code, mess
 | `GET /auth/github`, `GET /auth/github/callback` | Start and complete owner login |
 | `POST /auth/logout` | Revoke the current session |
 | `GET /api/articles` | Filter/search/page with `status`, `q`, `limit`, `cursor` |
-| `POST /api/articles`, `POST /api/capture` | Save `{url, title?}`; return article, duplicate and metadata-update flags |
+| `POST /api/articles` | Owner save `{url, title?}`; returns the saved article and duplicate/metadata-update flags |
+| `POST /api/capture` | Bearer-token save `{url, title?}`; returns only `{ok:true, extractionRequested}` with HTTP 200 for both new and duplicate saves |
 | `GET /api/articles/:id` | Retrieve an article |
 | `PATCH /api/articles/:id` | Change title and/or read state |
 | `DELETE /api/articles/:id` | Delete an article |

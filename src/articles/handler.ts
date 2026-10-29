@@ -180,8 +180,9 @@ async function createArticle(request: Request, env: Env, tokenCapture = false): 
     try { await enqueueExtractionJob(env.DB, result.article.id); }
     catch { logUnexpectedError('articles.extraction_enqueue'); }
   }
-  // Save-only credentials receive no saved copy, revision, or job history.
-  if (tokenCapture) return jsonResponse({ ...result, extractionRequested }, result.duplicate ? 200 : 201);
+  // Capture tokens can confirm that work was accepted, but cannot learn
+  // whether a URL already exists or inspect any stored article metadata.
+  if (tokenCapture) return jsonResponse({ ok: true, extractionRequested });
   return jsonResponse({ ...result, extraction: await getExtractionStatus(env.DB, result.article.id, isBackgroundCapturePaused(env)) }, result.duplicate ? 200 : 201);
 }
 
