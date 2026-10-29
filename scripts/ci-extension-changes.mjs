@@ -4,6 +4,7 @@ import { pathToFileURL } from 'node:url';
 
 const inputs = new Set([
   'package.json', 'pnpm-lock.yaml', 'pnpm-workspace.yaml',
+  'src/integrations/contracts.ts',
   'scripts/build-extension.ts', 'scripts/ci-extension-changes.mjs',
   'scripts/ci-extension-changes.test.mjs', '.github/workflows/checks.yml',
 ]);

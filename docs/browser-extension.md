@@ -1,5 +1,8 @@
 # Potem browser extension: design and implementation tasks
 
+> **Current integration model:** The GitHub-only design below is historical. [Optional integrations](integrations.md) supersedes its destination and Simple-mode requirements: automatic private saving needs no integration; external delivery uses a discovered provider and destination-specific consent. The extension now supports GitHub and custom article hooks through the same API. Old GitHub-only preferences require setup again. Existing browser validation evidence below describes the earlier implementation unless otherwise stated.
+
+
 Status: implementation is complete locally; the Chromium capture matrix and Firefox Review/private-save integration pass. The complete Firefox acceptance matrix and release checks remain pending.
 Prepared: October 10, 2026.
 

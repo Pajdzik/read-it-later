@@ -28,12 +28,19 @@ async function mutatePending<T>(operation: (items: PendingRequest[]) => Promise<
 }
 async function readSettings(): Promise<ExtensionSettings> {
   const value = (await api.storage.local.get(SETTINGS_KEY))[SETTINGS_KEY] as ExtensionSettings | undefined;
-  return value?.origin === __POTEM_ORIGIN__ ? value : { origin: __POTEM_ORIGIN__, mode: 'review' };
+  if (value?.origin !== __POTEM_ORIGIN__) return { origin: __POTEM_ORIGIN__, mode: 'review' };
+  // Previous releases stored GitHub-only consent. Require a fresh review after
+  // upgrading instead of treating that legacy object as consent to another hook.
+  if ((value.destination && !validDestination(value.destination)) ||
+      (value.consent && !validDestination(value.consent.destination))) return { origin: __POTEM_ORIGIN__, mode: 'review' };
+  return value;
 }
 async function cleanup(): Promise<PendingRequest[]> {
   return mutatePending((items) => items);
 }
-const destinationPath = (value: DestinationConsent) => `${value.repository}|${value.branch}|${value.folder}`;
+const validDestination = (value: DestinationConsent) => typeof value.id === 'string' && /^[a-z][a-z0-9-]{0,47}$/.test(value.id) &&
+  typeof value.destinationKey === 'string' && value.destinationKey.length > 0 && value.destinationKey.length <= 2048;
+const destinationPath = (value: DestinationConsent) => JSON.stringify([value.id, value.destinationKey]);
 async function setBadge(tabId: number, text: string, title: string, color: string) {
   try {
     await api.action.setBadgeBackgroundColor({ color, tabId });
@@ -108,9 +115,9 @@ export async function captureActive(tab: { id?: number; url?: string; incognito?
   if (new TextEncoder().encode(request.sourceUrl).byteLength > MAX_URL_BYTES || !/^https?:/i.test(request.sourceUrl)) capture = failedCapture(request, 'unsupported');
   if (mode === 'simple') {
     const consent = settings.consent;
-    if (!consent || consent.origin !== settings.origin) {
+    if (settings.destination && (!consent || consent.origin !== settings.origin || destinationPath(settings.destination) !== destinationPath(consent.destination))) {
       capture = { ...capture, mode: 'review' };
-    } else capture.destination = consent.destination;
+    } else if (settings.destination) capture.destination = settings.destination;
   }
   const saved = await mutatePending((items) => {
     const item = items.find((entry) => entry.requestId === requestId);
@@ -150,15 +157,19 @@ async function handleMessage(unknownMessage: unknown, sender: { tab?: { id?: num
   if (message.type === 'set-mode') {
     if (!sender.url?.startsWith(extensionOrigin) || !['simple', 'review'].includes(message.mode)) return { ok: false };
     const settings = await readSettings();
-    const mode = message.mode === 'simple' && !settings.consent ? 'review' : message.mode;
+    const mode = message.mode === 'simple' && settings.destination && !settings.consent ? 'review' : message.mode;
     await api.storage.local.set({ [SETTINGS_KEY]: { ...settings, mode } });
     return { ok: true, mode };
   }
   if (message.type === 'accept-consent') {
     if (!sender.url?.startsWith(extensionOrigin)) return { ok: false };
     const settings = await readSettings();
-    if (!settings.destination || destinationPath(settings.destination) !== destinationPath(message.destination)) return { ok: false };
-    await api.storage.local.set({ [SETTINGS_KEY]: { ...settings, mode: 'simple', consent: { origin: settings.origin, destination: message.destination, acceptedAt: new Date().toISOString() } } });
+    const destination = message.destination;
+    if (destination && (!validDestination(destination) || !settings.destinations?.some(item => item.configured && item.id === destination.id && item.destinationKey === destination.destinationKey))) return { ok: false };
+    await api.storage.local.set({ [SETTINGS_KEY]: {
+      origin: settings.origin, destinations: settings.destinations, mode: 'simple',
+      ...(destination ? { destination, consent: { origin: settings.origin, destination, acceptedAt: new Date().toISOString() } } : {}),
+    } });
     return { ok: true };
   }
   if (message.type === 'begin-connect') {
@@ -206,10 +217,12 @@ async function handleMessage(unknownMessage: unknown, sender: { tab?: { id?: num
   if (message.type === 'connection-config' && request.kind === 'connect') {
     const settings = await readSettings();
     if (!message.authenticated) return { ok: false };
-    const same = settings.consent && message.destination && destinationPath(settings.consent.destination) === destinationPath(message.destination);
+    if (!Array.isArray(message.destinations) || message.destinations.length > 11 || message.destinations.some(item =>
+      !validDestination(item) || typeof item.name !== 'string' || typeof item.destination !== 'string' || typeof item.description !== 'string')) return { ok: false };
+    const same = settings.consent && message.destinations.some(item => item.configured && destinationPath(settings.consent!.destination) === destinationPath(item));
     const updated: ExtensionSettings = {
-      origin: settings.origin, mode: same ? settings.mode : 'review',
-      ...(message.destination ? { destination: message.destination } : {}),
+      origin: settings.origin, mode: same || !settings.destination ? settings.mode : 'review', destinations: message.destinations,
+      ...(same && settings.destination ? { destination: settings.destination } : {}),
       ...(same && settings.consent ? { consent: settings.consent } : {}),
     };
     await api.storage.local.set({ [SETTINGS_KEY]: updated });

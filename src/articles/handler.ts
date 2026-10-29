@@ -11,6 +11,8 @@ import { enqueueExtractionJob, getExtractionStatus, getExtractionStatuses, retry
 import { isBackgroundCapturePaused } from './capture-client.js';
 import { getGitHubBackupConfiguration, getGitHubBackupStatus, GitHubBackupError, reconcileGitHubBackupPaths, saveGitHubBackup } from './github.js';
 import { isArticleId } from './identity.js';
+import { deliverArticle, integrationConfigurations, integrationStatuses } from '../integrations/registry';
+import { IntegrationError } from '../integrations/types';
 
 const PRIVATE = PRIVATE_HEADERS;
 type ImportArticle = Article;
@@ -23,13 +25,28 @@ const storageError = { status: 503, code: 'storage_unavailable', message: 'The s
 export async function handleArticles(request: Request, env: Env): Promise<Response | null> {
   const url = new URL(request.url); const method = request.method.toUpperCase();
   if (url.pathname === '/api/capture' && method === 'POST') return capture(request, env);
-  const isArticlePath = url.pathname === '/api/articles' || /^\/api\/articles\/[^/]+(?:\/copy|\/github|\/extraction(?:\/retry)?)?$/.test(url.pathname);
-  if (!isArticlePath && url.pathname !== '/api/export' && url.pathname !== '/api/import' && url.pathname !== '/api/github' && url.pathname !== '/api/github/reconcile') return null;
+  const isArticlePath = url.pathname === '/api/articles' || /^\/api\/articles\/[^/]+(?:\/copy|\/github|\/integrations(?:\/[a-z][a-z0-9-]{0,47})?|\/extraction(?:\/retry)?)?$/.test(url.pathname);
+  if (!isArticlePath && !['/api/export', '/api/import', '/api/github', '/api/github/reconcile', '/api/integrations'].includes(url.pathname)) return null;
   const needsWrite = method !== 'GET';
   let session: Awaited<ReturnType<typeof requireSession>>;
   try { session = await requireSession(request, env, needsWrite); } catch (error) { return exceptionResponse(error, 'articles.auth', storageError); }
   if (isResponse(session)) return session;
   try {
+    if (url.pathname === '/api/integrations' && method === 'GET') return jsonResponse({ integrations: integrationConfigurations(env) });
+    const integrationRoute = /^\/api\/articles\/([^/]+)\/integrations(?:\/([a-z][a-z0-9-]{0,47}))?$/.exec(url.pathname);
+    if (integrationRoute) {
+      let id: string;
+      try { id = decodeURIComponent(integrationRoute[1]); } catch { return fail(400, 'invalid_request', 'Article ID is invalid.'); }
+      if (!isArticleId(id)) return fail(400, 'invalid_request', 'Article ID must contain eight lowercase letters or digits.');
+      if (method === 'GET' && !integrationRoute[2]) return jsonResponse({ integrations: await integrationStatuses(env, id) });
+      if (method === 'POST' && integrationRoute[2]) {
+        const input = parseObject(await readJson(request), ['expectedRevision', 'expectedDestinationKey'], ['expectedRevision', 'expectedDestinationKey']);
+        if (typeof input.expectedRevision !== 'string' || !/^[A-Za-z0-9_-]{1,128}$/.test(input.expectedRevision)) throw new ValidationError('expectedRevision must be a valid saved copy revision');
+        if (typeof input.expectedDestinationKey !== 'string' || !input.expectedDestinationKey || input.expectedDestinationKey.length > 2048) throw new ValidationError('expectedDestinationKey is invalid');
+        return jsonResponse(await deliverArticle(env, id, integrationRoute[2], input.expectedRevision, input.expectedDestinationKey));
+      }
+      return fail(405, 'method_not_allowed', 'This integration action is not supported.');
+    }
     if (url.pathname === '/api/github' && method === 'GET') return jsonResponse({ github: getGitHubBackupConfiguration(env) });
     if (url.pathname === '/api/github/reconcile' && method === 'POST') {
       if (request.body) parseObject(await readJson(request), []);
@@ -119,7 +136,7 @@ export async function handleArticles(request: Request, env: Env): Promise<Respon
     }
     return null;
   } catch (error) {
-    if (error instanceof GitHubBackupError) return fail(error.status, error.code, error.message);
+    if (error instanceof GitHubBackupError || error instanceof IntegrationError) return fail(error.status, error.code, error.message);
     return exceptionResponse(error, 'articles.request', storageError);
   }
 }

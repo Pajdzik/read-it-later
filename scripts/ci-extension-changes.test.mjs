@@ -8,7 +8,7 @@ import { affectsExtension, shouldRunExtension } from './ci-extension-changes.mjs
 
 test('extension code, build/tests, dependencies, and CI wiring trigger the suite', () => {
   for (const file of ['extension/background.ts', 'extension/options.css', 'scripts/build-extension.ts',
-    'scripts/extension-e2e.mjs', 'package.json', 'pnpm-lock.yaml', 'pnpm-workspace.yaml',
+    'scripts/extension-e2e.mjs', 'package.json', 'pnpm-lock.yaml', 'pnpm-workspace.yaml', 'src/integrations/contracts.ts',
     '.github/workflows/checks.yml', 'scripts/ci-extension-changes.mjs']) assert(affectsExtension(file), file);
   for (const file of ['README.md', 'docs/browser-extension.md', 'src/worker.ts', 'web/app.ts', 'scripts/browser-smoke.mjs']) assert(!affectsExtension(file), file);
 });

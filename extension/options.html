@@ -5,10 +5,11 @@
     <a class="brand" href="#"><span aria-hidden="true">▥</span> potem.</a>
     <h1>Save pages to Potem</h1><p id="origin" class="muted"></p>
     <label for="mode">Capture mode</label><select id="mode"><option value="review">Review before saving</option><option value="simple">Save automatically</option></select>
-    <p id="destination" class="destination">Connect to Potem to check your GitHub destination.</p>
+    <label for="integration">Optional integration</label><select id="integration"><option value="">Save privately in Potem</option></select>
+    <p id="destination" class="destination">Connect to Potem to discover optional integrations.</p>
     <button id="connect" class="secondary" type="button">Connect to Potem</button>
-    <section id="consent-panel" hidden><label class="consent"><input id="consent" type="checkbox" /> Automatically save captured pages to this GitHub destination.</label><p id="visibility" class="muted"></p><button id="save-consent" type="button">Enable automatic saving</button></section>
+    <section id="consent-panel" hidden><label id="consent-label" class="consent"><input id="consent" type="checkbox" /> Automatically send captured pages to this integration destination.</label><p id="visibility" class="muted"></p><button id="save-consent" type="button">Enable automatic saving</button></section>
     <p id="status" role="status" aria-live="polite"></p>
-    <p class="muted">Review mode is selected by default. Captured pages can include content from sites where you are signed in. GitHub files inherit the repository’s visibility.</p>
+    <p class="muted">Review mode is selected by default. Captured pages can include content from sites where you are signed in. External integrations receive a saved copy only when selected.</p>
   </main><script src="options.js"></script></body>
 </html>

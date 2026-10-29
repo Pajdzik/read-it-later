@@ -31,7 +31,7 @@ const run = (args) => new Promise((resolve, reject) => {
   child.once('exit', (code) => code === 0 ? resolve() : reject(new Error(output)));
 });
 const delay = (milliseconds) => new Promise((resolve) => setTimeout(resolve, milliseconds));
-const destination = { repository: 'Fixture/Archive', branch: 'main', folder: 'Articles' };
+const destination = { id: 'kindle', name: 'Kindle', configured: true, destination: 'My reading device', description: 'Send the article to my Kindle delivery service.', destinationKey: 'kindle-device-one' };
 let currentDestination = destination;
 let failGitHub = false;
 const githubCalls = [];
@@ -87,16 +87,16 @@ try {
     const largeBody = slug === 'oversized' ? `<pre><code>${Array.from({ length: 12000 }, (_, index) => `${index}: A long preserved line for the Markdown limit.\n`).join('')}</code></pre>` : '';
     await route.fulfill({ contentType: 'text/html; charset=utf-8', headers: { 'Content-Security-Policy': "default-src 'none'; script-src 'none'" }, body: `<!doctype html><html><head><title>Fixture ${slug}</title><meta name="author" content="Ada"><meta name="description" content="Fixture lead"></head><body><nav>Navigation</nav><article><h1>Fixture ${slug}</h1><p>Preserved article content with Unicode 📰 and <strong>formatting</strong>.</p><p><a href="/relative">Relative link</a></p>${largeBody}</article><input value="private-form-sentinel"></body></html>` });
   });
-  await context.route(`${origin}/api/github`, (route) => route.fulfill({ json: { github: { configured: true, ...currentDestination } } }));
-  await context.route(`${origin}/api/articles/*/github`, async (route) => {
+  await context.route(`${origin}/api/integrations`, (route) => route.fulfill({ json: { integrations: currentDestination ? [currentDestination] : [] } }));
+  await context.route(`${origin}/api/articles/*/integrations/*`, async (route) => {
     assert.equal(route.request().method(), 'POST');
     const body = route.request().postDataJSON();
-    const copyUrl = route.request().url().replace(/\/github$/, '/copy');
+    const copyUrl = route.request().url().replace(/\/integrations\/[^/]+$/, '/copy');
     const copy = (await (await fetch(copyUrl)).json()).copy;
     assert.equal(body.expectedRevision, copy.revision, 'publishing uses the persisted revision');
     githubCalls.push({ ...body, markdown: copy.markdown });
     if (failGitHub) await route.fulfill({ status: 503, json: { error: { code: 'github_unavailable', message: 'Fixture GitHub outage' } } });
-    else await route.fulfill({ json: { backup: { configured: true, state: 'saved', ...currentDestination, url: 'https://github.com/Fixture/Archive/blob/main/Articles/fixture.md' } } });
+    else await route.fulfill({ json: { integration: { configured: true, state: 'saved', ...currentDestination, url: 'https://github.com/Fixture/Archive/blob/main/Articles/fixture.md' } } });
   });
   const worker = context.serviceWorkers()[0] || await context.waitForEvent('serviceworker');
   const extensionId = new URL(worker.url()).host;
@@ -104,11 +104,12 @@ try {
   await options.locator('#connect').click();
   await options.waitForFunction(async () => {
     const data = await chrome.storage.local.get('settings');
-    return data.settings?.destination?.repository === 'Fixture/Archive';
+    return data.settings?.destinations?.[0]?.id === 'kindle';
   });
   await options.bringToFront();
   await options.reload();
-  await options.waitForFunction(() => document.querySelector('#destination').textContent.includes('Fixture/Archive'));
+  await options.locator('#integration').selectOption('kindle');
+  await options.waitForFunction(() => document.querySelector('#destination').textContent.includes('My reading device'));
   await options.locator('#consent').check();
   await options.locator('#save-consent').click();
   await options.waitForFunction(() => document.querySelector('#mode').value === 'simple');
@@ -136,7 +137,7 @@ try {
   const automatic = await invoke('automatic');
   await automatic.target.locator('#notice').filter({ hasText: /^Saved/ }).waitFor();
   assert.equal(githubCalls.length, 1);
-  assert.deepEqual(githubCalls[0].expectedDestination, destination);
+  assert.equal(githubCalls[0].expectedDestinationKey, destination.destinationKey);
   assert.match(githubCalls[0].markdown, /Unicode 📰/);
   assert(!githubCalls[0].markdown.includes('private-form-sentinel'));
   assert.equal((await articles()).length, 1);
@@ -188,7 +189,7 @@ try {
   assert.equal(reviewed.author, 'Reviewed author');
   assert.equal(reviewed.description, 'Reviewed lead');
   assert.match((await copyOf(reviewed)).markdown, /Preserved edited body/);
-  assert.equal(githubCalls.length, githubBeforePrivate, 'private save makes no GitHub request');
+  assert.equal(githubCalls.length, githubBeforePrivate, 'private save makes no integration request');
   console.log('Reviewed metadata/Markdown, reload, private save, wrong-tab rejection, and source closure passed.');
   await review.target.close();
 
@@ -203,10 +204,10 @@ try {
   await conflict.source.close();
 
   const reviewPublish = await invoke('review-publish');
-  await reviewPublish.target.locator('#extension-save-github').click();
+  await reviewPublish.target.locator('#extension-send-integration').click();
   await reviewPublish.target.locator('#notice').filter({ hasText: /^Saved/ }).waitFor();
-  assert.equal(await reviewPublish.target.getByRole('link', { name: 'Open GitHub', exact: true }).getAttribute('href'),
-    'https://github.com/Fixture/Archive/blob/main/Articles/fixture.md', 'review result uses the provider-confirmed GitHub URL');
+  assert.equal(await reviewPublish.target.getByRole('link', { name: 'Open destination', exact: true }).getAttribute('href'),
+    'https://github.com/Fixture/Archive/blob/main/Articles/fixture.md', 'review result uses the provider-confirmed destination URL');
   await reviewPublish.target.getByRole('link', { name: 'Read in Potem', exact: true }).click();
   await reviewPublish.target.locator('#reader-dialog').waitFor();
   assert.equal((await articles()).find((article) => article.url.endsWith('/fixture/review-publish')).readAt, null, 'opening the saved result does not mark it read');
@@ -218,13 +219,13 @@ try {
   await options.waitForFunction(async () => (await chrome.storage.local.get('settings')).settings.mode === 'simple');
   failGitHub = true;
   const outage = await invoke('outage');
-  await outage.target.locator('#capture-github-retry').waitFor();
+  await outage.target.locator('#capture-integration-retry').waitFor();
   const writesBeforeRetry = copyWrites.length;
   await outage.target.reload();
-  await outage.target.locator('#capture-github-retry').waitFor();
+  await outage.target.locator('#capture-integration-retry').waitFor();
   failGitHub = false;
-  await outage.target.locator('#capture-github-retry').click();
-  await outage.target.locator('#notice').filter({ hasText: /Markdown copy saved to Potem and GitHub\./ }).waitFor();
+  await outage.target.locator('#capture-integration-retry').click();
+  await outage.target.locator('#notice').filter({ hasText: /Markdown copy saved in Potem and sent to Kindle\./ }).waitFor();
   assert.equal(copyWrites.length, writesBeforeRetry, 'GitHub retry never rewrites the D1 copy');
   const lastCalls = githubCalls.slice(-2);
   assert.equal(lastCalls[0].expectedRevision, lastCalls[1].expectedRevision);
@@ -236,8 +237,8 @@ try {
   await outage.target.reload();
   await outage.target.locator('#loading').waitFor({ state: 'hidden' });
   assert.equal(await outage.target.locator('#add-dialog').evaluate((dialog) => dialog.open), false, 'reload does not restore the completed capture dialog');
-  assert.equal(await outage.target.locator('#capture-github-retry').isVisible(), false, 'reload does not restore a completed GitHub retry');
-  assert.equal(githubCalls.length, callsAfterRetry, 'reload does not issue another GitHub request');
+  assert.equal(await outage.target.locator('#capture-integration-retry').isVisible(), false, 'reload does not restore a completed GitHub retry');
+  assert.equal(githubCalls.length, callsAfterRetry, 'reload does not issue another integration request');
   assert.equal(copyWrites.length, writesAfterRetry, 'reload does not write another saved copy');
   await outage.target.locator('#add-open').click();
   assert.equal(await outage.target.locator('#add-dialog').evaluate((dialog) => dialog.open), true, 'ordinary Add remains available after a capture completes');
@@ -293,14 +294,28 @@ try {
   await options.waitForFunction(async () => (await chrome.storage.local.get('settings')).settings.mode === 'simple');
 
   const beforeMismatch = (await articles()).length;
-  currentDestination = { ...destination, folder: 'Changed' };
+  currentDestination = { ...destination, destinationKey: 'kindle-device-two', destination: 'A different device' };
   const mismatch = await invoke('destination-changed');
   await mismatch.target.locator('#notice').filter({ hasText: /destination changed/ }).waitFor();
   assert.equal((await articles()).length, beforeMismatch, 'destination mismatch prevents an automatic save');
   await mismatch.target.close();
   await mismatch.source.close();
+  currentDestination = null;
+  await options.locator('#integration').selectOption('');
+  await options.locator('#save-consent').click();
+  await options.waitForFunction(async () => {
+    const value = (await chrome.storage.local.get('settings')).settings;
+    return value.mode === 'simple' && !value.destination;
+  });
+  const beforePrivateCalls = githubCalls.length;
+  const privateAutomatic = await invoke('automatic-without-integrations');
+  await privateAutomatic.target.locator('#notice').filter({ hasText: /^Saved/ }).waitFor();
+  assert.equal(githubCalls.length, beforePrivateCalls, 'automatic private capture needs no integration');
+  assert((await articles()).some(item => item.url.endsWith('/automatic-without-integrations')));
+  await privateAutomatic.target.close();
+  await privateAutomatic.source.close();
   assert.deepEqual(pageErrors, []);
-  console.log(`Chromium ${context.browser().version()}: installed controller/bridge + real Worker/D1 automatic, review/private/GitHub saves, edited-draft reload, duplicate conflict, cancel, outage/retry, pasted recovery, concurrent captures, wrong-tab rejection, source closure, and destination guard passed.`);
+  console.log(`Chromium ${context.browser().version()}: installed controller/bridge + real Worker/D1 automatic, review/private/integration saves, edited-draft reload, duplicate conflict, cancel, outage/retry, pasted recovery, concurrent captures, wrong-tab rejection, source closure, and destination guard passed.`);
   console.log('Chrome native toolbar activation, the full Firefox matrix, and minimum-version checks remain release checks; Firefox native private capture has separate recorded evidence.');
 } finally {
   await context?.close();

@@ -17,3 +17,7 @@ DEV_AUTH_BYPASS=true
 # Background capture records durable intent; processing stays paused until the
 # private ARTICLE_EXTRACTOR Container service and staging validation are ready.
 BACKGROUND_CAPTURE_ENABLED=false
+
+# Optional private delivery hooks. Also configure an ARTICLE_HOOKS service binding
+# in the relevant Wrangler environment; see docs/integrations.md. No GitHub required.
+# ARTICLE_HOOKS_CONFIG=[{"id":"kindle","name":"Kindle","destination":"My reading device","description":"Send the article to my Kindle delivery service."}]

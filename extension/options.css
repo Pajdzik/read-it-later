@@ -7,3 +7,5 @@ label, select { display: block; } select { width: 100%; margin: .45rem 0 1rem; p
 button { padding: .7rem 1rem; border: 0; border-radius: .5rem; background: #696c47; color: white; font: inherit; font-weight: 650; cursor: pointer; } button.secondary { background: #eeeee8; color: #29291f; }
 .destination { padding: .8rem; border-radius: .5rem; background: #f2f2ec; overflow-wrap: anywhere; } .consent { display: flex; gap: .65rem; align-items: flex-start; margin: 1rem 0; } .consent input { margin-top: .3rem; }
 #status { min-height: 1.5rem; } @media (max-width: 520px) { body { padding: .5rem; } main { margin: .5rem auto; padding: 1.25rem; } }
+
+[hidden] { display: none !important; }

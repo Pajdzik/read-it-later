@@ -164,15 +164,19 @@
         <label class="capture-copy-toggle"><input id="capture-copy-enabled" type="checkbox" checked /> Save this Markdown copy</label>
         <p id="capture-copy-status" class="muted" role="status" aria-live="polite"></p>
         <details id="capture-existing-copy" hidden><summary>Previously saved version</summary><p id="capture-existing-metadata" class="muted"></p><article id="capture-existing-preview" class="reader-content"></article></details>
-        <label class="capture-copy-toggle"><input id="capture-github-enabled" type="checkbox" /> Also save to GitHub</label>
-        <p id="capture-github-status" class="muted" role="status" aria-live="polite">Checking GitHub destination…</p>
-        <p class="muted copy-explainer">GitHub files follow the repository’s visibility. The production destination, Pajdzik/Kamilpedia, is public.</p>
-        <button id="capture-github-retry" class="button secondary" type="button" hidden>Retry GitHub save for saved copy</button>
-        <button id="capture-github-done" class="button secondary" type="button" hidden>Done</button>
+        <div id="capture-integration-options" hidden>
+          <label class="capture-copy-toggle"><input id="capture-integration-enabled" type="checkbox" /> Also send to an integration</label>
+          <label class="field-label" for="capture-integration">Integration destination</label>
+          <select id="capture-integration" class="integration-select" disabled></select>
+          <p id="capture-integration-description" class="muted copy-explainer"></p>
+        </div>
+        <p id="capture-integration-status" class="muted" role="status" aria-live="polite">Checking integrations…</p>
+        <button id="capture-integration-retry" class="button secondary" type="button" hidden>Retry sending saved copy</button>
+        <button id="capture-integration-done" class="button secondary" type="button" hidden>Done</button>
         <div id="extension-actions" class="extension-actions" hidden>
           <button id="extension-save-link" class="button secondary" type="button" hidden>Save link only</button>
           <button id="extension-save-private" class="button secondary" type="button">Save privately in Potem</button>
-          <button id="extension-save-github" class="button primary" type="button">Save to Potem and GitHub</button>
+          <button id="extension-send-integration" class="button primary" type="button">Save and send to integration</button>
           <button id="extension-cancel" class="text-button" type="button">Cancel capture</button>
           <button id="extension-confirm-replacement" class="button primary" type="button" hidden>Confirm metadata and replace saved copy</button>
         </div>
@@ -274,8 +278,9 @@
         <ul id="tokens" class="token-list"></ul>
       </section>
       <section class="settings-section">
-        <h3>GitHub backups</h3>
-        <p>Reconnect existing backup filenames after restoring your library.</p>
+        <h3>Integrations</h3>
+        <p>Optionally send saved copies to another destination. Choose an integration when saving a copy or send it later from article details.</p>
+        <div id="settings-integrations"></div>
         <button id="github-reconcile" class="button secondary" type="button" hidden>Find existing GitHub backups</button>
       </section>
       <section class="settings-section">
