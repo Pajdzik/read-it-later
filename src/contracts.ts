@@ -26,6 +26,14 @@ export interface ExtractionStatus {
   errorCode: string | null;
   nextAttemptAt: string | null;
   paused: boolean;
+  recovery?: {
+    generation: number;
+    state: 'queued' | 'running' | 'retry_wait' | 'succeeded' | 'failed';
+    attempts: number;
+    errorCode: string | null;
+    nextAttemptAt: string | null;
+  };
+  undoAvailable: boolean;
 }
 
 export interface Article {

@@ -111,6 +111,7 @@ All API payloads are JSON with camelCase fields. Errors use `{error: {code, mess
 | `GET /api/integrations` | Discover optional article destinations |
 | `GET /api/articles/:id/integrations` | Check confirmed status for each integration |
 | `POST /api/articles/:id/integrations/:integrationId` | Send a persisted revision to the reviewed destination |
+| `POST /api/articles/:id/extraction/recapture`, `POST /api/articles/:id/extraction/undo` | Recapture an incorrect or missing copy, or restore the preceding copy with revision checks |
 | `GET /api/github` | Owner-only GitHub configuration for capture before an article exists; never returns credentials |
 | `POST /api/github/reconcile` | Reconnect recognized GitHub backup filenames to restored articles; owner session and CSRF required |
 | `GET /api/articles/:id/github`, `POST /api/articles/:id/github` | Check the configured GitHub destination or save the persisted Markdown copy there |
@@ -118,6 +119,8 @@ All API payloads are JSON with camelCase fields. Errors use `{error: {code, mess
 | `GET`, `POST /api/capture-tokens` | List token metadata or create a token |
 | `DELETE /api/capture-tokens/:id` | Revoke a token |
 | `GET /healthz` | Public liveness response; not a database readiness check |
+
+Article details offer **Recapture article**, an optional metadata refresh, and guarded one-step undo. The existing copy stays readable while recovery runs. See [capture recovery](docs/capture-recovery.md) for behavior, concurrency, API, and migration details.
 
 Export format is `{version: 2, exportedAt, articles: [...]}`; each article may include its Markdown copy and capture metadata. Import accepts versions 1 and 2. Exports exclude authentication records and stream articles in bounded pages. Concurrent edits can affect different pages, so avoid editing during a backup when consistent results matter.
 

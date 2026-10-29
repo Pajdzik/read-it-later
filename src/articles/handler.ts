@@ -13,6 +13,7 @@ import { getGitHubBackupConfiguration, getGitHubBackupStatus, GitHubBackupError,
 import { isArticleId } from './identity.js';
 import { deliverArticle, integrationConfigurations, integrationStatuses } from '../integrations/registry';
 import { IntegrationError } from '../integrations/types';
+import { requestRecapture, undoRecapture } from './recovery.js';
 
 const PRIVATE = PRIVATE_HEADERS;
 type ImportArticle = Article;
@@ -25,7 +26,7 @@ const storageError = { status: 503, code: 'storage_unavailable', message: 'The s
 export async function handleArticles(request: Request, env: Env): Promise<Response | null> {
   const url = new URL(request.url); const method = request.method.toUpperCase();
   if (url.pathname === '/api/capture' && method === 'POST') return capture(request, env);
-  const isArticlePath = url.pathname === '/api/articles' || /^\/api\/articles\/[^/]+(?:\/copy|\/github|\/integrations(?:\/[a-z][a-z0-9-]{0,47})?|\/extraction(?:\/retry)?)?$/.test(url.pathname);
+  const isArticlePath = url.pathname === '/api/articles' || /^\/api\/articles\/[^/]+(?:\/copy|\/github|\/integrations(?:\/[a-z][a-z0-9-]{0,47})?|\/extraction(?:\/(?:retry|recapture|undo))?)?$/.test(url.pathname);
   if (!isArticlePath && !['/api/export', '/api/import', '/api/github', '/api/github/reconcile', '/api/integrations'].includes(url.pathname)) return null;
   const needsWrite = method !== 'GET';
   let session: Awaited<ReturnType<typeof requireSession>>;
@@ -61,7 +62,7 @@ export async function handleArticles(request: Request, env: Env): Promise<Respon
     }
     if (url.pathname === '/api/export' && method === 'GET') return await exportArticles(env);
     if (url.pathname === '/api/import' && method === 'POST') return await importArticles(request, env);
-    const extractionRoute = /^\/api\/articles\/([^/]+)\/extraction(\/retry)?$/.exec(url.pathname);
+    const extractionRoute = /^\/api\/articles\/([^/]+)\/extraction(\/(?:retry|recapture|undo))?$/.exec(url.pathname);
     if (extractionRoute) {
       let id: string;
       try { id = decodeURIComponent(extractionRoute[1]); } catch { return fail(400, 'invalid_request', 'Article ID is invalid.'); }
@@ -70,7 +71,28 @@ export async function handleArticles(request: Request, env: Env): Promise<Respon
         const extraction = await getExtractionStatus(env.DB, id, isBackgroundCapturePaused(env));
         return extraction ? jsonResponse({ extraction }) : fail(404, 'not_found', 'Article not found.');
       }
-      if (method === 'POST' && extractionRoute[2]) {
+      if (method === 'POST' && (extractionRoute[2] === '/recapture' || extractionRoute[2] === '/undo')) {
+        const undo = extractionRoute[2] === '/undo';
+        const input = parseObject(await readJson(request), undo ? ['expectedRevision'] : ['expectedRevision', 'refreshMetadata'], ['expectedRevision']);
+        const expected = input.expectedRevision;
+        if ((expected !== null || undo) && (typeof expected !== 'string' || !/^[A-Za-z0-9_-]{1,128}$/.test(expected))) {
+          throw new ValidationError('expectedRevision must be a valid revision' + (undo ? '' : ' or null'));
+        }
+        if (input.refreshMetadata !== undefined && typeof input.refreshMetadata !== 'boolean') throw new ValidationError('refreshMetadata must be boolean');
+        const result = undo
+          ? await undoRecapture(env.DB, id, expected as string)
+          : await requestRecapture(env.DB, id, expected as string | null, input.refreshMetadata === true);
+        if (result === 'missing') return fail(404, 'not_found', 'Article not found.');
+        if (result === 'revision_conflict' || result === 'conflict') return fail(409, 'revision_conflict', 'The saved copy or article details changed. Reload before trying again.');
+        if (result === 'capture_active') return fail(409, 'capture_active', 'Another capture is already queued or running for this article.');
+        if (result === 'cooldown') {
+          const response = fail(429, 'retry_cooldown', 'Wait one minute before starting another capture.');
+          response.headers.set('Retry-After', '60');
+          return response;
+        }
+        return jsonResponse({ extraction: await getExtractionStatus(env.DB, id, isBackgroundCapturePaused(env)) }, result === 'queued' ? 202 : 200);
+      }
+      if (method === 'POST' && extractionRoute[2] === '/retry') {
         // Accept an empty body or an empty object; retries cannot select another
         // source, publish a copy, or change a saved revision.
         if (request.body) parseObject(await readJson(request), []);

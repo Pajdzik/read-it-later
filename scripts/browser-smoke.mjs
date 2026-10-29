@@ -9,6 +9,7 @@ import net from "node:net";
 import { createServer } from "node:http";
 import { readerCompletionSmoke } from "./reader-completion-smoke.mjs";
 import { checkReadingSuggestion } from "./reading-suggestion-smoke.mjs";
+import { captureRecoverySmoke } from "./capture-recovery-smoke.mjs";
 
 const storage = await mkdtemp(path.join(os.tmpdir(), "read-later-smoke-"));
 const portServer = net.createServer();
@@ -107,6 +108,7 @@ try {
       : {}),
   });
   await checkReadingSuggestion(browser, base);
+  await captureRecoverySmoke(browser, base);
   const context = await browser.newContext({
     viewport: { width: 1440, height: 1000 },
   });
@@ -792,6 +794,7 @@ try {
   assert.ok(quotedMarkdown.startsWith(`---\ntitle: ${JSON.stringify(injectedTitle)}\nurl:`), "Quotes, Unicode, and newline frontmatter must remain a single quoted scalar.");
   assert.equal(quotedMarkdown.slice(quotedMarkdown.indexOf("\n\n", quotedMarkdown.indexOf("\n---\n") + 1) + 2), preservedMarkdown);
   await page.locator("#detail-dialog .dialog-close button").click();
+  await expect(page).toHaveURL(base + "/");
   await page.evaluate(async (id) => {
     const session = await (await fetch("/api/session")).json();
     const response = await fetch(`/api/articles/${encodeURIComponent(id)}`, {
