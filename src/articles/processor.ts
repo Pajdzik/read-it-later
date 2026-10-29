@@ -1,6 +1,6 @@
 import type { Env } from "../contracts";
 import { captureArticle, isBackgroundCapturePaused } from "./capture-client";
-import { claimExtractionJob, completeExtractionJob, failExtractionJob, reconcileExtractionJobs } from "./jobs";
+import { claimExtractionJob, completeExtractionJob, failExtractionJob, getExtractionStatus, reconcileExtractionJobs } from "./jobs";
 import { SourceFetchError } from "./capture-protocol";
 
 function log(event: string, fields: Record<string, string | number | boolean | null> = {}): void {
@@ -37,6 +37,9 @@ export async function processExtractionJobs(env: Env, now = new Date().toISOStri
     }
     log(completed ? "extraction_job_completed" : "extraction_job_completion_stale", {
       articleId: job.articleId,
+      generation: job.generation,
+      kind: job.kind,
+      ...(!completed && job.kind === 'recapture' ? { code: (await getExtractionStatus(env.DB, job.articleId))?.recovery?.errorCode ?? null } : {}),
       attempts: job.attempts,
       ...(completed ? { outputBytes: new TextEncoder().encode(markdown).byteLength } : {}),
     });
@@ -46,7 +49,7 @@ export async function processExtractionJobs(env: Env, now = new Date().toISOStri
       : { code: "processing_failed", retryable: false };
     try {
       await failExtractionJob(env.DB, job, failure, new Date().toISOString());
-      log("extraction_job_failed", { articleId: job.articleId, attempts: job.attempts, code: failure.code });
+      log("extraction_job_failed", { articleId: job.articleId, generation: job.generation, kind: job.kind, attempts: job.attempts, code: failure.code });
     } catch {
       // A later scheduler tick recovers the expired lease. Never log the thrown
       // error because D1 and upstream messages may contain source details.

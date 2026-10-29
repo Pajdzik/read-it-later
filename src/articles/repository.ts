@@ -103,8 +103,9 @@ export async function saveArticleCopy(
         WHERE article_id = ? AND revision = ? AND EXISTS (SELECT 1 FROM articles WHERE id = ?)`)
       .bind(copy.markdown, now, copy.source, copy.revision, id, expectedRevision, id);
   const satisfyJobs = db.prepare(`UPDATE article_extraction_jobs
-      SET state = 'succeeded', lease_token = NULL, lease_expires_at = NULL,
-          error_code = NULL, finished_at = ?, updated_at = ?
+      SET state = CASE WHEN kind='recapture' THEN 'failed' ELSE 'succeeded' END,
+          lease_token = NULL, lease_expires_at = NULL,
+          error_code = CASE WHEN kind='recapture' THEN 'copy_changed' ELSE NULL END, finished_at = ?, updated_at = ?
       WHERE article_id = ? AND state IN ('queued','running','retry_wait')
         AND EXISTS (SELECT 1 FROM article_copies c WHERE c.article_id = ? AND c.revision = ?)`)
     .bind(now, now, id, id, copy.revision);

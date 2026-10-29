@@ -826,6 +826,13 @@ button {
   gap: 8px;
   margin: 10px 0 16px;
 }
+.capture-recovery {
+  border-block: 1px solid var(--line);
+  margin: 16px 0;
+  padding: 10px 0;
+}
+.capture-recovery .copy-explainer { margin-top: 0; }
+.capture-recovery .copy-status:empty { display: none; }
 .dialog.reader-dialog {
   position: fixed;
   inset: 0;
@@ -1071,14 +1078,14 @@ button {
 body:has(#reader-dialog[open]) {
   overflow: hidden;
 }
-.integration-option {
+.integration-option, .capture-refresh-option {
   display: flex;
   align-items: center;
   gap: 8px;
   margin: 14px 0 8px;
   font-size: 14px;
 }
-.integration-option input {
+.integration-option input, .capture-refresh-option input {
   width: auto;
   accent-color: var(--ink);
 }

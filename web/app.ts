@@ -49,7 +49,11 @@ type Article = {
   extraction?: ExtractionStatus;
 };
 type ExtractionState = "none" | "queued" | "running" | "retry_wait" | "ready" | "failed";
-type ExtractionStatus = { state: ExtractionState; attempts: number; errorCode: string | null; nextAttemptAt: string | null; paused: boolean };
+type ExtractionStatus = {
+  state: ExtractionState; attempts: number; errorCode: string | null; nextAttemptAt: string | null; paused: boolean;
+  undoAvailable?: boolean;
+  recovery?: { generation: number; state: 'queued' | 'running' | 'retry_wait' | 'succeeded' | 'failed'; attempts: number; errorCode: string | null; nextAttemptAt: string | null };
+};
 type Session = { authenticated: boolean; csrfToken?: string };
 type Page = { items: Article[]; nextCursor: string | null };
 type ArticleCopy = { markdown: string; capturedAt: string; source: "paste" | "upload"; revision: string };
@@ -585,6 +589,13 @@ function dateLabel(date: string) {
       }).format(d);
 }
 function extractionLabel(extraction?: ExtractionStatus) {
+  if (extraction?.recovery) {
+    const recovery = extraction.recovery;
+    if (recovery.state === 'failed') return `Recapture failed. ${extractionFailureMessage(recovery.errorCode)}`;
+    if (recovery.state === 'succeeded') return 'Recapture completed';
+    if (extraction.paused) return 'Recapture queued · Capture paused';
+    return recovery.state === 'queued' ? 'Recapture queued' : recovery.state === 'retry_wait' ? 'Recapture retrying' : 'Recapturing article';
+  }
   if (!extraction || extraction.state === "none") return "";
   if (extraction.state === "ready") return "Markdown ready";
   if (extraction.state === "failed") return "Capture failed";
@@ -605,9 +616,9 @@ function renderArticleMeta(article: Article) {
 }
 function updateExtractionBadge(badge: HTMLElement, extraction?: ExtractionStatus) {
   badge.classList.toggle("extraction-badge-pending", extractionIsPending(extraction));
-  const ready = extraction?.state === "ready";
-  const failed = extraction?.state === "failed";
-  const label = extraction?.paused ? "" : extractionLabel(extraction);
+  const failed = extraction?.recovery?.state === 'failed' || extraction?.state === "failed";
+  const ready = extraction?.state === "ready" && !failed && !extractionIsPending(extraction);
+  const label = extraction?.paused && !extraction?.recovery ? "" : extractionLabel(extraction);
   badge.classList.toggle("extraction-badge-ready", ready);
   badge.classList.toggle("extraction-badge-failed", failed);
   badge.hidden = !label;
@@ -627,8 +638,8 @@ function updateExtractionBadge(badge: HTMLElement, extraction?: ExtractionStatus
   }
   if (failed) {
     badge.setAttribute("role", "img");
-    badge.setAttribute("aria-label", "Capture failed");
-    badge.title = "Capture failed";
+    badge.setAttribute("aria-label", label);
+    badge.title = label;
     badge.innerHTML = iconMarkup("capture-failed");
     return;
   }
@@ -638,10 +649,12 @@ function updateExtractionBadge(badge: HTMLElement, extraction?: ExtractionStatus
   badge.textContent = label;
 }
 function extractionIsPending(extraction?: ExtractionStatus) {
-  return Boolean(extraction && ["queued", "running", "retry_wait"].includes(extraction.state));
+  return Boolean(extraction && ["queued", "running", "retry_wait"].includes(extraction.recovery?.state ?? extraction.state));
 }
 function extractionFailureMessage(code: string | null | undefined) {
   switch (code) {
+    case 'copy_changed': return 'The saved copy changed. Your latest copy was kept.';
+    case 'metadata_changed': return 'Article details changed during capture. Your saved content was kept.';
     case "source_http":
     case "source_unavailable": return "The source site could not be reached.";
     case "upstream_http": return "The source site refused the request or is unavailable.";
@@ -680,19 +693,36 @@ function scheduleExtractionPoll(article: Article) {
     try {
       const result = await request<{ extraction: ExtractionStatus }>(`/api/articles/${encodeURIComponent(article.id)}/extraction`);
       if (generation !== extractionPollGeneration || state.selected?.id !== article.id) return;
-      const updated = { ...state.selected, extraction: result.extraction } as Article;
+      let updated = { ...state.selected, extraction: result.extraction } as Article;
+      if (!extractionIsPending(result.extraction)) {
+        const detail = await request<{ article: Article }>(`/api/articles/${encodeURIComponent(article.id)}`);
+        if (generation !== extractionPollGeneration || state.selected?.id !== article.id) return;
+        updated = { ...detail.article, extraction: result.extraction };
+      }
       state.selected = updated;
+      const detailStatus = document.querySelector('#detail-extraction-status');
+      if (detailStatus) detailStatus.textContent = extractionLabel(result.extraction);
       const row = list.querySelector<HTMLElement>(`[data-id="${CSS.escape(article.id)}"]`);
-      if (row) {
+      if (row && !extractionIsPending(result.extraction)) {
+        row.replaceWith(renderArticle(updated));
+        if (lastOpenedArticle?.id === updated.id) lastOpenedArticle = updated;
+        if (suggestedArticle?.id === updated.id) suggestedArticle = updated;
+        renderLastOpened();
+      } else if (row) {
         const meta = row.querySelector<HTMLElement>(".article-meta");
         if (meta) meta.replaceWith(renderArticleMeta({ ...article, extraction: result.extraction }));
         const badge = row.querySelector<HTMLElement>(".extraction-badge");
         if (badge) updateExtractionBadge(badge, result.extraction);
       }
-      if (result.extraction.state === "ready") {
+      if (!extractionIsPending(result.extraction) && result.extraction.state === "ready") {
         if ($<HTMLDialogElement>("#reader-dialog").open) {
-          const copy = await request<{ copy: ArticleCopy | null }>(`/api/articles/${encodeURIComponent(article.id)}/copy`);
-          if (copy.copy && generation === extractionPollGeneration && state.selected?.id === article.id && $<HTMLDialogElement>("#reader-dialog").open && !$<HTMLDialogElement>("#detail-dialog").open) openReader(updated, copy.copy);
+          if (!$("#reader-body").hidden && result.extraction.recovery) {
+            if (result.extraction.recovery.state === 'succeeded') $("#reader-new-copy").hidden = false;
+            else showNotice(extractionLabel(result.extraction), true);
+          } else {
+            const copy = await request<{ copy: ArticleCopy | null }>(`/api/articles/${encodeURIComponent(article.id)}/copy`);
+            if (copy.copy && generation === extractionPollGeneration && state.selected?.id === article.id && $<HTMLDialogElement>("#reader-dialog").open && !$<HTMLDialogElement>("#detail-dialog").open) openReader(updated, copy.copy);
+          }
         } else if ($<HTMLDialogElement>("#detail-dialog").open) refreshDetailAfterExtraction(updated);
         stopExtractionPolling();
         return;
@@ -722,10 +752,15 @@ function startExtractionPolling(article: Article) {
 }
 function refreshDetailAfterExtraction(article: Article) {
   const root = $("#detail-content");
-  const titleDraft = root.querySelector<HTMLInputElement>(".edit-form input")?.value;
+  if (root.querySelector<HTMLElement>('.copy-editor')?.dataset.saving === 'true') return;
+  const input = root.querySelector<HTMLInputElement>(".edit-form input");
+  const titleDraft = input && input.value !== input.defaultValue ? input.value : undefined;
   renderDetail(article);
   const titleInput = root.querySelector<HTMLInputElement>(".edit-form input");
-  if (titleDraft !== undefined && titleInput) titleInput.value = titleDraft;
+  if (titleDraft !== undefined && titleInput) {
+    titleInput.value = titleDraft;
+    titleInput.dispatchEvent(new Event('input'));
+  }
 }
 document.addEventListener("visibilitychange", () => {
   if (document.visibilityState === "hidden") {
@@ -954,6 +989,7 @@ function renderDetail(article: Article) {
   const label = el("label", "Title", "field-label");
   const input = el("input");
   input.value = article.title;
+  input.defaultValue = article.title;
   input.maxLength = 500;
   label.append(input);
   const save = el("button", "Save title", "button primary");
@@ -1014,7 +1050,7 @@ function renderDetail(article: Article) {
       retryCapture.disabled = false;
     }
   });
-  if (article.extraction && article.extraction.state !== "none") {
+  if (article.extraction) {
     if (article.extraction.state === "failed") extractionStatus.textContent = `${extractionFailureMessage(article.extraction.errorCode)} Paste or upload a browser copy below, or retry.`;
     extractionPanel.append(extractionStatus, retryCapture);
   }
@@ -1085,6 +1121,71 @@ async function renderCopyEditor(article: Article) {
   const selectedIntegration = () => integrations.find(item => item.id === integrationSelect.value);
   let saving = false;
   let source: ArticleCopy["source"] = "paste";
+  let loaded = false;
+  const recovery = el('div', undefined, 'capture-recovery');
+  recovery.append(el('p', 'Fetch the original again and replace the saved Markdown when capture succeeds.', 'muted copy-explainer'));
+  const refreshLabel = el('label', undefined, 'capture-refresh-option');
+  const refreshMetadata = el('input');
+  refreshMetadata.type = 'checkbox';
+  refreshLabel.append(refreshMetadata, document.createTextNode('Also refresh title, author, and description'));
+  const recapture = el('button', 'Recapture article', 'button secondary');
+  recapture.type = 'button';
+  const undo = el('button', 'Undo last recapture', 'button secondary');
+  undo.type = 'button';
+  const discard = el('button', 'Discard unsaved changes', 'button secondary');
+  discard.type = 'button';
+  const recoveryHint = el('p', undefined, 'muted copy-status');
+  recoveryHint.setAttribute('aria-live', 'polite');
+  const titleInput = root.querySelector<HTMLInputElement>('.edit-form input');
+  const isDirty = () => Boolean(copyDrafts.has(article.id) || (titleInput && titleInput.value !== titleInput.defaultValue));
+  const updateRecoveryControls = () => {
+    const dirty = isDirty();
+    recapture.disabled = !loaded || saving || dirty || extractionIsPending(state.selected?.extraction);
+    undo.hidden = !state.selected?.extraction?.undoAvailable;
+    undo.disabled = !loaded || saving || dirty;
+    discard.hidden = !dirty;
+    discard.disabled = !loaded || saving;
+    refreshMetadata.disabled = saving;
+    recoveryHint.textContent = dirty ? 'Save or discard your unsaved changes before recapturing or undoing.' : '';
+  };
+  titleInput?.addEventListener('input', updateRecoveryControls);
+  discard.addEventListener('click', () => {
+    copyDrafts.delete(article.id);
+    textarea.value = saved?.markdown ?? '';
+    source = saved?.source ?? 'paste';
+    if (titleInput) titleInput.value = titleInput.defaultValue;
+    showStatus(saved ? `Saved ${dateLabel(saved.capturedAt)}` : 'No Markdown copy saved yet.');
+    updateRecoveryControls();
+  });
+  const recover = async (action: 'recapture' | 'undo') => {
+    if (!loaded || saving || isDirty()) return;
+    saving = true;
+    updateRecoveryControls();
+    message.hidden = true;
+    try {
+      const result = await request<{ extraction: ExtractionStatus }>(`/api/articles/${encodeURIComponent(article.id)}/extraction/${action}`, {
+        method: 'POST', body: JSON.stringify({ expectedRevision: saved?.revision ?? null,
+          ...(action === 'recapture' ? { refreshMetadata: refreshMetadata.checked } : {}) }),
+      });
+      if (state.selected?.id !== article.id || !root.contains(section) || !$<HTMLDialogElement>('#detail-dialog').open) return;
+      const detail = await request<{ article: Article }>(`/api/articles/${encodeURIComponent(article.id)}`);
+      if (state.selected?.id !== article.id || !root.contains(section) || !$<HTMLDialogElement>('#detail-dialog').open) return;
+      const updated = { ...detail.article, extraction: result.extraction };
+      state.selected = updated;
+      refreshDetailAfterExtraction(updated);
+      if (extractionIsPending(result.extraction)) startExtractionPolling(updated);
+      showNotice(action === 'undo' ? 'Previous copy restored.' : extractionLabel(result.extraction));
+      void load();
+    } catch (error) {
+      if (root.contains(section)) showError(`Couldn’t ${action === 'undo' ? 'undo recapture' : 'queue recapture'}. ${(error as Error).message}`);
+    } finally { saving = false; updateRecoveryControls(); }
+  };
+  recapture.addEventListener('click', () => { void recover('recapture'); });
+  undo.addEventListener('click', () => { void recover('undo'); });
+  const recoveryActions = el('div', undefined, 'saved-copy-actions');
+  recoveryActions.append(recapture, undo, discard);
+  recovery.append(refreshLabel, recoveryActions, recoveryHint);
+  updateRecoveryControls();
   save.disabled = true;
   const showError = (text: string) => {
     message.textContent = text;
@@ -1197,6 +1298,7 @@ async function renderCopyEditor(article: Article) {
       textarea.value = text;
       source = "upload";
       copyDrafts.set(article.id, { markdown: text, source });
+      updateRecoveryControls();
       message.hidden = true;
       showStatus(`${selected.name} loaded · ${textBytes.toLocaleString()} UTF-8 bytes. Save when ready.`);
     } catch (error) {
@@ -1207,11 +1309,14 @@ async function renderCopyEditor(article: Article) {
   });
   textarea.addEventListener("input", () => {
     source = "paste";
-    copyDrafts.set(article.id, { markdown: textarea.value, source });
+    if (textarea.value === (saved?.markdown ?? '')) copyDrafts.delete(article.id);
+    else copyDrafts.set(article.id, { markdown: textarea.value, source });
+    updateRecoveryControls();
     const bytes = new TextEncoder().encode(textarea.value).byteLength;
     showStatus(`${bytes.toLocaleString()} UTF-8 bytes · Unsaved draft`);
   });
   save.addEventListener("click", async () => {
+    if (saving) return;
     const markdown = textarea.value;
     const bytes = new TextEncoder().encode(markdown).byteLength;
     if (!markdown.trim()) {
@@ -1225,6 +1330,8 @@ async function renderCopyEditor(article: Article) {
     if (saved && !confirm("Replace the saved Markdown copy with this draft?")) return;
     const destination = integrationCheckbox.checked && selectedIntegration() ? integrationConsent(selectedIntegration()!) : null;
     saving = true;
+    section.dataset.saving = 'true';
+    updateRecoveryControls();
     renderIntegrationStatus();
     save.disabled = true;
     textarea.disabled = true;
@@ -1238,6 +1345,10 @@ async function renderCopyEditor(article: Article) {
       saved = result.copy;
       showCopyActions();
       copyDrafts.delete(article.id);
+      try {
+        const extraction = await request<{ extraction: ExtractionStatus }>(`/api/articles/${encodeURIComponent(article.id)}/extraction`);
+        if (state.selected?.id === article.id && root.contains(section)) state.selected.extraction = extraction.extraction;
+      } catch { /* A status refresh failure does not change the successful copy save. */ }
       const storedBytes = new TextEncoder().encode(saved.markdown).byteLength;
       showStatus(`Saved ${dateLabel(saved.capturedAt)} · ${saved.source === "upload" ? "uploaded file" : "captured or pasted Markdown"} · ${storedBytes.toLocaleString()} UTF-8 bytes`);
       showNotice("Markdown copy saved.");
@@ -1247,6 +1358,8 @@ async function renderCopyEditor(article: Article) {
       showError(`Couldn’t save the Markdown copy. ${(error as Error).message} Your draft is still here; retry when ready.`);
     } finally {
       saving = false;
+      section.dataset.saving = 'false';
+      updateRecoveryControls();
       renderIntegrationStatus();
       save.disabled = false;
       textarea.disabled = false;
@@ -1254,7 +1367,7 @@ async function renderCopyEditor(article: Article) {
     }
   });
   savedActions.append(readCopy, downloadCopy);
-  section.append(status, savedActions, label, fileLabel, integrationLabel, integrationSelect, integrationDescription, save, integrationStatus, integrationRetry, message);
+  section.append(status, savedActions, recovery, label, fileLabel, integrationLabel, integrationSelect, integrationDescription, save, integrationStatus, integrationRetry, message);
   root.append(section);
   const pendingDraft = copyDrafts.get(article.id);
   if (pendingDraft) {
@@ -1266,6 +1379,8 @@ async function renderCopyEditor(article: Article) {
     const result = await request<{ copy: ArticleCopy | null }>(`/api/articles/${encodeURIComponent(article.id)}/copy`);
     if (state.selected?.id !== article.id || !root.contains(section)) return;
     saved = result.copy;
+    loaded = true;
+    updateRecoveryControls();
     showCopyActions();
     const pending = copyDrafts.get(article.id);
     if (pending) {
@@ -1367,6 +1482,7 @@ function openReader(article: Article, copy: ArticleCopy, opener?: HTMLElement) {
   metadata.textContent = `Captured ${dateLabel(copy.capturedAt)} · ${copy.source === "upload" ? "uploaded file" : "captured or pasted Markdown"} · ${sourceHost(article.url)}`;
   about.open = false;
   $("#reader-pending").hidden = true;
+  $("#reader-new-copy").hidden = true;
   $("#reader-image-note").hidden = false;
   body.hidden = false;
   original.href = safeHttpUrl(article.url) || "#";
@@ -1385,8 +1501,13 @@ function openReader(article: Article, copy: ArticleCopy, opener?: HTMLElement) {
   title.focus({ preventScroll: true });
   restoreReadingPosition(positionContext);
   stopExtractionPolling();
+  if (extractionIsPending(article.extraction)) startExtractionPolling(article);
 }
+$("#reader-new-copy").addEventListener('click', () => {
+  if (state.selected) void openSavedCopy(state.selected);
+});
 function renderPendingReader(article: Article) {
+  $("#reader-new-copy").hidden = true;
   resetReaderCompletion();
   saveReadingPosition();
   readerPositionContext = null;
@@ -1448,6 +1569,7 @@ $("#reader-retry").addEventListener("click", async () => {
   }
 });
 function clearReader() {
+  $("#reader-new-copy").hidden = true;
   resetReaderCompletion();
   saveReadingPosition();
   readerPositionContext = null;

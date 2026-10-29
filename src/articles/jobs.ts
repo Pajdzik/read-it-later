@@ -1,4 +1,5 @@
 import type { ArticleCopy, ExtractionStatus } from "../contracts";
+import { completeRecapture, metadataSnapshot } from './recovery';
 
 export interface ExtractionJob {
   articleId: string;
@@ -7,6 +8,7 @@ export interface ExtractionJob {
   leaseToken: string;
   attempts: number;
   leaseExpiresAt: string;
+  kind: 'initial' | 'recapture';
 }
 
 export interface ExtractionMetadata {
@@ -50,11 +52,22 @@ function mapStatus(row: Record<string, unknown>, paused: boolean): ExtractionSta
       : String(row.error_code),
     nextAttemptAt: row.next_attempt_at == null ? null : String(row.next_attempt_at),
     paused,
+    undoAvailable: Number(row.undo_available ?? 0) > 0,
+    ...(row.kind === 'recapture' ? { recovery: {
+      generation: Number(row.generation),
+      state: jobState as NonNullable<ExtractionStatus['recovery']>['state'],
+      attempts: Number(row.attempts),
+      errorCode: row.error_code == null ? null : String(row.error_code),
+      nextAttemptAt: row.next_attempt_at == null ? null : String(row.next_attempt_at),
+    } } : {}),
   };
 }
 
 const STATUS_SELECT = `SELECT a.id, a.extraction_requested_at, c.article_id AS copy_id,
-    j.state AS job_state, j.attempts, j.error_code, j.next_attempt_at
+    j.state AS job_state, j.attempts, j.error_code, j.next_attempt_at,j.kind,j.generation,
+    EXISTS (SELECT 1 FROM article_capture_recovery r WHERE r.article_id=a.id
+      AND r.resulting_revision=c.revision
+      AND (r.previous_metadata IS NULL OR r.resulting_metadata=${metadataSnapshot('a')})) AS undo_available
   FROM articles a LEFT JOIN article_copies c ON c.article_id = a.id
   LEFT JOIN article_extraction_jobs j ON j.article_id = a.id`;
 
@@ -131,11 +144,11 @@ export async function claimExtractionJob(db: D1Database, now = new Date().toISOS
       SELECT j.article_id FROM article_extraction_jobs j
       JOIN articles a ON a.id = j.article_id
       WHERE j.state IN ('queued','retry_wait') AND j.next_attempt_at <= ? AND j.attempts < ?
-        AND NOT EXISTS (SELECT 1 FROM article_copies c WHERE c.article_id = j.article_id)
+        AND (j.kind='recapture' OR NOT EXISTS (SELECT 1 FROM article_copies c WHERE c.article_id = j.article_id))
       ORDER BY j.next_attempt_at,j.article_id LIMIT 1
     ) AND state IN ('queued','retry_wait') AND next_attempt_at <= ? AND attempts < ?
-      AND NOT EXISTS (SELECT 1 FROM article_copies c WHERE c.article_id = article_extraction_jobs.article_id)
-    RETURNING article_id,generation,attempts,lease_expires_at,
+      AND (kind='recapture' OR NOT EXISTS (SELECT 1 FROM article_copies c WHERE c.article_id = article_extraction_jobs.article_id))
+    RETURNING article_id,generation,attempts,lease_expires_at,kind,
       (SELECT url FROM articles WHERE id = article_extraction_jobs.article_id) AS url`)
     .bind(token, leaseExpiresAt, now, now, MAX_ATTEMPTS, now, MAX_ATTEMPTS)
     .first<Record<string, unknown>>();
@@ -147,6 +160,7 @@ export async function claimExtractionJob(db: D1Database, now = new Date().toISOS
     leaseToken: token,
     attempts: Number(row.attempts),
     leaseExpiresAt: String(row.lease_expires_at),
+    kind: row.kind as ExtractionJob['kind'],
   };
 }
 
@@ -157,6 +171,7 @@ export async function completeExtractionJob(
   result: { markdown: string; metadata: ExtractionMetadata },
   now = new Date().toISOString(),
 ): Promise<boolean> {
+  if (job.kind === 'recapture') return completeRecapture(db, job, result, now);
   const copy: ArticleCopy = {
     markdown: result.markdown,
     capturedAt: now,
@@ -214,7 +229,7 @@ export async function failExtractionJob(
       error_code = ?, finished_at = ?, updated_at = ?
     WHERE article_id = ? AND generation = ? AND state = 'running' AND lease_token = ?
       AND lease_expires_at > ? AND attempts = ? AND EXISTS (SELECT 1 FROM articles WHERE id = ?)
-      AND NOT EXISTS (SELECT 1 FROM article_copies WHERE article_id = ?)`)
+      AND (kind='recapture' OR NOT EXISTS (SELECT 1 FROM article_copies WHERE article_id = ?))`)
     .bind(retryable ? "retry_wait" : "failed", nextAttemptAt, code,
       retryable ? null : now, now, job.articleId, job.generation, job.leaseToken, now,
       job.attempts, job.articleId, job.articleId).run();
@@ -222,7 +237,7 @@ export async function failExtractionJob(
 
 export type RetryExtractionResult = "missing" | "cooldown" | "ready" | "active" | "queued";
 
-/** Owner retry: only a failed, copy-less generation can be reset. */
+/** Owner retry also recovers a succeeded job whose copy has disappeared. */
 export async function retryExtractionJob(
   db: D1Database,
   id: string,
@@ -241,12 +256,13 @@ export async function retryExtractionJob(
     return "queued";
   }
   if (["queued", "running", "retry_wait"].includes(String(row.state))) return "active";
-  if (row.state !== "failed") return "missing";
+  if (row.state !== "failed" && row.state !== "succeeded") return "missing";
   if (Date.parse(now) - Date.parse(String(row.updated_at)) < 60_000) return "cooldown";
   const reset = await db.prepare(`UPDATE article_extraction_jobs SET generation = generation + 1,
       state = 'queued', attempts = 0, next_attempt_at = ?, lease_token = NULL,
-      lease_expires_at = NULL, error_code = NULL, finished_at = NULL, updated_at = ?
-    WHERE article_id = ? AND state = 'failed' AND updated_at = ?
+      lease_expires_at = NULL, error_code = NULL, finished_at = NULL, updated_at = ?,
+      kind='initial',expected_revision=NULL,refresh_metadata=0,baseline_metadata=NULL
+    WHERE article_id = ? AND state IN ('failed','succeeded') AND updated_at = ?
       AND NOT EXISTS (SELECT 1 FROM article_copies WHERE article_id = ?)`)
     .bind(now, now, id, row.updated_at, id).run();
   return (reset.meta.changes ?? 0) > 0 ? "queued" : "active";
