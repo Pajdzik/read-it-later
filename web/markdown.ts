@@ -42,8 +42,14 @@ function linkUrl(href: string, sourceUrl: string): string | null {
   }
 }
 
-/** Render a stored Markdown copy as a sanitized fragment, with no network-loading nodes. */
-export function renderMarkdown(markdown: string, sourceUrl: string): DocumentFragment {
+function titleKey(title: string): string {
+  // Captured headings can lose spaces around line breaks and use curly quotes.
+  // Keep punctuation and symbols so distinct titles (e.g. C and C++) stay distinct.
+  return title.normalize("NFKC").toLowerCase().replace(/[‘’]/g, "'").replace(/[“”]/g, '"').replace(/\s+/gu, "");
+}
+
+/** Render a stored copy; an optional title identifies a heading already shown by the reader. */
+export function renderMarkdown(markdown: string, sourceUrl: string, articleTitle?: string): DocumentFragment {
   const parser = new MarkdownIt({
     html: false,
     linkify: false,
@@ -87,7 +93,7 @@ export function renderMarkdown(markdown: string, sourceUrl: string): DocumentFra
   };
 
   const html = parser.render(markdown);
-  return DOMPurify.sanitize(html, {
+  const fragment = DOMPurify.sanitize(html, {
     ALLOWED_TAGS: allowedTags,
     ALLOWED_ATTR: allowedAttributes,
     ALLOW_DATA_ATTR: false,
@@ -96,6 +102,14 @@ export function renderMarkdown(markdown: string, sourceUrl: string): DocumentFra
     FORBID_ATTR: ["style", "id", "class", "src", "srcset", "name", "form", "onerror", "onclick"],
     RETURN_DOM_FRAGMENT: true,
   });
+  const opening = fragment.firstElementChild;
+  if (articleTitle && opening?.matches("h1, h2, h3, h4, h5, h6") &&
+      titleKey(articleTitle) && titleKey(opening.textContent || "") === titleKey(articleTitle)) {
+    // Only omit a matching opening heading in the display. Stored/downloaded
+    // Markdown and later headings remain intact.
+    opening.remove();
+  }
+  return fragment;
 }
 
 export function markdownDownloadName(articleId: string): string {

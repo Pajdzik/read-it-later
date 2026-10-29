@@ -16,6 +16,8 @@ Resolve Markdown links against the article's submitted source URL, including roo
 
 Sanitize the final generated markup with a small explicit allowlist of Markdown HTML tags and required attributes; no raw event handlers, style, SVG, MathML, forms, arbitrary IDs, or resource-loading attributes. Return a sanitized DOM fragment and attach it directly without subsequently feeding it to another markup processor. Keep the restrictive existing CSP unchanged. Browser tests must demonstrate actual sanitized DOM behavior rather than relying only on CSP to prevent execution.
 
+The reader omits the first top-level Markdown heading when its rendered text matches the article title already displayed above it, ignoring case, whitespace, and curly versus straight quotes. Distinct opening headings, headings inside quotes/lists, and later headings remain visible. This affects only the reader display; stored Markdown, editing, capture previews, and downloads retain the complete copy.
+
 ## Download
 
 Generate a UTF-8 `text/markdown` Blob locally from the loaded copy, avoiding a new API route or server-side renderer. Download a safe, deterministic `.md` filename derived from article ID. Use YAML frontmatter containing `title`, `url`, `capturedAt`, `source`, and `revision`; encode scalar values as JSON-quoted strings (valid YAML 1.2) to preserve Unicode, quotes, colons, and newlines and prevent frontmatter injection. Separate frontmatter from the original Markdown body with a blank line and preserve the body's bytes exactly. Do not include authentication records or credentials. Revoke the object URL after the download starts.
