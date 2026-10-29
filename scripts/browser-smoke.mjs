@@ -193,7 +193,7 @@ try {
   await detail.getByText("No Markdown copy saved yet.").waitFor();
   assert.equal(await detail.getByRole("button", { name: "Read saved copy" }).isHidden(), true, "A missing copy must not show reader actions.");
   assert.equal(await detail.getByRole("button", { name: "Download Markdown" }).isHidden(), true, "A missing copy must not show download actions.");
-  const githubCheckbox = detail.getByRole("checkbox", { name: "Also save to GitHub" });
+  const githubCheckbox = detail.getByRole("checkbox", { name: "Also send to an integration" });
   await detail.getByText(/Pajdzik\/Kamilpedia/).waitFor();
   assert.equal(await githubCheckbox.isChecked(), false, "GitHub saving must start unchecked.");
   assert.equal(await githubCheckbox.isDisabled(), false, "Configured GitHub saving should be available as an opt-in.");
@@ -225,13 +225,14 @@ try {
   let githubFailure = true;
   let githubState = "not_saved";
   const githubDestination = {
+    id: "github", name: "GitHub", destination: "Pajdzik/Kamilpedia · main · Articles", destinationKey: JSON.stringify(["Pajdzik/Kamilpedia", "main", "Articles"]), description: "Files inherit the repository’s visibility.",
     configured: true, repository: "Pajdzik/Kamilpedia", branch: "main",
     path: "Articles/browser-smoke.md", url: "https://github.com/Pajdzik/Kamilpedia/blob/main/Articles/browser-smoke.md",
   };
-  await page.route("**/api/articles/*/github", async (route) => {
+  await page.route(/\/api\/articles\/[^/]+\/integrations(?:\/[^/]+)?$/, async (route) => {
     if (route.request().method() === "POST") {
       githubRequests++;
-      const copyUrl = route.request().url().replace(/\/github$/, "/copy");
+      const copyUrl = route.request().url().replace(/\/integrations(?:\/[^/]+)?$/, "/copy");
       const currentCopy = (await (await fetch(copyUrl)).json()).copy;
       assert.equal(route.request().postDataJSON().expectedRevision, currentCopy.revision, "GitHub must receive the persisted copy revision.");
       assert.equal(currentCopy.markdown, "# GitHub checkbox copy\n\nStill saved if GitHub fails.");
@@ -241,9 +242,9 @@ try {
       }
       githubState = "saved";
     }
-    await route.fulfill({ contentType: "application/json", body: JSON.stringify({ backup: {
-      ...githubDestination, state: githubState, ...(githubState === "saved" ? { backedUpAt: "2026-10-01T00:00:00.000Z" } : {}),
-    } }) });
+    await route.fulfill({ contentType: "application/json", body: JSON.stringify({ ...(route.request().method() === "POST" ? { integration: { ...githubDestination, state: githubState, deliveredAt: "2026-10-01T00:00:00.000Z" } } : { integrations: [{
+      ...githubDestination, state: githubState, ...(githubState === "saved" ? { deliveredAt: "2026-10-01T00:00:00.000Z" } : {}),
+    }] }) }) });
   });
   await page.reload();
   await page.locator("#loading").waitFor({ state: "hidden" });
@@ -251,7 +252,7 @@ try {
   await article.getByRole("button", { name: "Edit", exact: true }).click();
   await page.locator("#detail-content .copy-status").getByText(/uploaded file/).waitFor();
   assert.equal(await page.locator("#detail-content").getByRole("textbox", { name: "Markdown copy" }).inputValue(), uploadedMarkdown, "Uploaded Markdown must survive reload.");
-  await detail.getByText(/Not saved to GitHub yet/).waitFor();
+  await detail.getByText(/Not sent to GitHub yet/).waitFor();
   assert.equal(await githubCheckbox.isChecked(), false, "The GitHub checkbox must remain opt-in on reopen.");
   assert.equal(githubRequests, 0, "Unchecked local saves must not trigger a GitHub write.");
   await markdown.fill("# Unchecked GitHub save");
@@ -267,15 +268,15 @@ try {
   assert.equal(githubRequests, 1);
   assert.equal(await markdown.inputValue(), "# GitHub checkbox copy\n\nStill saved if GitHub fails.", "GitHub failure must leave the local copy in the editor.");
   githubFailure = false;
-  await detail.getByRole("button", { name: "Save saved copy to GitHub" }).click();
-  await detail.getByText(/Saved to GitHub/).waitFor();
+  await detail.getByRole("button", { name: "Send saved copy to GitHub" }).click();
+  await detail.getByText(/Sent to GitHub/).waitFor();
   assert.equal(githubRequests, 2, "GitHub retry must not require resaving or replacing the local copy.");
   await page.locator("#detail-dialog .dialog-close button").click();
   await page.waitForFunction(() => location.pathname === "/");
   await page.reload();
   await title.waitFor();
   await article.getByRole("button", { name: "Edit", exact: true }).click();
-  await detail.getByText(/Saved to GitHub/).waitFor();
+  await detail.getByText(/Sent to GitHub/).waitFor();
   assert.equal(await githubCheckbox.isChecked(), false);
   assert.equal(await markdown.inputValue(), "# GitHub checkbox copy\n\nStill saved if GitHub fails.");
   const preservedMarkdown = [
@@ -451,7 +452,12 @@ try {
   });
   await signInPage.goto(canonicalReaderUrl);
   await signInPage.locator("#library-sign-in").click();
-  await signInPage.locator("#reader-dialog").getByRole("heading", { name: "Reader entry smoke" }).waitFor();
+  try {
+    await signInPage.locator("#reader-dialog").getByRole("heading", { name: "Reader entry smoke" }).waitFor({ timeout: 10000 });
+  } catch (error) {
+    const diagnostics = await signInPage.evaluate(() => ({ url: location.href, storage: { ...sessionStorage }, notice: document.querySelector('#notice')?.textContent, reader: document.querySelector('#reader-dialog')?.open, add: document.querySelector('#add-dialog')?.open }));
+    throw new Error(`Reader sign-in return failed: ${JSON.stringify(diagnostics)}`, { cause: error });
+  }
   assert.equal(signInPage.url(), canonicalReaderUrl,
     "Signing in from a direct article route should return to the requested canonical article URL.");
   assert.equal(await signInPage.evaluate(() => sessionStorage.getItem("potem-pending-reader-v1")), null,
@@ -970,13 +976,13 @@ try {
   const [successfulClip] = await Promise.all([captureFrom("/article")]);
   await successfulClip.popup.locator("#capture-copy").waitFor({ state: "visible" });
   await successfulClip.popup.waitForFunction(() => {
-    const checkbox = document.querySelector("#capture-github-enabled");
-    return checkbox && !checkbox.disabled && document.querySelector("#capture-github-status").textContent.includes("Pajdzik/Kamilpedia");
+    const checkbox = document.querySelector("#capture-integration-enabled");
+    return checkbox && !checkbox.disabled && document.querySelector("#capture-integration-status").textContent.includes("Pajdzik/Kamilpedia");
   });
-  assert.equal(await successfulClip.popup.locator("#capture-github-enabled").isChecked(), false, "GitHub publishing must start unchecked.");
-  assert.match(await successfulClip.popup.locator(".capture-copy .copy-explainer").textContent(), /production destination.*is public/i);
+  assert.equal(await successfulClip.popup.locator("#capture-integration-enabled").isChecked(), false, "GitHub publishing must start unchecked.");
+  assert.match(await successfulClip.popup.locator(".capture-copy .copy-explainer").textContent(), /repository.*visibility/i);
   let defaultGithubPosts = 0;
-  await successfulClip.popup.route("**/api/articles/*/github", async (route) => {
+  await successfulClip.popup.route(/\/api\/articles\/[^/]+\/integrations(?:\/[^/]+)?$/, async (route) => {
     if (route.request().method() === "POST") defaultGithubPosts++;
     await route.continue();
   });
@@ -1005,7 +1011,7 @@ try {
   const optedInClip = await captureFrom("/opted-in");
   await optedInClip.popup.locator("#capture-copy").waitFor({ state: "visible" });
   await optedInClip.popup.waitForFunction(() => {
-    const checkbox = document.querySelector("#capture-github-enabled");
+    const checkbox = document.querySelector("#capture-integration-enabled");
     return checkbox && !checkbox.disabled;
   });
   let optedInCopyWrites = 0;
@@ -1020,18 +1026,18 @@ try {
     optedInRevision = body.copy.revision;
     await route.fulfill({ response, body: JSON.stringify(body) });
   });
-  await optedInClip.popup.route("**/api/articles/*/github", async (route) => {
+  await optedInClip.popup.route(/\/api\/articles\/[^/]+\/integrations(?:\/[^/]+)?$/, async (route) => {
     if (route.request().method() !== "POST") return route.continue();
     optedInGithubPosts++;
     assert.equal(route.request().postDataJSON().expectedRevision, optedInRevision, "GitHub must receive the revision returned by D1.");
-    await route.fulfill({ contentType: "application/json", body: JSON.stringify({ backup: {
+    await route.fulfill({ contentType: "application/json", body: JSON.stringify({ integration: { ...githubDestination,
       configured: true, repository: "Pajdzik/Kamilpedia", branch: "main", path: "Articles/opted-in.md",
-      url: "https://github.com/Pajdzik/Kamilpedia/blob/main/Articles/opted-in.md", state: "saved", backedUpAt: "2026-10-02T00:00:00.000Z",
+      url: "https://github.com/Pajdzik/Kamilpedia/blob/main/Articles/opted-in.md", state: "saved", deliveredAt: "2026-10-02T00:00:00.000Z",
     } }) });
   });
-  await optedInClip.popup.locator("#capture-github-enabled").check();
+  await optedInClip.popup.locator("#capture-integration-enabled").check();
   await optedInClip.popup.locator("#add-form button").click();
-  await optedInClip.popup.getByText("Link and Markdown copy saved to Potem and GitHub.").waitFor();
+  await optedInClip.popup.getByText("Link and Markdown copy saved in Potem and sent to the integration.").waitFor();
   assert.equal(optedInCopyWrites, 1);
   assert.equal(optedInGithubPosts, 1);
   await optedInClip.source.close();
@@ -1039,7 +1045,7 @@ try {
 
   const githubRetryClip = await captureFrom("/github-retry");
   await githubRetryClip.popup.locator("#capture-copy").waitFor({ state: "visible" });
-  await githubRetryClip.popup.waitForFunction(() => !document.querySelector("#capture-github-enabled").disabled);
+  await githubRetryClip.popup.waitForFunction(() => !document.querySelector("#capture-integration-enabled").disabled);
   let retryCopyWrites = 0;
   let retryCopyRevision = "";
   const retryRevisions = [];
@@ -1052,7 +1058,7 @@ try {
     retryCopyRevision = body.copy.revision;
     await route.fulfill({ response, body: JSON.stringify(body) });
   });
-  await githubRetryClip.popup.route("**/api/articles/*/github", async (route) => {
+  await githubRetryClip.popup.route(/\/api\/articles\/[^/]+\/integrations(?:\/[^/]+)?$/, async (route) => {
     if (route.request().method() !== "POST") return route.continue();
     const expectedRevision = route.request().postDataJSON().expectedRevision;
     retryRevisions.push(expectedRevision);
@@ -1061,22 +1067,22 @@ try {
       failFirstGitHubSave = false;
       await route.fulfill({ status: 503, contentType: "application/json", body: JSON.stringify({ error: { message: "Simulated GitHub failure" } }) });
     } else {
-      await route.fulfill({ contentType: "application/json", body: JSON.stringify({ backup: {
+      await route.fulfill({ contentType: "application/json", body: JSON.stringify({ integration: { ...githubDestination,
         configured: true, repository: "Pajdzik/Kamilpedia", branch: "main", path: "Articles/github-retry.md",
-        url: "https://github.com/Pajdzik/Kamilpedia/blob/main/Articles/github-retry.md", state: "saved", backedUpAt: "2026-10-02T00:00:00.000Z",
+        url: "https://github.com/Pajdzik/Kamilpedia/blob/main/Articles/github-retry.md", state: "saved", deliveredAt: "2026-10-02T00:00:00.000Z",
       } }) });
     }
   });
-  await githubRetryClip.popup.locator("#capture-github-enabled").check();
+  await githubRetryClip.popup.locator("#capture-integration-enabled").check();
   await githubRetryClip.popup.locator("#add-form button").click();
-  await githubRetryClip.popup.locator("#capture-github-retry").waitFor({ state: "visible" });
-  await githubRetryClip.popup.locator("#add-notice").getByText(/GitHub save failed/).waitFor();
+  await githubRetryClip.popup.locator("#capture-integration-retry").waitFor({ state: "visible" });
+  await githubRetryClip.popup.locator("#add-notice").getByText(/Integration delivery failed/).waitFor();
   assert.equal(retryCopyWrites, 1, "The Markdown copy must be saved before the GitHub attempt.");
   await githubRetryClip.popup.reload();
-  await githubRetryClip.popup.locator("#capture-github-retry").waitFor({ state: "visible" });
-  assert.equal(await githubRetryClip.popup.locator("#capture-github-enabled").isChecked(), false, "A GitHub publishing choice must not be restored as checked.");
-  await githubRetryClip.popup.locator("#capture-github-retry").click();
-  await githubRetryClip.popup.getByText("Markdown copy saved to Potem and GitHub.").waitFor();
+  await githubRetryClip.popup.locator("#capture-integration-retry").waitFor({ state: "visible" });
+  assert.equal(await githubRetryClip.popup.locator("#capture-integration-enabled").isChecked(), false, "A GitHub publishing choice must not be restored as checked.");
+  await githubRetryClip.popup.locator("#capture-integration-retry").click();
+  await githubRetryClip.popup.getByText("Markdown copy saved in Potem and sent to GitHub.").waitFor();
   assert.equal(retryCopyWrites, 1, "GitHub retry must not PUT the Markdown copy again.");
   assert.deepEqual(retryRevisions, [retryCopyRevision, retryCopyRevision], "Retry must reuse the same saved revision.");
   await githubRetryClip.source.close();
@@ -1084,17 +1090,17 @@ try {
 
   const githubDoneClip = await captureFrom("/github-done");
   await githubDoneClip.popup.locator("#capture-copy").waitFor({ state: "visible" });
-  await githubDoneClip.popup.waitForFunction(() => !document.querySelector("#capture-github-enabled").disabled);
-  await githubDoneClip.popup.route("**/api/articles/*/github", async (route) => {
+  await githubDoneClip.popup.waitForFunction(() => !document.querySelector("#capture-integration-enabled").disabled);
+  await githubDoneClip.popup.route(/\/api\/articles\/[^/]+\/integrations(?:\/[^/]+)?$/, async (route) => {
     if (route.request().method() === "POST")
       await route.fulfill({ status: 503, contentType: "application/json", body: JSON.stringify({ error: { message: "Simulated persistent GitHub failure" } }) });
     else await route.continue();
   });
-  await githubDoneClip.popup.locator("#capture-github-enabled").check();
+  await githubDoneClip.popup.locator("#capture-integration-enabled").check();
   await githubDoneClip.popup.locator("#add-form button").click();
-  await githubDoneClip.popup.locator("#capture-github-done").waitFor({ state: "visible" });
+  await githubDoneClip.popup.locator("#capture-integration-done").waitFor({ state: "visible" });
   const doneArticleUrl = await githubDoneClip.popup.locator("#add-url").inputValue();
-  await githubDoneClip.popup.locator("#capture-github-done").click();
+  await githubDoneClip.popup.locator("#capture-integration-done").click();
   assert.equal(await githubDoneClip.popup.locator("#add-dialog").evaluate((dialog) => dialog.open), false);
   captureArticles = await githubDoneClip.popup.evaluate(async () => (await (await fetch("/api/articles?status=all")).json()).items);
   capturedArticle = captureArticles.find((item) => item.url === doneArticleUrl);
@@ -1117,10 +1123,10 @@ try {
   await page.goto(base + "/capture");
   const existingCapture = await captureFrom("/existing");
   await existingCapture.popup.locator("#capture-copy").waitFor({ state: "visible" });
-  await existingCapture.popup.waitForFunction(() => !document.querySelector("#capture-github-enabled").disabled);
-  await existingCapture.popup.locator("#capture-github-enabled").check();
+  await existingCapture.popup.waitForFunction(() => !document.querySelector("#capture-integration-enabled").disabled);
+  await existingCapture.popup.locator("#capture-integration-enabled").check();
   let existingGithubPosts = 0;
-  await existingCapture.popup.route("**/api/articles/*/github", async (route) => {
+  await existingCapture.popup.route(/\/api\/articles\/[^/]+\/integrations(?:\/[^/]+)?$/, async (route) => {
     if (route.request().method() === "POST") existingGithubPosts++;
     await route.continue();
   });

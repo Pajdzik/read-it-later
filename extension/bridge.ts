@@ -12,7 +12,7 @@ window.addEventListener('message', (event: MessageEvent) => {
   const message: ExtensionMessage = data.type === 'ready'
     ? (location.pathname === '/extension-connect' ? { version: 1, type: 'get-connection', requestId: data.requestId as string } : { version: 1, type: 'get-capture', requestId: data.requestId as string })
     : data.type === 'connection-config'
-      ? { version: 1, type: 'connection-config', requestId: data.requestId as string, authenticated: data.authenticated === true, ...(data.destination && typeof data.destination === 'object' ? { destination: data.destination as never } : {}) }
+      ? { version: 1, type: 'connection-config', requestId: data.requestId as string, authenticated: data.authenticated === true, ...(Array.isArray(data.destinations) ? { destinations: data.destinations as never } : {}) }
       : data.type === 'ack-capture'
       ? { version: 1, type: 'ack-capture', requestId: data.requestId as string }
       : { version: 1, type: 'capture-result', requestId: data.requestId as string, result: data.result === 'saved' ? 'saved' : 'action-required' };

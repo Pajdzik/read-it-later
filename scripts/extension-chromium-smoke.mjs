@@ -23,12 +23,12 @@ try {
   await options.goto(`chrome-extension://${extensionId}/options.html`);
   await options.waitForFunction(() => document.querySelector('#origin')?.textContent === 'http://127.0.0.1:8787');
   assert.equal(await options.locator('#mode').inputValue(), 'review');
-  assert.match(await options.locator('#destination').textContent(), /not configured/);
+  assert.match(await options.locator('#destination').textContent(), /saved privately/);
   await options.locator('#mode').selectOption('simple');
-  await options.waitForFunction(() => document.querySelector('#status')?.textContent.includes('confirm the current destination'));
-  assert.equal(await options.locator('#mode').inputValue(), 'review');
-  assert.match(await options.locator('#status').textContent(), /confirm the current destination/);
-  console.log(`Chromium ${context.browser().version()}: unpacked MV3 worker and Options page loaded; permissions and unconfigured Simple-mode guard passed.`);
+  await options.waitForFunction(() => document.querySelector('#mode')?.value === 'simple');
+  assert.equal(await options.locator('#mode').inputValue(), 'simple');
+  assert.equal(await options.locator('#integration').inputValue(), '');
+  console.log(`Chromium ${context.browser().version()}: unpacked MV3 worker and Options page loaded; permissions and automatic private saving without integrations passed.`);
 } finally {
   await context.close();
 }

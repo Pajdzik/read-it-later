@@ -1,4 +1,5 @@
 import { markdownDownload, markdownDownloadName, renderMarkdown } from "./markdown.js";
+import type { IntegrationConfiguration, IntegrationStatus, IntegrationConsent } from "../src/integrations/contracts.js";
 import { articlePath, isArticleId } from "../src/articles/identity.js";
 
 declare const __BUILD_INFO__: { commitSha: string; builtAt: string } | null;
@@ -52,24 +53,24 @@ type ExtractionStatus = { state: ExtractionState; attempts: number; errorCode: s
 type Session = { authenticated: boolean; csrfToken?: string };
 type Page = { items: Article[]; nextCursor: string | null };
 type ArticleCopy = { markdown: string; capturedAt: string; source: "paste" | "upload"; revision: string };
-type ExtensionDestination = { repository: string; branch: string; folder: string };
 type BrowserCaptureDraft = {
   sourceUrl: string; title: string; markdown: string; author?: string; description?: string;
-  requestId?: string; mode?: 'review' | 'simple'; destination?: ExtensionDestination; extractionError?: string;
+  requestId?: string; mode?: 'review' | 'simple'; destination?: IntegrationConsent; extractionError?: string;
   capturedAt?: string; savedArticleId?: string; savedCopyRevision?: string;
   publishRequested?: boolean;
   stage?: 'draft' | 'link-saved' | 'metadata-saving' | 'metadata-saved' | 'copy-saving' | 'copy-saved' | 'publishing' | 'complete';
   conflict?: { article: Article; copy: ArticleCopy | null }; replacementConfirmed?: boolean;
 };
-type GitHubCaptureConfiguration = { configured: boolean; message?: string; repository?: string; branch?: string; folder?: string };
-type GitHubBackupStatus = {
-  configured: boolean; message?: string; repository?: string; branch?: string;
-  path?: string; url?: string; state?: "not_saved" | "saved" | "outdated"; backedUpAt?: string;
-};
-function matchesGitHubDestination(configuration: GitHubCaptureConfiguration, expected: ExtensionDestination | undefined): boolean {
-  return Boolean(expected && configuration.configured &&
-    configuration.repository === expected.repository && configuration.branch === expected.branch &&
-    (configuration.folder || "") === expected.folder);
+function matchesIntegrationDestination(configuration: IntegrationConfiguration | null | undefined, expected: IntegrationConsent | undefined): boolean {
+  return Boolean(expected && configuration?.configured && configuration.id === expected.id && configuration.destinationKey === expected.destinationKey);
+}
+function integrationConsent(configuration: IntegrationConfiguration): IntegrationConsent {
+  return { id: configuration.id, destinationKey: configuration.destinationKey };
+}
+async function sendToIntegration(id: string, revision: string, destination: IntegrationConsent) {
+  return request<{ integration: IntegrationStatus; unchanged: boolean }>(`/api/articles/${encodeURIComponent(id)}/integrations/${encodeURIComponent(destination.id)}`, {
+    method: 'POST', body: JSON.stringify({ expectedRevision: revision, expectedDestinationKey: destination.destinationKey }),
+  });
 }
 const $ = <T extends HTMLElement = HTMLElement>(selector: string): T =>
   document.querySelector<T>(selector)!;
@@ -398,8 +399,9 @@ const state = {
 };
 const copyDrafts = new Map<string, { markdown: string; source: "paste" | "upload" }>();
 let browserCaptureDraft: BrowserCaptureDraft | null = null;
-let captureGitHubConfiguration: GitHubCaptureConfiguration | null = null;
-let captureGitHubConfigurationPromise: Promise<void> | null = null;
+let captureIntegrationConfiguration: IntegrationConfiguration | null = null;
+let captureIntegrations: IntegrationConfiguration[] = [];
+let captureIntegrationConfigurationPromise: Promise<void> | null = null;
 let readerLoadGeneration = 0;
 const readerCloseEvents: Array<{ generation: number; opener: HTMLElement | null }> = [];
 let readerReturnFocus: HTMLElement | null = null;
@@ -452,7 +454,7 @@ window.addEventListener('message', (event: MessageEvent) => {
     mode: capture.mode as 'review' | 'simple', capturedAt: typeof capture.capturedAt === 'string' ? capture.capturedAt : undefined,
     ...(typeof capture.author === 'string' ? { author: capture.author.slice(0, 200) } : {}),
     ...(typeof capture.description === 'string' ? { description: capture.description.slice(0, 500) } : {}),
-    ...(capture.destination && typeof capture.destination === 'object' ? { destination: capture.destination as ExtensionDestination } : {}),
+    ...(capture.destination && typeof capture.destination === 'object' ? { destination: capture.destination as IntegrationConsent } : {}),
     ...(typeof capture.extractionError === 'string' ? { extractionError: capture.extractionError } : {}),
   };
   try {
@@ -487,7 +489,7 @@ function showNotice(message: string, bad = false) {
   if ($<HTMLDialogElement>("#settings-dialog").open)
     $("#settings-status").textContent = message;
 }
-function showExtensionResult(article: Article, sourceUrl: string, githubUrl?: string) {
+function showExtensionResult(article: Article, sourceUrl: string, integrationUrl?: string) {
   notice.replaceChildren(document.createTextNode('Saved. '));
   const link = (href: string, label: string) => {
     const anchor = document.createElement('a'); anchor.href = href; anchor.textContent = label;
@@ -495,7 +497,7 @@ function showExtensionResult(article: Article, sourceUrl: string, githubUrl?: st
     return anchor;
   };
   notice.append(link(articlePath(article), 'Read in Potem'), document.createTextNode(' · '));
-  if (githubUrl) notice.append(link(githubUrl, 'Open GitHub'), document.createTextNode(' · '));
+  if (integrationUrl) notice.append(link(integrationUrl, 'Open destination'), document.createTextNode(' · '));
   notice.append(link(sourceUrl, 'Open original'));
   notice.hidden = false; notice.classList.remove('error');
 }
@@ -721,12 +723,9 @@ function startExtractionPolling(article: Article) {
 function refreshDetailAfterExtraction(article: Article) {
   const root = $("#detail-content");
   const titleDraft = root.querySelector<HTMLInputElement>(".edit-form input")?.value;
-  const githubChoice = root.querySelector<HTMLInputElement>(".github-option input")?.checked;
   renderDetail(article);
   const titleInput = root.querySelector<HTMLInputElement>(".edit-form input");
   if (titleDraft !== undefined && titleInput) titleInput.value = titleDraft;
-  const githubInput = root.querySelector<HTMLInputElement>(".github-option input");
-  if (githubChoice !== undefined && githubInput) githubInput.checked = githubChoice;
 }
 document.addEventListener("visibilitychange", () => {
   if (document.visibilityState === "hidden") {
@@ -1067,19 +1066,23 @@ async function renderCopyEditor(article: Article) {
   message.setAttribute("role", "status");
   const save = el("button", "Save Markdown copy", "button primary");
   save.type = "button";
-  const githubLabel = el("label", undefined, "github-option");
-  const githubCheckbox = el("input");
-  githubCheckbox.type = "checkbox";
-  githubCheckbox.disabled = true;
-  githubLabel.append(githubCheckbox, document.createTextNode("Also save to GitHub"));
-  const githubStatus = el("p", "Checking GitHub destination…", "muted copy-status");
-  githubStatus.setAttribute("aria-live", "polite");
-  const githubVisibility = el("p", "GitHub copies follow the repository’s visibility. Unsaved drafts stay here until you save.", "muted copy-explainer");
-  const githubRetry = el("button", "Save saved copy to GitHub", "button secondary");
-  githubRetry.type = "button";
-  githubRetry.hidden = true;
+  const integrationLabel = el("label", undefined, "integration-option");
+  const integrationCheckbox = el("input");
+  integrationCheckbox.type = "checkbox";
+  integrationCheckbox.disabled = true;
+  integrationLabel.append(integrationCheckbox, document.createTextNode("Also send to an integration"));
+  const integrationSelect = el("select");
+  integrationSelect.className = 'integration-select';
+  integrationSelect.setAttribute("aria-label", "Integration destination");
+  const integrationStatus = el("p", "Checking integrations…", "muted copy-status");
+  integrationStatus.setAttribute("aria-live", "polite");
+  const integrationDescription = el("p", undefined, "muted copy-explainer");
+  const integrationRetry = el("button", "Send saved copy", "button secondary");
+  integrationRetry.type = "button";
+  integrationRetry.hidden = true;
   let saved: ArticleCopy | null = null;
-  let github: GitHubBackupStatus | null = null;
+  let integrations: IntegrationStatus[] = [];
+  const selectedIntegration = () => integrations.find(item => item.id === integrationSelect.value);
   let saving = false;
   let source: ArticleCopy["source"] = "paste";
   save.disabled = true;
@@ -1111,59 +1114,74 @@ async function renderCopyEditor(article: Article) {
     anchor.remove();
     window.setTimeout(() => URL.revokeObjectURL(objectUrl), 1000);
   });
-  const renderGitHubStatus = () => {
-    githubCheckbox.disabled = saving || !github?.configured;
-    githubRetry.hidden = !github?.configured || !saved;
-    githubRetry.disabled = saving;
-    githubStatus.replaceChildren();
-    if (!github?.configured) {
-      githubStatus.textContent = github?.message || "Couldn’t load GitHub settings. Reopen this article to retry.";
+  const renderIntegrationStatus = () => {
+    const integration = selectedIntegration();
+    integrationLabel.hidden = !integrations.length;
+    integrationSelect.hidden = !integrations.length;
+    integrationCheckbox.disabled = saving || !integration?.configured;
+    integrationSelect.disabled = saving || !integrations.length;
+    integrationRetry.hidden = !integration?.configured || !saved;
+    integrationRetry.disabled = saving;
+    integrationRetry.textContent = integration ? `Send saved copy to ${integration.name}` : 'Send saved copy';
+    integrationDescription.textContent = integration?.description || '';
+    integrationStatus.replaceChildren();
+    if (!integration) {
+      integrationStatus.textContent = "No integrations configured. Copies are saved privately in Potem.";
       return;
     }
-    const label = github.state === "saved" ? `Saved to GitHub ${dateLabel(github.backedUpAt!)}. `
-      : github.state === "outdated" ? "GitHub has an older saved copy or article details. " : "Not saved to GitHub yet. ";
-    githubStatus.append(document.createTextNode(label));
-    const destination = `${github.repository} · ${github.branch} · ${github.path}`;
-    const url = github.url && safeHttpUrl(github.url);
-    if (url && github.state !== "not_saved") {
-      const link = el("a", destination);
-      link.href = url;
-      link.target = "_blank";
-      link.rel = "noopener noreferrer";
-      githubStatus.append(link);
-    } else githubStatus.append(document.createTextNode(destination));
-  };
-  const refreshGitHubStatus = async () => {
-    try {
-      const result = await request<{ backup: GitHubBackupStatus }>(`/api/articles/${encodeURIComponent(article.id)}/github`);
-      if (state.selected?.id !== article.id || !root.contains(section)) return;
-      github = result.backup;
-    } catch { github = null; }
-    renderGitHubStatus();
-  };
-  const saveToGitHub = async () => {
-    if (!saved) return;
-    githubStatus.textContent = "Saving to GitHub…";
-    try {
-      const result = await request<{ backup: GitHubBackupStatus }>(`/api/articles/${encodeURIComponent(article.id)}/github`, {
-        method: "POST", body: JSON.stringify({ expectedRevision: saved.revision }),
-      });
-      github = result.backup;
-      renderGitHubStatus();
-      if (github.state === "outdated") showError("GitHub received the saved copy, but this article changed meanwhile. Reload it and save again.");
-      else showNotice("Markdown copy saved to GitHub.");
-    } catch (error) {
-      await refreshGitHubStatus();
-      showError(`Your Markdown copy is saved in Potem. Couldn’t save to GitHub. ${(error as Error).message} Use “Save saved copy to GitHub” to retry.`);
+    if (!integration.configured) {
+      integrationStatus.textContent = integration.message || 'This integration is not configured.';
+      return;
+    }
+    const label = integration.state === "saved" ? `Sent to ${integration.name} ${dateLabel(integration.deliveredAt!)}. `
+      : integration.state === "outdated" ? `${integration.name} has an older copy or article details. ` : `Not sent to ${integration.name} yet. `;
+    integrationStatus.append(document.createTextNode(label + integration.destination));
+    const url = integration.url && safeHttpUrl(integration.url);
+    if (url && integration.state !== "not_saved") {
+      const link = el("a", " Open destination");
+      link.href = url; link.target = "_blank"; link.rel = "noopener noreferrer";
+      integrationStatus.append(link);
     }
   };
-  githubRetry.addEventListener("click", async () => {
-    saving = true;
-    save.disabled = true;
-    renderGitHubStatus();
-    message.hidden = true;
-    try { await saveToGitHub(); }
-    finally { saving = false; save.disabled = false; renderGitHubStatus(); }
+  integrationSelect.addEventListener('change', () => { integrationCheckbox.checked = false; renderIntegrationStatus(); });
+  const refreshIntegrationStatus = async () => {
+    try {
+      const result = await request<{ integrations: IntegrationStatus[] }>(`/api/articles/${encodeURIComponent(article.id)}/integrations`);
+      if (state.selected?.id !== article.id || !root.contains(section)) return;
+      const selected = integrationSelect.value;
+      const previousKey = selectedIntegration()?.destinationKey;
+      integrations = result.integrations;
+      integrationSelect.replaceChildren(...integrations.map(item => {
+        const option = el('option', item.name); option.value = item.id; return option;
+      }));
+      if (integrations.some(item => item.id === selected)) integrationSelect.value = selected;
+      if (previousKey !== selectedIntegration()?.destinationKey) integrationCheckbox.checked = false;
+      renderIntegrationStatus();
+    } catch (error) {
+      integrationCheckbox.disabled = true;
+      integrationStatus.textContent = `Couldn’t load integrations. ${(error as Error).message}`;
+    }
+  };
+  const sendSavedCopy = async (destination: IntegrationConsent) => {
+    if (!saved) return;
+    integrationStatus.textContent = "Sending saved copy…";
+    try {
+      const result = await sendToIntegration(article.id, saved.revision, destination);
+      integrations = integrations.map(item => item.id === result.integration.id ? result.integration : item);
+      renderIntegrationStatus();
+      if (result.integration.state === "outdated") showError("The saved copy was sent, but this article changed meanwhile. Reload it and send again.");
+      else showNotice(`Markdown copy sent to ${result.integration.name}.`);
+    } catch (error) {
+      await refreshIntegrationStatus();
+      showError(`Your Markdown copy is saved in Potem. Couldn’t send it. ${(error as Error).message} Use “Send saved copy” to retry.`);
+    }
+  };
+  integrationRetry.addEventListener("click", async () => {
+    const integration = selectedIntegration();
+    if (!integration) return;
+    saving = true; save.disabled = true; renderIntegrationStatus(); message.hidden = true;
+    try { await sendSavedCopy(integrationConsent(integration)); }
+    finally { saving = false; save.disabled = false; renderIntegrationStatus(); }
   });
   file.addEventListener("change", async () => {
     const selected = file.files?.[0];
@@ -1205,9 +1223,9 @@ async function renderCopyEditor(article: Article) {
       return;
     }
     if (saved && !confirm("Replace the saved Markdown copy with this draft?")) return;
-    const alsoSaveToGitHub = githubCheckbox.checked;
+    const destination = integrationCheckbox.checked && selectedIntegration() ? integrationConsent(selectedIntegration()!) : null;
     saving = true;
-    renderGitHubStatus();
+    renderIntegrationStatus();
     save.disabled = true;
     textarea.disabled = true;
     file.disabled = true;
@@ -1223,20 +1241,20 @@ async function renderCopyEditor(article: Article) {
       const storedBytes = new TextEncoder().encode(saved.markdown).byteLength;
       showStatus(`Saved ${dateLabel(saved.capturedAt)} · ${saved.source === "upload" ? "uploaded file" : "captured or pasted Markdown"} · ${storedBytes.toLocaleString()} UTF-8 bytes`);
       showNotice("Markdown copy saved.");
-      if (alsoSaveToGitHub) await saveToGitHub();
-      else await refreshGitHubStatus();
+      if (destination) await sendSavedCopy(destination);
+      else await refreshIntegrationStatus();
     } catch (error) {
       showError(`Couldn’t save the Markdown copy. ${(error as Error).message} Your draft is still here; retry when ready.`);
     } finally {
       saving = false;
-      renderGitHubStatus();
+      renderIntegrationStatus();
       save.disabled = false;
       textarea.disabled = false;
       file.disabled = false;
     }
   });
   savedActions.append(readCopy, downloadCopy);
-  section.append(status, savedActions, label, fileLabel, githubLabel, githubVisibility, save, githubStatus, githubRetry, message);
+  section.append(status, savedActions, label, fileLabel, integrationLabel, integrationSelect, integrationDescription, save, integrationStatus, integrationRetry, message);
   root.append(section);
   const pendingDraft = copyDrafts.get(article.id);
   if (pendingDraft) {
@@ -1267,7 +1285,7 @@ async function renderCopyEditor(article: Article) {
           : "No Markdown copy saved yet.");
     }
     save.disabled = false;
-    await refreshGitHubStatus();
+    await refreshIntegrationStatus();
   } catch (error) {
     showStatus("Couldn’t load Markdown copy status.");
     showCopyActions();
@@ -1669,7 +1687,7 @@ async function initialize() {
   try {
     state.session = await request<Session>("/api/session");
     if (state.session.authenticated) await completeExtensionConnection();
-    if (state.session.authenticated && browserCaptureDraft) void loadCaptureGitHubConfiguration();
+    if (state.session.authenticated && browserCaptureDraft) void loadCaptureIntegrationConfiguration();
   } catch (error) {
     showNotice(
       `Couldn’t check your session. ${(error as Error).message}`,
@@ -1713,7 +1731,6 @@ async function initialize() {
     $("#empty p").textContent =
       "Sign in to see saved articles across your devices.";
   } else {
-    if (reconcileGitHubButton) reconcileGitHubButton.hidden = false;
     $("#logout").hidden = false;
     setListTitle();
     void load();
@@ -1756,12 +1773,11 @@ async function completeExtensionConnection() {
   const requestId = connectRequestId || sessionStorage.getItem('later-extension-connect-request');
   if (!requestId || !/^[a-f0-9]{48}$/.test(requestId)) return;
   try {
-    const { github } = await request<{ github: GitHubCaptureConfiguration }>('/api/github');
-    const destination = github.configured && github.repository && github.branch
-      ? { repository: github.repository, branch: github.branch, folder: github.folder || '' } : undefined;
-    extensionPost('connection-config', requestId, { authenticated: true, ...(destination ? { destination } : {}) });
+    const { integrations } = await request<{ integrations: IntegrationConfiguration[] }>('/api/integrations');
+    const destinations = integrations.filter(item => item.configured);
+    extensionPost('connection-config', requestId, { authenticated: true, destinations });
     sessionStorage.removeItem('later-extension-connect-request');
-    showNotice(destination ? 'Potem is connected. Return to the extension settings.' : 'Potem is connected, but GitHub saving is not configured.');
+    showNotice('Potem is connected. Return to the extension settings.');
   } catch (error) {
     showNotice(`Could not check the Potem destination. ${(error as Error).message}`, true);
   }
@@ -1773,19 +1789,19 @@ async function finishExtensionSetup() {
     if (draft.mode === 'simple') extensionPost('capture-result', draft.requestId, { result: 'action-required' });
     return;
   }
-  if (draft.mode !== 'simple' || !draft.markdown.trim() || !draft.destination) return;
+  if (draft.mode !== 'simple' || !draft.markdown.trim()) return;
   extensionAutosaveStarted = true;
   try {
-    const { github } = await request<{ github: GitHubCaptureConfiguration }>('/api/github');
-    if (!matchesGitHubDestination(github, draft.destination)) {
+    await loadCaptureIntegrationConfiguration();
+    if (draft.destination && !matchesIntegrationDestination(captureIntegrations.find(item => item.id === draft.destination!.id), draft.destination)) {
       draft.mode = 'review';
       sessionStorage.setItem('later-extension-capture', JSON.stringify(draft));
-      showNotice('The consented GitHub destination changed. Review this capture or reconnect in extension settings.', true);
+      showNotice('The consented integration destination changed. Review this capture or reconnect in extension settings.', true);
       extensionPost('capture-result', draft.requestId, { result: 'action-required' });
       return;
     }
     $<HTMLInputElement>('#capture-copy-enabled').checked = true;
-    $<HTMLInputElement>('#capture-github-enabled').checked = true;
+    $<HTMLInputElement>('#capture-integration-enabled').checked = Boolean(draft.destination);
     $<HTMLInputElement>('#capture-author').value = draft.author || '';
     $<HTMLTextAreaElement>('#capture-description').value = draft.description || '';
     $<HTMLFormElement>('#add-form').requestSubmit();
@@ -1834,7 +1850,7 @@ function restoreBrowserCaptureDraft() {
   if (!browserCaptureDraft) return;
   // Reset shared bookmarklet controls first; extension-specific state below owns them.
   $<HTMLInputElement>("#capture-copy-enabled").checked = true;
-  $<HTMLInputElement>("#capture-github-enabled").checked = false;
+  $<HTMLInputElement>("#capture-integration-enabled").checked = false;
   $<HTMLElement>("#capture-copy").hidden = false;
   $("#add-url-copy-option").hidden = true;
   $("#add-dialog .add-heading p").textContent = "Review the link and captured Markdown before saving.";
@@ -1851,23 +1867,23 @@ function restoreBrowserCaptureDraft() {
     if (browserCaptureDraft.extractionError) $('#capture-copy-status').textContent = `Page extraction needs attention (${browserCaptureDraft.extractionError}). Save the link privately or paste Markdown before publishing.`;
     else $('#capture-copy-status').textContent = 'Review the page, metadata, and Markdown. The source URL is locked to this capture.';
     const destination = browserCaptureDraft.destination;
-    if (destination) $('#capture-github-status').textContent = `Consented destination: ${destination.repository} · ${destination.branch} · ${destination.folder || '(repository root)'}.`;
-    $<HTMLInputElement>('#capture-github-enabled').checked = Boolean(browserCaptureDraft.publishRequested ?? browserCaptureDraft.mode === 'simple');
+    if (destination) $<HTMLSelectElement>('#capture-integration').value = destination.id;
+    $<HTMLInputElement>('#capture-integration-enabled').checked = Boolean(browserCaptureDraft.publishRequested ?? (browserCaptureDraft.mode === 'simple' && browserCaptureDraft.destination));
     $<HTMLButtonElement>('#add-form button').hidden = true;
     if (unsupported) {
       $('#capture-copy-status').textContent = 'This browser page cannot be captured. Open an HTTP(S) article tab and try again.';
       $<HTMLButtonElement>('#extension-save-link').hidden = true;
       $<HTMLButtonElement>('#extension-save-private').hidden = true;
-      $<HTMLButtonElement>('#extension-save-github').hidden = true;
+      $<HTMLButtonElement>('#extension-send-integration').hidden = true;
     }
     $<HTMLButtonElement>('#extension-save-link').hidden = !browserCaptureDraft.extractionError;
     if (browserCaptureDraft.extractionError) {
       $<HTMLInputElement>('#capture-copy-enabled').checked = false;
-      $<HTMLButtonElement>('#extension-save-github').disabled = true;
+      $<HTMLButtonElement>('#extension-send-integration').disabled = true;
     }
   }
   $<HTMLElement>('#extension-actions').hidden = !browserCaptureDraft.requestId;
-  const retry = $<HTMLButtonElement>("#capture-github-retry");
+  const retry = $<HTMLButtonElement>("#capture-integration-retry");
   const retryPending = Boolean(browserCaptureDraft.savedArticleId && browserCaptureDraft.savedCopyRevision && (!browserCaptureDraft.requestId || browserCaptureDraft.publishRequested));
   const privateComplete = Boolean(browserCaptureDraft.savedArticleId && browserCaptureDraft.savedCopyRevision && !browserCaptureDraft.publishRequested && ['copy-saved', 'complete'].includes(browserCaptureDraft.stage || ''));
   if (privateComplete && browserCaptureDraft.requestId) {
@@ -1877,15 +1893,15 @@ function restoreBrowserCaptureDraft() {
   }
   const urlMatches = $<HTMLInputElement>("#add-url").value.trim() === browserCaptureDraft.sourceUrl;
   retry.hidden = !retryPending || !urlMatches;
-  $<HTMLButtonElement>("#capture-github-done").hidden = !retryPending || !urlMatches;
+  $<HTMLButtonElement>("#capture-integration-done").hidden = !retryPending || !urlMatches;
   $<HTMLTextAreaElement>("#capture-markdown").disabled = retryPending && urlMatches;
   $<HTMLInputElement>("#capture-copy-enabled").disabled = retryPending && urlMatches;
   ($("#add-form button") as HTMLButtonElement).disabled = retryPending && urlMatches;
   if (retryPending) {
-    $<HTMLInputElement>("#capture-github-enabled").disabled = true;
-    $("#capture-github-status").textContent = "The Markdown copy is saved in Potem. Retry sends that saved revision; editor changes are not included.";
+    $<HTMLInputElement>("#capture-integration-enabled").disabled = true;
+    $("#capture-integration-status").textContent = "The Markdown copy is saved in Potem. Retry sends that saved revision; editor changes are not included.";
   }
-  if (state.session?.authenticated) void loadCaptureGitHubConfiguration();
+  if (state.session?.authenticated) void loadCaptureIntegrationConfiguration();
   if (!$<HTMLDialogElement>("#add-dialog").open)
     showDialog($<HTMLDialogElement>("#add-dialog"), $<HTMLInputElement>("#add-url"));
   renderCapturePreview();
@@ -1912,40 +1928,53 @@ function showExtensionConflict(article: Article, copy: ArticleCopy | null, messa
   $<HTMLButtonElement>('#extension-confirm-replacement').hidden = false;
   $<HTMLButtonElement>('#extension-confirm-replacement').textContent = copy ? 'Confirm metadata and replace saved copy' : 'Confirm metadata and save copy';
 }
-function renderCaptureGitHubConfiguration() {
-  const checkbox = $<HTMLInputElement>("#capture-github-enabled");
-  const status = $("#capture-github-status");
-  checkbox.disabled = !captureGitHubConfiguration?.configured || Boolean(browserCaptureDraft?.savedCopyRevision);
-  $<HTMLButtonElement>('#extension-save-github').disabled = !captureGitHubConfiguration?.configured || Boolean(browserCaptureDraft?.savedCopyRevision);
-  if (!captureGitHubConfiguration?.configured) {
-    status.textContent = browserCaptureDraft?.savedCopyRevision
-      ? `The Markdown copy is saved in Potem. GitHub retry is available for that revision. ${captureGitHubConfiguration?.message || "Sign in to check GitHub saving configuration."}`
-      : captureGitHubConfiguration?.message || "Sign in to check GitHub saving configuration.";
-    return;
-  }
-  const folder = captureGitHubConfiguration.folder ? `/${captureGitHubConfiguration.folder}` : "";
-  status.textContent = `${browserCaptureDraft?.savedCopyRevision ? "The Markdown copy is saved in Potem. Retry sends that saved revision; editor changes are not included. " : ""}Destination: ${captureGitHubConfiguration.repository}${folder} · ${captureGitHubConfiguration.branch}.`;
+function renderCaptureIntegrationConfiguration() {
+  const checkbox = $<HTMLInputElement>("#capture-integration-enabled");
+  const status = $("#capture-integration-status");
+  const select = $<HTMLSelectElement>('#capture-integration');
+  const pending = Boolean(browserCaptureDraft?.savedCopyRevision);
+  $('#capture-integration-options').hidden = !captureIntegrations.length;
+  checkbox.disabled = !captureIntegrationConfiguration?.configured || pending;
+  select.disabled = pending || !captureIntegrations.length;
+  const send = $<HTMLButtonElement>('#extension-send-integration');
+  send.hidden = !captureIntegrations.length;
+  send.disabled = !captureIntegrationConfiguration?.configured || pending || Boolean(browserCaptureDraft?.extractionError);
+  send.textContent = captureIntegrationConfiguration ? `Save and send to ${captureIntegrationConfiguration.name}` : 'Save and send';
+  $('#capture-integration-description').textContent = captureIntegrationConfiguration?.description || '';
+  status.textContent = pending
+    ? 'The Markdown copy is saved in Potem. Retry sends that saved revision to the selected destination.'
+    : captureIntegrationConfiguration ? captureIntegrationConfiguration.message || `Destination: ${captureIntegrationConfiguration.destination}`
+    : 'No integrations configured. Your copy will be saved privately in Potem.';
 }
-async function loadCaptureGitHubConfiguration() {
+async function loadCaptureIntegrationConfiguration() {
   if (!state.session?.authenticated) return;
-  if (captureGitHubConfigurationPromise) {
-    await captureGitHubConfigurationPromise;
-    return;
-  }
-  captureGitHubConfigurationPromise = (async () => {
-    $<HTMLInputElement>("#capture-github-enabled").disabled = true;
-    $("#capture-github-status").textContent = "Checking GitHub destination…";
+  if (captureIntegrationConfigurationPromise) return captureIntegrationConfigurationPromise;
+  captureIntegrationConfigurationPromise = (async () => {
+    $<HTMLInputElement>("#capture-integration-enabled").disabled = true;
+    $("#capture-integration-status").textContent = "Checking integrations…";
     try {
-      const result = await request<{ github: GitHubCaptureConfiguration }>("/api/github");
-      captureGitHubConfiguration = result.github;
+      const { integrations } = await request<{ integrations: IntegrationConfiguration[] }>("/api/integrations");
+      captureIntegrations = integrations;
+      const select = $<HTMLSelectElement>('#capture-integration');
+      const selected = browserCaptureDraft?.destination?.id || select.value;
+      select.replaceChildren(...integrations.map(item => { const option = el('option', item.name); option.value = item.id; return option; }));
+      if (integrations.some(item => item.id === selected)) select.value = selected;
+      captureIntegrationConfiguration = integrations.find(item => item.id === select.value) || null;
+      renderCaptureIntegrationConfiguration();
     } catch (error) {
-      captureGitHubConfiguration = { configured: false, message: `Couldn’t check GitHub configuration. ${(error as Error).message}` };
+      captureIntegrationConfiguration = null;
+      renderCaptureIntegrationConfiguration();
+      $("#capture-integration-status").textContent = `Couldn’t check integrations. ${(error as Error).message}`;
     }
-    renderCaptureGitHubConfiguration();
   })();
-  try { await captureGitHubConfigurationPromise; }
-  finally { captureGitHubConfigurationPromise = null; }
+  try { await captureIntegrationConfigurationPromise; }
+  finally { captureIntegrationConfigurationPromise = null; }
 }
+$<HTMLSelectElement>('#capture-integration').addEventListener('change', () => {
+  captureIntegrationConfiguration = captureIntegrations.find(item => item.id === $<HTMLSelectElement>('#capture-integration').value) || null;
+  $<HTMLInputElement>('#capture-integration-enabled').checked = false;
+  renderCaptureIntegrationConfiguration();
+});
 function finishBrowserCaptureDraft(result: 'saved' | 'action-required' = 'saved') {
   if (browserCaptureDraft?.requestId) extensionPost('capture-result', browserCaptureDraft.requestId, { result });
   browserCaptureDraft = null;
@@ -1971,81 +2000,71 @@ function finishBrowserCaptureDraft(result: 'saved' | 'action-required' = 'saved'
   $<HTMLDetailsElement>('#capture-existing-copy').hidden = true;
   $<HTMLInputElement>("#capture-copy-enabled").checked = true;
   $<HTMLInputElement>("#capture-copy-enabled").disabled = false;
-  $<HTMLInputElement>("#capture-github-enabled").checked = false;
-  $<HTMLInputElement>("#capture-github-enabled").disabled = !captureGitHubConfiguration?.configured;
+  $<HTMLInputElement>("#capture-integration-enabled").checked = false;
+  $<HTMLInputElement>("#capture-integration-enabled").disabled = !captureIntegrationConfiguration?.configured;
+  renderCaptureIntegrationConfiguration();
   ($("#add-form button") as HTMLButtonElement).disabled = false;
-  $<HTMLButtonElement>("#capture-github-retry").hidden = true;
-  $<HTMLButtonElement>("#capture-github-retry").disabled = false;
-  $<HTMLButtonElement>("#capture-github-done").hidden = true;
+  $<HTMLButtonElement>("#capture-integration-retry").hidden = true;
+  $<HTMLButtonElement>("#capture-integration-retry").disabled = false;
+  $<HTMLButtonElement>("#capture-integration-done").hidden = true;
   $("#add-dialog .add-heading p").textContent = "Paste a link to save the article and a readable Markdown copy.";
 }
 function finishPendingBrowserCapture() {
   finishBrowserCaptureDraft();
   $<HTMLDialogElement>("#add-dialog").close();
-  showNotice("The Markdown copy remains saved in Potem. You can retry GitHub from article details.");
+  showNotice("The Markdown copy remains saved in Potem. You can retry delivery from article details.");
 }
-async function retryBrowserCaptureGitHub() {
+async function retryBrowserCaptureIntegration() {
   const draft = browserCaptureDraft;
   if (!draft?.savedArticleId || !draft.savedCopyRevision) return;
   if ($<HTMLInputElement>("#add-url").value.trim() !== draft.sourceUrl) {
-    $("#capture-github-status").textContent = "The URL changed. This GitHub retry was stopped; the saved copy remains with its original article.";
+    $("#capture-integration-status").textContent = "The URL changed. This delivery retry was stopped; the saved copy remains with its original article.";
     return;
   }
-  const button = $<HTMLButtonElement>("#capture-github-retry");
-  const status = $("#capture-github-status");
+  const button = $<HTMLButtonElement>("#capture-integration-retry");
+  const status = $("#capture-integration-status");
   button.disabled = true;
   status.textContent = "Checking the saved copy revision…";
   try {
     const current = await request<{ copy: ArticleCopy | null }>(`/api/articles/${encodeURIComponent(draft.savedArticleId)}/copy`);
     if (current.copy?.revision !== draft.savedCopyRevision) {
-      status.textContent = "The saved copy changed after this GitHub retry was prepared. Open the article and save its current revision instead.";
+      status.textContent = "The saved copy changed after this delivery retry was prepared. Open the article and save its current revision instead.";
       button.disabled = true;
       return;
     }
-    status.textContent = "Saving to GitHub…";
-    const result = await request<{ backup: GitHubBackupStatus }>(`/api/articles/${encodeURIComponent(draft.savedArticleId)}/github`, {
-      method: "POST", body: JSON.stringify({ expectedRevision: draft.savedCopyRevision, ...(draft.mode === 'simple' && draft.destination ? { expectedDestination: draft.destination } : {}) }),
-    });
-    if (result.backup.state === "outdated") {
-      status.textContent = "GitHub received the saved Markdown, but article details changed during the save. Review the article and retry its current revision.";
+    if (!draft.destination) throw new Error('Review the integration destination in article details before sending.');
+    status.textContent = "Sending saved copy…";
+    const result = await sendToIntegration(draft.savedArticleId, draft.savedCopyRevision, draft.destination);
+    if (result.integration.state === "outdated") {
+      status.textContent = "The copy was sent, but article details changed during delivery. Review the article and retry its current revision.";
       button.disabled = false;
       return;
     }
-    const destination = `${result.backup.repository} · ${result.backup.branch} · ${result.backup.path}`;
-    const url = result.backup.url && safeHttpUrl(result.backup.url);
-    status.replaceChildren(document.createTextNode(`Saved to GitHub. ${destination}`));
-    if (url) {
-      const link = el("a", " Open backup");
-      link.href = url;
-      link.target = "_blank";
-      link.rel = "noopener noreferrer";
-      status.append(link);
-    }
     finishBrowserCaptureDraft();
     $<HTMLDialogElement>("#add-dialog").close();
-    showNotice("Markdown copy saved to Potem and GitHub.");
+    showNotice(`Markdown copy saved in Potem and sent to ${result.integration.name}.`);
     await load();
   } catch (error) {
-    status.textContent = `GitHub retry failed. The Markdown copy remains saved in Potem. ${(error as Error).message}`;
+    status.textContent = `Integration retry failed. The Markdown copy remains saved in Potem. ${(error as Error).message}`;
     button.disabled = false;
   }
 }
-$<HTMLButtonElement>("#capture-github-retry").addEventListener("click", () => void retryBrowserCaptureGitHub());
-$<HTMLButtonElement>("#capture-github-done").addEventListener("click", finishPendingBrowserCapture);
+$<HTMLButtonElement>("#capture-integration-retry").addEventListener("click", () => void retryBrowserCaptureIntegration());
+$<HTMLButtonElement>("#capture-integration-done").addEventListener("click", finishPendingBrowserCapture);
 $<HTMLInputElement>("#add-url").addEventListener("input", () => {
   stashDraft();
   if (browserCaptureDraft) {
     const matches = $<HTMLInputElement>("#add-url").value.trim() === browserCaptureDraft.sourceUrl;
     $<HTMLElement>("#capture-copy").hidden = !matches;
     const retryPending = Boolean(browserCaptureDraft.savedArticleId && browserCaptureDraft.savedCopyRevision);
-    $<HTMLButtonElement>("#capture-github-retry").hidden = !retryPending || !matches;
-    $<HTMLButtonElement>("#capture-github-done").hidden = !retryPending || !matches;
+    $<HTMLButtonElement>("#capture-integration-retry").hidden = !retryPending || !matches;
+    $<HTMLButtonElement>("#capture-integration-done").hidden = !retryPending || !matches;
     ($("#add-form button") as HTMLButtonElement).disabled = retryPending && matches;
     if (!matches) {
       $("#capture-copy-status").textContent = "The link changed. This captured copy will not be attached to it.";
-      if (retryPending) $("#capture-github-status").textContent = "The URL changed. Saving this URL will not retry or publish the previous article’s copy.";
+      if (retryPending) $("#capture-integration-status").textContent = "The URL changed. Saving this URL will not retry or publish the previous article’s copy.";
     } else if (retryPending) {
-      $("#capture-github-status").textContent = "The Markdown copy is saved in Potem. Retry sends that saved revision; editor changes are not included.";
+      $("#capture-integration-status").textContent = "The Markdown copy is saved in Potem. Retry sends that saved revision; editor changes are not included.";
     }
   }
 });
@@ -2066,7 +2085,7 @@ $<HTMLTextAreaElement>("#capture-markdown").addEventListener("input", () => {
     $<HTMLInputElement>("#capture-copy-enabled").checked = true;
     $('#capture-copy-status').textContent = 'Extraction failed, but the pasted Markdown is ready. Review it and explicitly choose how to save it.';
     $<HTMLButtonElement>('#extension-save-link').hidden = true;
-    renderCaptureGitHubConfiguration();
+    renderCaptureIntegrationConfiguration();
   }
   sessionStorage.setItem(browserCaptureDraft.requestId ? 'later-extension-capture' : 'later-browser-capture-draft', JSON.stringify(browserCaptureDraft));
   renderCapturePreview();
@@ -2144,23 +2163,18 @@ async function confirmExtensionReplacement() {
       draft.savedCopyRevision = currentCopy!.revision;
       draft.stage = 'copy-saved';
     }
-    const publish = $<HTMLInputElement>('#capture-github-enabled').checked;
+    const publish = $<HTMLInputElement>('#capture-integration-enabled').checked;
     draft.publishRequested = publish;
+    if (publish && captureIntegrationConfiguration && draft.mode !== 'simple') draft.destination = integrationConsent(captureIntegrationConfiguration);
     sessionStorage.setItem('later-extension-capture', JSON.stringify(draft));
-    let githubUrl: string | undefined;
+    let integrationUrl: string | undefined;
     if (publish) {
-      const config = (await request<{ github: GitHubCaptureConfiguration }>('/api/github')).github;
-      const expected = draft.mode === 'simple' ? draft.destination : undefined;
-      if (expected && !matchesGitHubDestination(config, expected)) {
-        throw new Error('The consented GitHub destination changed. The confirmed metadata and Markdown remain saved in Potem.');
-      }
+      if (!draft.destination) throw new Error('Select an integration destination before sending.');
       draft.stage = 'publishing';
       sessionStorage.setItem('later-extension-capture', JSON.stringify(draft));
-      const backup = await request<{ backup: GitHubBackupStatus }>(`${articleUrl}/github`, {
-        method: 'POST', body: JSON.stringify({ expectedRevision: draft.savedCopyRevision, ...(expected ? { expectedDestination: expected } : {}) }),
-      });
-      if (backup.backup.state === 'outdated') throw new Error('The copy is saved, but article metadata changed during publishing. Review it and retry.');
-      githubUrl = backup.backup.url;
+      const delivery = await sendToIntegration(current.id, draft.savedCopyRevision!, draft.destination);
+      if (delivery.integration.state === 'outdated') throw new Error('The copy was sent, but article metadata changed during delivery. Review it and retry.');
+      integrationUrl = delivery.integration.url;
       draft.stage = 'complete';
     }
     draft.savedArticleId = current.id;
@@ -2169,13 +2183,13 @@ async function confirmExtensionReplacement() {
     const sourceUrl = draft.sourceUrl;
     finishBrowserCaptureDraft();
     $<HTMLDialogElement>('#add-dialog').close();
-    showExtensionResult(current, sourceUrl, githubUrl);
+    showExtensionResult(current, sourceUrl, integrationUrl);
     await load();
   } catch (error) {
     $('#capture-copy-status').textContent = `Confirmed Potem changes are retained. ${(error as Error).message}`;
     if (draft.savedCopyRevision) {
-      $<HTMLButtonElement>('#capture-github-retry').hidden = false;
-      $<HTMLButtonElement>('#capture-github-done').hidden = false;
+      $<HTMLButtonElement>('#capture-integration-retry').hidden = false;
+      $<HTMLButtonElement>('#capture-integration-done').hidden = false;
     }
     extensionPost('capture-result', draft.requestId, { result: 'action-required' });
   } finally { button.disabled = false; }
@@ -2183,18 +2197,18 @@ async function confirmExtensionReplacement() {
 $('#extension-confirm-replacement').addEventListener('click', () => { void confirmExtensionReplacement(); });
 $('#extension-save-private').addEventListener('click', () => {
   $<HTMLInputElement>('#capture-copy-enabled').checked = !browserCaptureDraft?.extractionError;
-  $<HTMLInputElement>('#capture-github-enabled').checked = false;
+  $<HTMLInputElement>('#capture-integration-enabled').checked = false;
   $<HTMLFormElement>('#add-form').requestSubmit();
 });
 $('#extension-save-link').addEventListener('click', () => {
   $<HTMLInputElement>('#capture-copy-enabled').checked = false;
-  $<HTMLInputElement>('#capture-github-enabled').checked = false;
+  $<HTMLInputElement>('#capture-integration-enabled').checked = false;
   $<HTMLFormElement>('#add-form').requestSubmit();
 });
-$('#extension-save-github').addEventListener('click', () => {
-  if (!captureGitHubConfiguration?.configured || browserCaptureDraft?.extractionError) return;
+$('#extension-send-integration').addEventListener('click', () => {
+  if (!captureIntegrationConfiguration?.configured || browserCaptureDraft?.extractionError) return;
   $<HTMLInputElement>('#capture-copy-enabled').checked = true;
-  $<HTMLInputElement>('#capture-github-enabled').checked = true;
+  $<HTMLInputElement>('#capture-integration-enabled').checked = true;
   $<HTMLFormElement>('#add-form').requestSubmit();
 });
 $('#extension-cancel').addEventListener('click', () => {
@@ -2219,9 +2233,9 @@ $("#add-form").addEventListener("submit", async (e) => {
     : null;
   if (captured?.requestId && captured.savedCopyRevision) {
     if (captured.publishRequested) {
-      $<HTMLButtonElement>("#capture-github-retry").hidden = false;
-      $<HTMLButtonElement>("#capture-github-done").hidden = false;
-      showNotice('The Potem copy is already saved. Use the explicit GitHub retry to publish that saved revision.', true);
+      $<HTMLButtonElement>("#capture-integration-retry").hidden = false;
+      $<HTMLButtonElement>("#capture-integration-done").hidden = false;
+      showNotice('The Potem copy is already saved. Use the delivery retry to send that saved revision.', true);
       extensionPost('capture-result', captured.requestId!, { result: 'action-required' });
     }
     return;
@@ -2230,19 +2244,19 @@ $("#add-form").addEventListener("submit", async (e) => {
   button.disabled = true;
   const captureFromUrl = !browserCaptureDraft && $<HTMLInputElement>("#add-capture-markdown").checked;
   const addNotice = $("#add-notice");
-  if (captured?.requestId) {
-    captured.publishRequested = Boolean($<HTMLInputElement>("#capture-github-enabled").checked);
+  if (captured) {
+    captured.publishRequested = Boolean($<HTMLInputElement>("#capture-integration-enabled").checked);
+    if (captured.publishRequested && captureIntegrationConfiguration && captured.mode !== 'simple') captured.destination = integrationConsent(captureIntegrationConfiguration);
     sessionStorage.setItem('later-extension-capture', JSON.stringify(captured));
   }
   addNotice.classList.remove("error");
   addNotice.textContent = captureFromUrl ? "Saving the link and queueing Markdown capture…" : "Saving…";
   addNotice.hidden = false;
   try {
-    if (captured?.mode === 'simple') {
-      const consented = captured.destination;
-      const { github } = await request<{ github: GitHubCaptureConfiguration }>('/api/github');
-      if (!matchesGitHubDestination(github, consented)) {
-        throw new Error('The consented GitHub destination changed. No save was started; review this capture or reconnect in extension settings.');
+    if (captured?.publishRequested) {
+      const { integrations } = await request<{ integrations: IntegrationConfiguration[] }>('/api/integrations');
+      if (!matchesIntegrationDestination(integrations.find(item => item.id === captured.destination?.id), captured.destination)) {
+        throw new Error('The selected integration destination changed. No save was started; review this capture or reconnect in extension settings.');
       }
     }
     invalidateLoads();
@@ -2263,11 +2277,11 @@ $("#add-form").addEventListener("submit", async (e) => {
       sessionStorage.setItem('later-extension-capture', JSON.stringify(captured));
     }
     const copyEnabled = captured && $<HTMLInputElement>("#capture-copy-enabled").checked;
-    const alsoSaveToGitHub = Boolean(copyEnabled && $<HTMLInputElement>("#capture-github-enabled").checked);
+    const alsoSendToIntegration = Boolean(copyEnabled && $<HTMLInputElement>("#capture-integration-enabled").checked);
     let copySaveError = "";
-    let githubSaveError = "";
-    let githubSaved = false;
-    let githubUrl: string | undefined;
+    let integrationSaveError = "";
+    let integrationSaved = false;
+    let integrationUrl: string | undefined;
     let savedCopy: ArticleCopy | null = null;
     if (copyEnabled) {
       const markdown = $<HTMLTextAreaElement>("#capture-markdown").value;
@@ -2310,31 +2324,30 @@ $("#add-form").addEventListener("submit", async (e) => {
         copySaveError ||= (error as Error).message;
       }
     }
-    if (savedCopy && captured && alsoSaveToGitHub) {
+    if (savedCopy && captured && alsoSendToIntegration) {
       captured.savedArticleId = result.article.id;
       captured.savedCopyRevision = savedCopy.revision;
       captured.stage = 'publishing';
       sessionStorage.setItem("later-browser-capture-draft", JSON.stringify(captured));
       sessionStorage.setItem('later-extension-capture', JSON.stringify(captured));
       try {
-        const backup = await request<{ backup: GitHubBackupStatus }>(`/api/articles/${encodeURIComponent(result.article.id)}/github`, {
-          method: "POST", body: JSON.stringify({ expectedRevision: savedCopy.revision, ...(captured.mode === 'simple' && captured.destination ? { expectedDestination: captured.destination } : {}) }),
-        });
-        if (backup.backup.state === "outdated") githubSaveError = "GitHub received the saved copy, but article details changed meanwhile. Review the article and retry its current revision.";
+        if (!captured.destination) throw new Error('Select an integration destination before sending.');
+        const delivery = await sendToIntegration(result.article.id, savedCopy.revision, captured.destination);
+        if (delivery.integration.state === "outdated") integrationSaveError = "The copy was sent, but article details changed meanwhile. Review the article and retry its current revision.";
         else {
-          githubSaved = true;
-          githubUrl = backup.backup.url && safeHttpUrl(backup.backup.url) ? backup.backup.url : undefined;
+          integrationSaved = true;
+          integrationUrl = delivery.integration.url && safeHttpUrl(delivery.integration.url) ? delivery.integration.url : undefined;
           captured.stage = 'complete';
           sessionStorage.setItem('later-extension-capture', JSON.stringify(captured));
         }
       } catch (error) {
-        githubSaveError = (error as Error).message;
+        integrationSaveError = (error as Error).message;
       }
     }
     const pendingCopyLeftBehind = Boolean(browserCaptureDraft?.savedCopyRevision && !captured);
     const copyNotAttached = Boolean(browserCaptureDraft && !captured);
     const copySkipped = Boolean(captured && !copyEnabled);
-    if (!copySaveError && !githubSaveError) {
+    if (!copySaveError && !integrationSaveError) {
       $<HTMLInputElement>("#add-url").value = "";
       $<HTMLInputElement>("#add-title").value = "";
       sessionStorage.removeItem("later-add-draft");
@@ -2344,16 +2357,16 @@ $("#add-form").addEventListener("submit", async (e) => {
     } else if (copySaveError) {
       stashDraft();
     } else {
-      const retry = $<HTMLButtonElement>("#capture-github-retry");
+      const retry = $<HTMLButtonElement>("#capture-integration-retry");
       retry.hidden = false;
-      $<HTMLButtonElement>("#capture-github-done").hidden = false;
+      $<HTMLButtonElement>("#capture-integration-done").hidden = false;
       $<HTMLTextAreaElement>("#capture-markdown").disabled = true;
       $<HTMLInputElement>("#capture-copy-enabled").disabled = true;
-      $<HTMLInputElement>("#capture-github-enabled").disabled = true;
+      $<HTMLInputElement>("#capture-integration-enabled").disabled = true;
       button.disabled = true;
-      $("#capture-github-status").textContent = `Link and Markdown copy are saved in Potem. GitHub could not save the saved copy: ${githubSaveError} Retry sends that saved revision; it does not write the copy again.`;
+      $("#capture-integration-status").textContent = `Link and Markdown copy are saved in Potem. The integration could not receive the saved copy: ${integrationSaveError} Retry sends that saved revision; it does not write the copy again.`;
     }
-    if (!copySaveError && !githubSaveError) $<HTMLDialogElement>("#add-dialog").close();
+    if (!copySaveError && !integrationSaveError) $<HTMLDialogElement>("#add-dialog").close();
     state.status = "all";
     document
       .querySelectorAll<HTMLButtonElement>("[data-status]")
@@ -2362,25 +2375,25 @@ $("#add-form").addEventListener("submit", async (e) => {
       );
     if (copySaveError) {
       const addNotice = $("#add-notice");
-      addNotice.textContent = `Link saved. Markdown copy was not changed: ${copySaveError} GitHub was not called. Your draft remains here. Uncheck “Save this Markdown copy” to save the link only.`;
+      addNotice.textContent = `Link saved. Markdown copy was not changed: ${copySaveError} No integration was called. Your draft remains here. Uncheck “Save this Markdown copy” to save the link only.`;
       addNotice.classList.add("error");
       addNotice.hidden = false;
       if (captured?.requestId) extensionPost('capture-result', captured.requestId, { result: 'action-required' });
-    } else if (githubSaveError) {
+    } else if (integrationSaveError) {
       const addNotice = $("#add-notice");
-      addNotice.textContent = `Link and Markdown copy saved in Potem. GitHub save failed; retry the same saved revision below.`;
+      addNotice.textContent = `Link and Markdown copy saved in Potem. Integration delivery failed; retry the same saved revision below.`;
       addNotice.classList.add("error");
       addNotice.hidden = false;
       if (captured?.requestId) extensionPost('capture-result', captured.requestId, { result: 'action-required' });
     } else if (captured?.requestId) {
-      showExtensionResult(result.article, captured.sourceUrl, githubUrl);
+      showExtensionResult(result.article, captured.sourceUrl, integrationUrl);
     } else showNotice(
       copyNotAttached
           ? pendingCopyLeftBehind
-            ? "Link saved. The previous Markdown copy remains on its original article; this new link has no copy or GitHub backup."
+            ? "Link saved. The previous Markdown copy remains on its original article; this new link has no copy or integration delivery."
             : "Link saved. The captured Markdown was not attached because the URL changed."
-          : githubSaved
-            ? "Link and Markdown copy saved to Potem and GitHub."
+          : integrationSaved
+            ? "Link and Markdown copy saved in Potem and sent to the integration."
           : savedCopy
               ? "Link and Markdown copy saved privately in Potem."
               : copySkipped
@@ -2393,7 +2406,7 @@ $("#add-form").addEventListener("submit", async (e) => {
           ? result.metadataUpdated ? "Preview details updated." : "That link is already in your list."
           : "Saved for later.",
     );
-    if (copySaveError || githubSaveError) {
+    if (copySaveError || integrationSaveError) {
       await load();
       return;
     }
@@ -2522,6 +2535,15 @@ async function openSettings() {
   }
   $("#settings-status").textContent = "Signed in";
   $("#token-form").hidden = false;
+  void request<{ integrations: IntegrationConfiguration[] }>('/api/integrations').then(({ integrations }) => {
+    const container = $('#settings-integrations');
+    container.replaceChildren();
+    if (!integrations.length) container.append(el('p', 'No integrations configured. Articles are saved privately in Potem.', 'muted'));
+    for (const integration of integrations) {
+      container.append(el('h4', integration.name), el('p', integration.destination), el('p', integration.message || integration.description, 'muted'));
+    }
+    if (reconcileGitHubButton) reconcileGitHubButton.hidden = !integrations.some(item => item.id === 'github' && item.configured);
+  }).catch(() => { $('#settings-integrations').textContent = 'Couldn’t load integrations. Reopen Settings to retry.'; });
   try {
     const data = await request<{
       items: Array<{

@@ -10,6 +10,9 @@ export interface Env {
   GITHUB_BACKUP_BRANCH?: string;
   GITHUB_BACKUP_PATH?: string;
   GITHUB_BACKUP_TOKEN?: string;
+  /** Optional destinations served by the private ARTICLE_HOOKS service. */
+  ARTICLE_HOOKS?: Fetcher;
+  ARTICLE_HOOKS_CONFIG?: string;
   BACKGROUND_CAPTURE_ENABLED?: string;
   /** Private Cloudflare Container capture service; returns Markdown and metadata, never source HTML. */
   ARTICLE_EXTRACTOR?: Fetcher;
@@ -61,6 +64,8 @@ export interface GitHubBackupConfiguration {
   branch?: string;
   folder?: string;
 }
+
+export type { IntegrationConfiguration, IntegrationStatus, IntegrationConsent } from './integrations/contracts';
 
 export interface ApiError {
   error: { code: string; message: string };
