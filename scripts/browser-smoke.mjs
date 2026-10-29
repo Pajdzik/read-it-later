@@ -794,6 +794,7 @@ try {
   assert.ok(quotedMarkdown.startsWith(`---\ntitle: ${JSON.stringify(injectedTitle)}\nurl:`), "Quotes, Unicode, and newline frontmatter must remain a single quoted scalar.");
   assert.equal(quotedMarkdown.slice(quotedMarkdown.indexOf("\n\n", quotedMarkdown.indexOf("\n---\n") + 1) + 2), preservedMarkdown);
   await page.locator("#detail-dialog .dialog-close button").click();
+  await expect(page).toHaveURL(base + "/");
   await page.evaluate(async (id) => {
     const session = await (await fetch("/api/session")).json();
     const response = await fetch(`/api/articles/${encodeURIComponent(id)}`, {
