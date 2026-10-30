@@ -517,25 +517,27 @@ async function runProfile(name, browserType, device) {
   await swipe(".library", right);
   await expectStatus("unread"); // Stop at the first tab.
   if (browserType === chromium) {
-    // Browser-generated touches also exercise touch-action and accidental clicks.
-    await waitForListIdle();
-    const title = page.locator("#articles .article-title").first();
+    // Keep raw protocol input isolated from Playwright's touchscreen input state.
+    const nativePage = await context.newPage();
+    await nativePage.goto(base);
+    await expect(nativePage.locator("#loading")).toBeHidden();
+    const title = nativePage.locator("#articles .article-title").first();
     await title.scrollIntoViewIfNeeded();
     const bounds = await title.boundingBox();
     assert.ok(bounds);
-    const client = await context.newCDPSession(page);
-    const x = Math.min(bounds.x + bounds.width - 5, page.viewportSize().width - 30);
+    const client = await context.newCDPSession(nativePage);
+    const x = Math.min(bounds.x + bounds.width - 5, nativePage.viewportSize().width - 30);
     const y = bounds.y + bounds.height / 2;
     await client.send("Input.dispatchTouchEvent", { type: "touchStart", touchPoints: [{ x, y }] });
-    await page.waitForTimeout(20);
+    await nativePage.waitForTimeout(20);
     for (let dx = 20; dx <= 140; dx += 20) {
       await client.send("Input.dispatchTouchEvent", { type: "touchMove", touchPoints: [{ x: x - dx, y }] });
-      await page.waitForTimeout(20);
+      await nativePage.waitForTimeout(20);
     }
     await client.send("Input.dispatchTouchEvent", { type: "touchEnd", touchPoints: [] });
-    await expectStatus("read");
-    assert.equal(page.url(), listUrl, `${name}: native swipe activated an article title.`);
-    await client.detach();
+    await expect(nativePage.locator('[data-status="read"]')).toHaveAttribute("aria-pressed", "true");
+    assert.equal(nativePage.url(), base + "/", `${name}: native swipe activated an article title.`);
+    await nativePage.close();
   }
   await waitForListIdle();
   await page.locator('[data-status="all"]').tap();

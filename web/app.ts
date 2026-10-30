@@ -2589,8 +2589,10 @@ library.addEventListener("touchend", (event) => {
   if (Math.abs(dx) < 48 || Math.abs(dx) <= Math.abs(dy) * 1.25) return;
   const current = statusOrder.indexOf(state.status as (typeof statusOrder)[number]);
   const next = Math.max(0, Math.min(statusOrder.length - 1, current + (dx < 0 ? 1 : -1)));
+  // Swiping over a link or button should not also activate it on release.
+  if (event.cancelable) event.preventDefault();
   if (next !== current) setStatus(statusOrder[next]);
-}, { passive: true });
+}, { passive: false });
 library.addEventListener("touchcancel", () => { statusSwipeStart = null; }, { passive: true });
 
 searchToggle.addEventListener("click", () => {
