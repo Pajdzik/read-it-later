@@ -537,7 +537,10 @@ async function runProfile(name, browserType, device) {
     assert.equal(page.url(), listUrl, `${name}: native swipe activated an article title.`);
     await client.detach();
   }
+  await waitForListIdle();
   await page.locator('[data-status="all"]').tap();
+  await expectStatus("all");
+  await waitForListIdle();
   await article.getByRole("button", { name: "Mark unread" }).tap();
   await article.getByRole("button", { name: "Mark read" }).waitFor();
   await reload();
