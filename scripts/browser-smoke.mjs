@@ -634,7 +634,7 @@ try {
   });
   assert.deepEqual(activeMarkup, [], "Sanitized reader DOM must contain only allowed attributes and safe links.");
   assert.match(await readerBody.textContent(), /<img src=/, "Raw HTML should display as literal text.");
-  assert.match(await readerBody.textContent(), /Image reference: Unsafe image/);
+  assert.match(await readerBody.textContent(), /!\[Unsafe image\]\(javascript:alert\(4\)\)/);
   const aboutCopy = reader.locator("details");
   const aboutSummary = aboutCopy.locator("summary");
   assert.equal(await aboutSummary.innerText(), "About this copy");
