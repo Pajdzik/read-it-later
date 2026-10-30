@@ -10,6 +10,6 @@
     "noEmit": true,
     "allowImportingTsExtensions": true
   },
-  "include": ["server.ts", "scripts/**/*.ts"],
+  "include": ["scripts/**/*.ts"],
   "exclude": ["scripts/defuddle-entry.ts"]
 }

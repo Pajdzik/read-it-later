@@ -2,7 +2,7 @@
 
 **Potem** means “later” in Polish. It is a private, single-owner article inbox: send a URL from your desktop or phone, open the original document when ready, and explicitly mark it read. The website uses the lowercase **potem.** wordmark with two bookmarks forming a pause symbol: save your place and read later.
 
-The current service stores links, article metadata, read state, and Markdown copies captured from URLs or provided by the owner. The repository also retains the original Node.js Markdown-reader prototype.
+The service stores links, article metadata, read state, and Markdown copies captured from URLs or provided by the owner. The maintained application runs on Cloudflare Workers with D1 and Workers Static Assets; the former Node.js reader has been retired.
 
 ## Product decisions
 
@@ -11,7 +11,7 @@ The current service stores links, article metadata, read state, and Markdown cop
 - **The reading list comes first.** The responsive website offers Unread, Read, and All views, search, pagination, an Add dialog, article details, title editing, and deletion. Light, dark, and system themes are available.
 - **Capture should stay lightweight.** Use the website, a desktop bookmarklet, an iOS Shortcut, or an installed PWA share target where supported. Native apps, browser extensions, and email ingestion are deferred.
 - **Keep the stack small.** One TypeScript Worker serves the API and website; one D1 database stores the library and authentication records. Use plain HTML/CSS/browser TypeScript, prepared SQL, and migrations, without a frontend framework or ORM.
-- **Aim for free hosting.** Workers Static Assets and D1 are the selected Cloudflare services; production is served at `read.pajdzik.pl`. Free hosting depends on current account quotas and usage; no automatic upgrade to paid services is part of the design.
+- **Use Cloudflare hosting.** Workers Static Assets and D1 serve the app; checked-in production config enables the private Container capture executor, which requires Workers Paid. Production is configured for `read.pajdzik.pl`. Actual plan and live deployment state should be checked in Cloudflare; this repository does not change billing or verify deployment.
 - **Backups must be portable.** Versioned JSON exports contain library data and can be restored without copying authentication records.
 
 ## Architecture
@@ -42,9 +42,9 @@ Saving commits the URL immediately with a supplied title or hostname/path fallba
 
 Mobile capture tokens request background extraction by default, including existing iOS Shortcut `{url, title?}` payloads. `captureMarkdown: false` opts out. Tokens remain save-only: they cannot read copies or job history, submit Markdown, retry failed jobs, or publish to GitHub. Website details show queued, running, retrying, ready, failed, or paused status and provide an owner-only retry. Duplicate saves preserve existing copies and do not restart exhausted jobs. Reviewed browser clips take priority and continue using their existing explicit copy-save path.
 
-Processing is **paused by default** in every environment. Activation requires `BACKGROUND_CAPTURE_ENABLED=true` and the `ARTICLE_EXTRACTOR` service binding to the private Cloudflare Container executor. The executor uses native Node connections pinned to validated public IPs and runs Defuddle in a bounded thread. This option requires Workers Paid (starting at $5/month with included Container usage); no plan change or deployment is performed by the implementation. Staging security, resource, and cost checks remain required. See [background extraction](docs/background-markdown-extraction.md), [URL Markdown capture](docs/url-markdown-capture.md), and the [deployment gate](docs/deployment.md#background-markdown-extraction).
+The checked-in Wrangler configuration enables background processing in production and keeps it disabled for local defaults and staging. Production uses the private `ARTICLE_EXTRACTOR` Cloudflare Container service. This describes repository configuration, not a verification of the live deployment. The executor uses native Node connections pinned to validated public IPs and runs Defuddle in a bounded thread. It requires Workers Paid; see [background extraction](docs/background-markdown-extraction.md), [URL Markdown capture](docs/url-markdown-capture.md), and the [deployment guide](docs/deployment.md#background-markdown-extraction) for configuration and validation requirements.
 
-A [deployed Defuddle Worker benchmark](docs/worker-extraction-benchmark.md) confirms that the extractor runs on Workers, while larger inputs fail under the current Free CPU limit. The next trial is a larger Paid Worker CPU budget. This PR adds no Containers or Docker dependency; production capture remains paused pending runtime and safe-fetch validation.
+A [deployed Defuddle Worker benchmark](docs/worker-extraction-benchmark.md) records Free-tier CPU-limit failures on larger inputs and a Paid Worker fixture trial. That trial does not validate the separately configured production Container executor or verify its live deployment; see [Cloudflare capture](docs/cloudflare-capture.md) for the current executor and remaining release checks.
 
 A unique SQL constraint handles concurrent duplicate saves. Duplicates keep their ID, saved date, and read state. A subsequent save can fill missing author/description or replace the generated fallback title; it preserves an edited title and reports whether metadata changed.
 
@@ -129,7 +129,7 @@ Import accepts up to 1 MiB and 1,000 articles. It validates the complete input a
 
 To rehearse a downloaded backup without changing the file or contacting production, run `pnpm archive:rehearse --backup /absolute/path/export.json --report /absolute/path/report.json`. The count/byte report includes local database size, never private article content or production headroom. See the [archive rehearsal guide](docs/archive-rehearsal.md) for limits, cleanup, and the pending deployed release checks.
 
-To convert an Obsidian/prototype Markdown folder offline, run `pnpm obsidian:convert --source /absolute/path/Articles --output /absolute/path/new-output-directory`. The converter reads but never changes the source, does not start the prototype or contact a service, and writes a private review report plus bounded version-2 import files. Review `report.json` before using Settings → Import. See the [Obsidian migration guide](docs/obsidian-import.md) for mapping rules, limits, and fixture evidence; actual-vault migration remains an owner-reviewed step.
+To convert a legacy Obsidian Markdown folder offline, run `pnpm obsidian:convert --source /absolute/path/Articles --output /absolute/path/new-output-directory`. The converter reads but never changes the source, does not start a server or contact a service, and writes a private review report plus bounded version-2 import files. Review `report.json` before using Settings → Import. See the [Obsidian migration guide](docs/obsidian-import.md) for mapping rules, limits, and fixture evidence; actual-vault migration remains an owner-reviewed step.
 
 To recover GitHub Markdown backups offline, run `pnpm github:convert --source /absolute/path/Articles --output /absolute/path/new-output-directory`. It reads Potem backup files without contacting GitHub or changing the source, then writes a private `report.json` and bounded version-2 import files. The report flags every imported article with `read_state_not_backed_up`; GitHub Markdown does not contain read state. Review the report and batches before using Settings → Import. See the [GitHub Markdown recovery guide](docs/github-recovery.md) for accepted fields, limits, duplicate handling, and fixture evidence. Actual backup folders have not been read or imported.
 
@@ -141,7 +141,7 @@ Markdown delivery is an optional integration. In article details or browser capt
 
 Copies are editable Markdown text. Article details can open the last successfully saved revision in a sanitized reader or download it as a UTF-8 Markdown file with quoted YAML frontmatter. The reader remembers a numeric position per article and saved-copy revision in local browser storage; opening it after a reload restores the position only when the user opens that article. This small metadata exception contains no article text, title, or URL; the Markdown copy remains server-side. Raw HTML is shown as text, unsafe links are unlinked, and image references are shown as text because their external sources are not included. Reading and downloading do not change read state or include unsaved editor drafts. R2 is deferred until measured storage needs justify it.
 
-The A01 decision and browser-capture boundary are recorded in [markdown-preservation.md](docs/markdown-preservation.md). A [deployed Worker benchmark](docs/worker-extraction-benchmark.md) now records extractor compatibility and Free CPU-limit failures; a larger Paid Worker budget remains to be tested. The [background Markdown extraction design](docs/background-markdown-extraction.md) specifies the implemented D1 jobs for website and mobile saves, including existing iOS Shortcut payloads. Production processing stays paused until connection-time egress protection and the selected runtime's limits/costs are proven. See archive tasks A01–A06 in the [implementation tracker](docs/tasks.md).
+The A01 decision and browser-capture boundary are recorded in [markdown-preservation.md](docs/markdown-preservation.md). The [Worker benchmark](docs/worker-extraction-benchmark.md) includes Free-tier failures and a Paid Worker fixture trial; this does not validate the configured Container executor. The [background Markdown extraction design](docs/background-markdown-extraction.md) specifies the implemented D1 jobs for website and mobile saves, including existing iOS Shortcut payloads. Production's checked-in configuration enables processing, but live deployment, safe-fetch behavior, and runtime cost have not been independently verified here. See the release checks in [Cloudflare capture](docs/cloudflare-capture.md) and archive tasks A01–A06 in the [implementation tracker](docs/tasks.md).
 
 ## Local development
 
@@ -154,7 +154,7 @@ pnpm db:migrate:local
 pnpm dev
 ```
 
-Open http://localhost:8787. The example enables loopback-only authentication bypass. `.dev.vars`, local database files, and build artifacts are ignored. Scripts disable loading the prototype's `.env` into Wrangler. Restart `pnpm dev` after frontend edits to rebuild assets.
+Open http://localhost:8787. The example enables loopback-only authentication bypass. `.dev.vars`, local database files, and build artifacts are ignored. Restart `pnpm dev` after frontend edits to rebuild assets. `pnpm start` is an alias for `pnpm dev`.
 
 ```sh
 pnpm check
@@ -164,13 +164,12 @@ pnpm build
 pnpm exec playwright install chromium webkit
 pnpm test:browser
 pnpm test:mobile
-pnpm test:prototype
 pnpm test:archive
 pnpm test:obsidian
 pnpm test:github
 ```
 
-`check` aliases `typecheck`, which checks all TypeScript sources across the Worker, browser app, service worker, prototype, scripts, and tests. Tests run against local Worker/D1 bindings and apply real migrations. `build` bundles assets and dry-runs deployment. Browser smoke uses temporary D1 storage and an ephemeral port to exercise persisted read state, capture drafts, errors, and desktop/mobile layouts. `test:mobile` uses a separate temporary Wrangler config, local Worker/D1, and fixture server, then exercises touch flows with Android Chromium and iPhone WebKit profiles in portrait, short portrait, and landscape. It checks manifest-driven sharing, save retries, queued/paused capture, manual-copy reading, read state, populated service-worker cache boundaries, and the local capture-token HTTP contract. Both runners emit screenshots under `/tmp`; see [mobile release validation](docs/mobile-release.md) for paths, browser versions, deployed read-only checks, and pending physical-device results. Archive rehearsal restores a representative export into a second fresh local D1 database, reconciles all fields, verifies idempotent imports, and reads/downloads restored copies with external requests blocked. Install Chromium and WebKit for the browser runners, or supply `BROWSER_EXECUTABLE` for Chromium and `WEBKIT_EXECUTABLE` for WebKit.
+`check` aliases `typecheck`, which checks the Worker, browser app, service worker, scripts, and tests. Tests run against local Worker/D1 bindings and apply real migrations. `build` bundles website assets and dry-runs Worker deployment. Browser smoke uses temporary D1 storage and an ephemeral port to exercise persisted read state, capture drafts, errors, and desktop/mobile layouts. `test:mobile` uses a separate temporary Wrangler config, local Worker/D1, and fixture server, then exercises touch flows with Android Chromium and iPhone WebKit profiles in portrait, short portrait, and landscape. It checks manifest-driven sharing, save retries, queued/paused capture, manual-copy reading, read state, populated service-worker cache boundaries, and the local capture-token HTTP contract. Both runners emit screenshots under `/tmp`; see [mobile release validation](docs/mobile-release.md) for paths, browser versions, deployed read-only checks, and pending physical-device results. Archive rehearsal restores a representative export into a second fresh local D1 database, reconciles all fields, verifies idempotent imports, and reads/downloads restored copies with external requests blocked. Install Chromium and WebKit for the browser runners, or supply `BROWSER_EXECUTABLE` for Chromium and `WEBKIT_EXECUTABLE` for WebKit.
 
 `test:obsidian` exercises the offline converter against temporary vaults, then imports converted fixtures through a temporary real Worker/D1 API, exports and reconciles them, repeats the import, and verifies a preexisting normalized-URL record and its copy/read state remain intact.
 
@@ -192,7 +191,7 @@ pnpm exec wrangler deploy --env production
 
 Production CI embeds the commit SHA and the UTC time the website assets were built; that timestamp records the build, not the later deployment time. The footer opens build details with the full commit, the build time in your timezone, and a copy action. Local and manual builds with neither `BUILD_COMMIT_SHA` nor `BUILD_TIMESTAMP` are labeled as local builds; supplying incomplete or invalid metadata fails the build.
 
-GitHub Actions runs strict TypeScript checks, Worker/D1 tests, a dry-run build, and browser smoke on pushes and PRs. A push to `main` additionally applies production migrations and deploys after verification passes. The `production` Actions environment needs `CLOUDFLARE_API_TOKEN` and `CLOUDFLARE_ACCOUNT_ID`; OAuth secrets are configured on the Worker separately. PR checks do not deploy production. See [CI](docs/ci.md) and [deployment instructions](docs/deployment.md).
+GitHub Actions runs strict TypeScript checks, Worker/D1 tests, dry-run builds, and browser smoke on pushes and PRs. A push to `main` additionally deploys the private capture service, applies production migrations, and deploys the app after verification passes. The `production` Actions environment needs `CLOUDFLARE_API_TOKEN` and `CLOUDFLARE_ACCOUNT_ID`; OAuth secrets are configured on the Worker separately. PR checks do not deploy production. See [CI](docs/ci.md) and [deployment instructions](docs/deployment.md).
 
 Back up before destructive schema changes. Prefer additive migrations and roll back only to code compatible with the current database; deployment does not automatically reverse migrations. Monitor request errors, CPU, D1 storage, and row usage without logging private URLs, content, tokens, or OAuth codes. Free quota exhaustion must produce recoverable errors rather than silently enabling paid services. Confirm live OAuth, anonymous-access restrictions, device capture, and backup restoration on the deployed origin; local tests cannot replace those checks.
 
@@ -210,16 +209,7 @@ Back up before destructive schema changes. Prefer additive migrations and roll b
 | `scripts/` | Asset build and isolated browser smoke |
 | `.github/workflows/` | Verification and production deployment |
 | `wrangler.jsonc` | Worker, assets and environment bindings |
-| `server.ts`, `public/`, `Dockerfile` | Preserved Node.js Markdown-reader prototype |
 
-Supporting documents: [TypeScript migration](docs/typescript-migration.md), [original design](docs/design.md), [implementation tracker](docs/tasks.md), [capture](docs/capture.md), [browser extension install draft](docs/browser-extension-install.md), [mobile release validation](docs/mobile-release.md), [CI](docs/ci.md), [deployment and operations](docs/deployment.md), and [prototype](docs/prototype.md). The original design/tracker record the initial implementation scope; this README reflects the current code, including metadata enrichment and production CI deployment.
+Supporting documents: [TypeScript migration](docs/typescript-migration.md), [original design](docs/design.md), [implementation tracker](docs/tasks.md), [capture](docs/capture.md), [browser extension install draft](docs/browser-extension-install.md), [mobile release validation](docs/mobile-release.md), [CI](docs/ci.md), [deployment and operations](docs/deployment.md), and [prototype retirement](docs/prototype.md). The original design/tracker preserve historical implementation scope; this README reflects the current Cloudflare application.
 
-### Preserved prototype
-
-```sh
-mkdir -p articles
-# Add Markdown files, or set ARTICLES_DIR to an existing folder.
-pnpm start
-```
-
-Open http://localhost:3055. Install dependencies first; `pnpm start` builds the TypeScript prototype and launches `dist/prototype/server.mjs`. You can also run `pnpm build:prototype` once and launch that bundle directly with Node. Its filesystem/GitHub storage, Markdown reader, and Docker deployment remain independent of the Worker. No vault files are automatically migrated or modified. A future vault importer should be read-only, report missing source URLs, preserve source files, and reconcile counts before retiring the old workflow.
+The former Node prototype is removed; source recovery and retained offline converters are described in [prototype retirement](docs/prototype.md).

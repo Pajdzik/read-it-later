@@ -2,6 +2,8 @@
 
 Status: automated local mobile rehearsal and read-only deployed checks recorded October 6, 2026. Automated and physical-device results are recorded separately. M06 and M08 remain pending until their physical-device and deployed acceptance checks pass.
 
+Prototype smoke/build references below are historical evidence for the retired Node application; prototype checks are no longer part of current CI. The Cloudflare capture and fetch tooling retain their own checks.
+
 ## Automated scope
 
 `pnpm test:mobile` runs Playwright touch flows with Android Chromium and iPhone WebKit profiles against a fresh temporary local Worker/D1. CI runs it in the pinned Playwright container, which includes both browser engines. The existing `pnpm test:browser` desktop smoke remains a separate check in the same browser job.

@@ -1,12 +1,12 @@
 # CI checks
 
-The `Checks` workflow runs on every push and pull request, and can be started manually. It runs two verification jobs in parallel: **Verify core** checks TypeScript and runs Worker/D1 tests, builds, and fetch-probe checks plus Obsidian and GitHub Markdown recovery rehearsals; **Browser checks** runs the prototype smoke, desktop browser smoke, conditional extension checks, Android/iPhone mobile emulation, and archive restoration against fresh local Worker/D1 databases. Browser checks run in the official Playwright Docker image. The **Verify** aggregate check passes only when both jobs pass, and production deployment depends on that gate. After all checks pass on a push to `main`, it applies pending production D1 migrations and deploys the production Worker.
+The `Checks` workflow runs on every push and pull request, and can be started manually. It runs two verification jobs in parallel: **Verify core** checks TypeScript and runs Worker/D1 tests, builds, and fetch-probe checks plus Obsidian and GitHub Markdown recovery rehearsals; **Browser checks** runs desktop browser smoke, conditional extension checks, Android/iPhone mobile emulation, and archive restoration against fresh local Worker/D1 databases. Browser checks run in the official Playwright Docker image. The **Verify** aggregate check passes only when both jobs pass, and production deployment depends on that gate. After all checks pass on a push to `main`, it builds and deploys the private capture service first, then applies pending production D1 migrations and deploys the application Worker.
 
 The browser image is pinned to `mcr.microsoft.com/playwright:v1.62.1-noble`, matching the `playwright` version in `package.json`; CI checks that they remain aligned. Keep those versions aligned when upgrading Playwright so the browser binaries and package driver stay compatible. This uses the image's preinstalled Chromium, WebKit, and OS dependencies instead of running `playwright install --with-deps` on the GitHub-hosted runner. The split targets complete CI wall time below five minutes while retaining all checks and the existing job timeouts. Historical Actions logs show the avoidable setup cost: run [40264606094](https://github.com/Pajdzik/read-it-later/actions/runs/40264606094) spent 19m20s in the apt dependency install (03:33:45–03:53:05 UTC), run [40259020137](https://github.com/Pajdzik/read-it-later/actions/runs/40259020137) spent 13m56s, while healthy run [40264613267](https://github.com/Pajdzik/read-it-later/actions/runs/40264613267) completed in 3m14s. Extension ZIPs are created with the pinned `fflate` dependency, so packaging does not require a system `zip` executable.
 
 The image choice follows Playwright's [Docker guidance](https://playwright.dev/docs/docker) and [CI guidance](https://playwright.dev/docs/ci). The local command list below still uses `playwright install --with-deps` when a machine needs browser binaries and operating-system dependencies installed.
 
-The production job uses the `production` GitHub Actions environment and requires `CLOUDFLARE_API_TOKEN` and `CLOUDFLARE_ACCOUNT_ID` secrets. The token needs Workers Scripts Edit and D1 Edit permissions for the configured production resources. Pull requests and pushes to other branches never run the production job.
+The production job uses the `production` GitHub Actions environment and requires `CLOUDFLARE_API_TOKEN` and `CLOUDFLARE_ACCOUNT_ID` secrets. The token needs Workers Scripts Edit, Containers Edit, and D1 Edit permissions for the configured production resources. Pull requests and pushes to other branches never run the production job.
 
 The same verification job runs synthetic Defuddle fixtures in the local Workers runtime and `pnpm build:benchmark` to package the fixture-only benchmark Worker. These checks require no Docker or Cloudflare credentials and do not deploy it. [Actual Cloudflare CPU measurements](worker-extraction-benchmark.md) are recorded separately; passing local tests does not establish a production CPU-budget fit.
 
@@ -38,7 +38,6 @@ pnpm exec playwright install --with-deps chromium webkit
 pnpm test:browser
 pnpm test:extension
 pnpm test:mobile
-pnpm test:prototype
 pnpm test:archive
 pnpm test:obsidian
 pnpm test:github

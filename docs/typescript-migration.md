@@ -1,6 +1,6 @@
 # TypeScript migration
 
-All maintained application, build, and conversion code uses TypeScript. Existing JavaScript tests and integration harnesses remain JavaScript, as requested, and load migrated modules through `node --import tsx`. JavaScript is generated for browsers, the Node prototype, and Wrangler test harnesses. The migration preserves API responses, data formats, authentication, storage behavior, and browser asset URLs.
+Historical migration record: the Node.js Markdown-reader prototype described in earlier implementation notes was retired; its source, browser UI, and Docker deployment are no longer maintained. The current application is Cloudflare-only. TypeScript remains in the Worker, browser app, build/conversion scripts, and Node capture/fetch tooling. JavaScript tests and integration harnesses load TypeScript modules through `node --import tsx`.
 
 ## Runtime boundaries
 
@@ -9,10 +9,9 @@ All maintained application, build, and conversion code uses TypeScript. Existing
 | `tsconfig.json` | Worker, Worker tests, Vitest configuration | Cloudflare bindings and Web Worker APIs |
 | `web/tsconfig.json` | Main app, Markdown renderer, capture help, extractor entry | Browser DOM |
 | `web/tsconfig.sw.json` | Service worker | Service worker globals |
-| `public/tsconfig.json` | Prototype browser UI | Browser DOM |
-| `tsconfig.node.json` | Prototype server, build/conversion/rehearsal scripts | Node APIs, DOM types for Playwright callbacks |
+| `tsconfig.node.json` | Build, conversion, and rehearsal scripts | Node APIs, DOM types for Playwright callbacks |
 
-Each configuration enables strict checking and emits no files. Node and Cloudflare globals stay in separate configurations to avoid masking runtime mistakes. `pnpm typecheck` covers every configuration; `pnpm check` is its alias. External JSON and errors are narrowed at their boundaries. Portable backup, converter/report, prototype article/auth, DOM element, and HTTP types describe the existing contracts.
+Each maintained configuration enables strict checking and emits no files. Node and Cloudflare globals stay in separate configurations to avoid masking runtime mistakes. `pnpm typecheck` covers every configuration; `pnpm check` is its alias. External JSON and errors are narrowed at their boundaries. Portable backup, converter/report, capture executor, DOM element, and HTTP types describe current contracts.
 
 ## Execution and builds
 
@@ -20,14 +19,14 @@ Pinned `tsx` runs Node TypeScript tooling on the existing Node 22.12+ baseline. 
 
 `pnpm build:web` uses esbuild to compile the main app, capture page, service worker, and Defuddle entry into `dist/web`. HTML keeps the existing asset URLs. App/CSS names and the service-worker cache version derive from generated content. The bookmarklet's serialized capture function remains self-contained. TypeScript sources and compiler configuration are excluded from served assets.
 
-`pnpm build:prototype` writes the Node server to `dist/prototype/server.mjs` and browser assets to `dist/prototype/public`. `pnpm start` builds and launches that bundle. The source and built server resolve the same repository-root `.env` and default article directory; both serve the generated public assets. Docker uses a build stage with TypeScript tooling and a runtime stage containing only the generated prototype; the runtime needs no npm dependencies.
+`pnpm start` aliases `pnpm dev`, which builds the maintained website and runs it through Wrangler. The former prototype build and runtime were removed; see [prototype retirement](prototype.md). The root `tsconfig.node.json` remains for current scripts, including Cloudflare capture tooling and offline converters.
 
 ## Implementation ownership
 
-Three Luna subagents migrate the Node server, browser code, and Node conversion/rehearsal scripts respectively. The coordinating agent integrates package scripts, runtime configurations, builds, CI, Docker, and documentation, then reviews the changes together.
+Historical ownership note: the original TypeScript migration used separate work for the Node server, browser code, and conversion/rehearsal scripts. Those migration records do not describe the current runtime set.
 
 ## Verification
 
-Run strict typechecks, Worker/D1 tests, both builds and the Worker dry run, the browser smoke test, backup-envelope tests and archive rehearsal, and Obsidian/GitHub converter tests and local restore rehearsals. Verify the prototype bundle with a temporary Markdown fixture: list/read/update state, static assets, health, and a browser interaction. All data checks use isolated temporary fixtures and local databases.
+Current checks include strict typechecks, Worker/D1 tests, Cloudflare dry-run builds, browser smoke, backup-envelope tests and archive rehearsal, plus Obsidian/GitHub converter tests and local restore rehearsals. All data checks use isolated temporary fixtures and local databases.
 
-Verified locally: strict checks across all five configurations; 37 Worker/D1, 8 backup-envelope, 10 Obsidian, and 12 GitHub converter tests; Worker dry-run deployment; browser capture and desktop/mobile smoke; prototype fixture/browser smoke; archive restoration (30 articles, 28 copies); and both converter restore rehearsals. Frozen-lockfile installation passes. Docker image execution remains unverified because the local Docker daemon is unavailable.
+Historical verification before prototype retirement included strict checks across five configurations, Worker dry runs, prototype fixture/browser smoke, and the other listed recovery/browser checks. Those results remain historical evidence only; current validation no longer builds or tests the retired prototype. The private capture executor and fetcher retain separate Docker/Container build and test workflows.

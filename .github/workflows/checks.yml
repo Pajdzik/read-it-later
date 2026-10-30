@@ -145,9 +145,6 @@ jobs:
         run: |
           node -e 'const actual = require("./package.json").devDependencies.playwright; if (actual !== process.env.EXPECTED_PLAYWRIGHT_VERSION) { console.error(`Playwright image is ${process.env.EXPECTED_PLAYWRIGHT_VERSION}, package.json requires ${actual}`); process.exit(1); }'
 
-      - name: Run prototype smoke test
-        run: pnpm test:prototype
-
       - name: Run browser smoke test
         run: pnpm test:browser
 
