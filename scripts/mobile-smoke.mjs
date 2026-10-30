@@ -535,7 +535,7 @@ async function runProfile(name, browserType, device) {
     await client.send("Input.dispatchTouchEvent", { type: "touchEnd", touchPoints: [] });
     await expectStatus("read");
     assert.equal(page.url(), listUrl, `${name}: native swipe activated an article title.`);
-    await client.detach();
+    // Let context.close() dispose of the input session after the touch checks.
   }
   await waitForListIdle();
   await page.locator('[data-status="all"]').tap();
