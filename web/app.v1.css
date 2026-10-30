@@ -956,25 +956,8 @@ button {
 .reader-header > .muted {
   margin: 0 0 12px;
 }
-.reader-about {
-  color: var(--muted);
-  font-size: 13px;
-}
-.reader-about summary {
-  width: fit-content;
-  min-height: 36px;
-  display: list-item;
-  list-style-position: inside;
-  color: var(--green);
-  cursor: pointer;
-  font-weight: 600;
-}
-.reader-about-content {
-  padding: 0 0 8px 18px;
-}
-.reader-metadata,
-.reader-image-note {
-  margin: 4px 0 0;
+.reader-metadata {
+  margin: 0 0 12px;
   font-size: 12px;
   line-height: 1.5;
 }
@@ -1002,10 +985,6 @@ button {
 .reader-pending-status { margin: 0 0 14px; line-height: 1.55; }
 .reader-pending-actions { display: flex; flex-wrap: wrap; gap: 8px; }
 .reader-pending[hidden] { display: none; }
-.reader-image-note {
-  padding-top: 8px;
-  border-top: 1px solid var(--line);
-}
 .reader-body {
   margin: 0;
   font: 18px/1.7 Georgia, "Times New Roman", serif;
