@@ -1,8 +1,0 @@
-{
-  "name": "Potem",
-  "short_name": "Potem",
-  "start_url": "/",
-  "display": "standalone",
-  "background_color": "#f6f4ee",
-  "theme_color": "#f6f4ee"
-}

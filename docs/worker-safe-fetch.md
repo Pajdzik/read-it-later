@@ -1,6 +1,6 @@
-# Safe article fetch boundary
+# Historical: safe article fetch boundary trial
 
-The repository now contains a fetch-only Container gateway implementation. Production and staging capture remain paused: `BACKGROUND_CAPTURE_ENABLED` is `false` in the checked-in application config and neither environment has an `ARTICLE_FETCHER` service binding. The app never falls back to global `fetch()` when that binding is absent. The code has not been deployed or verified against the account's Cloudflare Container network yet.
+This document records a superseded `ARTICLE_FETCHER` gateway design and its Worker socket experiments. The current app uses the `ARTICLE_EXTRACTOR` service in `capture/`; see [Cloudflare capture](cloudflare-capture.md), [URL Markdown capture](url-markdown-capture.md), and the [deployment guide](deployment.md). The trial evidence below is historical and does not describe current Wrangler configuration or verify the live deployment.
 
 ## Implementation boundary
 
@@ -42,6 +42,6 @@ That is a platform-enforced public-address policy, not application-controlled DN
 
 Before using this alternative, agree that a platform-managed public-egress allowlist satisfies the desired guarantee, then verify the deployed Worker rejects controlled non-public and rebinding destinations, preserves TLS hostname verification, follows only manually validated redirects, and cannot reach its own zone origin through another hostname. Keep the Worker free of private service bindings during that evaluation. If explicit app-level address pinning remains required, this Worker-native `startTls()` path is not demonstrated to support it; use a controlled gateway or another separately approved runtime.
 
-## Current application state
+## Historical application state
 
-The app continues to require both `BACKGROUND_CAPTURE_ENABLED=true` and an `ARTICLE_FETCHER` binding before background extraction runs. Both production and staging remain configured with the flag disabled, and no fetcher binding is present. CI typechecks and tests the Node gateway, packages its Worker with Wrangler's dry-run path without rolling out a Container, and builds/smoke-tests the image on the CI Docker runner. These checks do not deploy the service or enable capture.
+The statements in this section from the original fetcher-gateway trial are superseded. The checked-in application config now has an `ARTICLE_EXTRACTOR` binding for staging and production, with background processing disabled in staging and enabled in production. This is configuration evidence only, not confirmation of live deployment. Current validation commands are documented in [CI](ci.md) and the [Cloudflare capture guide](cloudflare-capture.md).

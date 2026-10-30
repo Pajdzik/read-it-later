@@ -1,6 +1,6 @@
 # Read Later: service design
 
-Status: MVP implemented locally; deployment and native-device release validation pending. Updated October 1, 2026. This document is the product contract for [tasks.md](tasks.md). The manual Markdown preservation decision and A02 implementation details are in [markdown-preservation.md](markdown-preservation.md); deployed extraction benchmarking has not been run.
+Historical design record: the original plan preserved the Node.js Markdown-reader prototype during the Cloudflare transition. The prototype has since been retired; current implementation and deployment instructions are in the [README](../README.md) and [deployment guide](deployment.md). The decisions and statuses below are retained as historical context. See [tasks.md](tasks.md) for the current prototype-retirement note.
 
 ## Product decision
 
@@ -136,6 +136,6 @@ Release requires desktop and mobile save/read smoke tests on the deployed origin
 
 ## Existing repository and migration
 
-The preserved prototype already provides responsive list/reader styling, themes, original links, local Markdown parsing, GitHub storage and OAuth. Reuse visual ideas and fixtures selectively. Replace filesystem/GitHub storage, read-frontmatter writes, and process-local auth for the new service. Current Docker instructions remain in [prototype.md](prototype.md).
+At the time of this design, the preserved prototype provided responsive list/reader styling, themes, original links, local Markdown parsing, GitHub storage, and OAuth. The migration replaced its storage and process-local authentication. Its Docker instructions are retired; see [prototype.md](prototype.md) for the retirement note. Offline conversion remains documented in [obsidian-import.md](obsidian-import.md).
 
 An optional one-time vault importer should read source/title/read/readAt/added metadata without modifying originals, produce the versioned JSON format, and report missing or invalid URLs. Files without source URLs should be reported for manual review rather than discarded; phase 2 may import their Markdown. Reconcile counts and export the new library before retiring any old workflow.

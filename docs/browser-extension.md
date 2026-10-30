@@ -10,7 +10,7 @@ Prepared: October 10, 2026.
 
 Build a small desktop extension for Chrome and Firefox that captures the current page, sends its extracted Markdown and metadata to Potem, and saves the persisted copy to the configured GitHub repository. Provide two modes: one-click automatic saving and review before saving.
 
-Use the existing website for review, authentication, storage, and GitHub publishing. Extract the rendered page locally in the extension, rather than asking the server to fetch the URL again. This preserves content available in the current browser session and avoids depending on the currently paused server extraction service.
+Use the existing website for review, authentication, storage, and GitHub publishing. Extract the rendered page locally in the extension, rather than asking the server to fetch the URL again. This preserves content available in the current browser session and avoids depending on background extraction, which can be paused in an environment even though the checked-in production configuration enables it.
 
 The following defaults resolve the unanswered design choices:
 

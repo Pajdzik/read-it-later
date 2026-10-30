@@ -1,6 +1,8 @@
 # Implementation tracker
 
-Source of truth: [design.md](design.md). Status: MVP implemented and validated locally by Luna subagents and the integrating agent. Deployment and actual-device release checks remain pending. Background extraction jobs are implemented but processing defaults to paused until A01 proves deployed safe-egress and runtime cost. Manual copies and browser-side capture remain available.
+Historical implementation record: tasks below preserve the original delivery scope and test evidence. The Node.js prototype referenced in early tasks has since been retired; the offline converters and archive tools remain available. No user vault was read or imported by that retirement.
+
+Source of truth for the historical plan: [design.md](design.md). Deployment and actual-device release checks remain pending. Background extraction jobs are implemented; checked-in Wrangler config enables processing in production and disables it in default/staging environments. Live deployment state is not established by this configuration. Manual copies and browser-side capture remain available.
 
 Check off a task only after its acceptance criteria pass. Each chunk should be one reviewable change; split further if needed. The integrating agent owns shared contracts, migrations, dependencies, and release checks. A subagent receives the task ID, prerequisite commits, owned paths, relevant design sections, and required evidence. It returns changed files, checks/results, and unresolved issues. It must not deploy, modify secrets, or refactor another chunk's files without explicit assignment.
 
@@ -95,8 +97,8 @@ The Chrome/Firefox extension implementation is tracked in [browser-extension.md]
 
 ## Optional migration
 
-- [ ] **X01 — Import the existing Obsidian library.** The offline converter is implemented in `scripts/obsidian-convert.ts`, with temporary-vault coverage and a local Worker/D1 restore rehearsal in `pnpm test:obsidian`. It reports valid, duplicate, and excluded records and preserves source bytes in fixtures. Fixture import/export/reimport checks reconcile records and preserve an existing normalized-URL record with its copy and read state. The owner's actual vault has not been read; owner review, actual import, and retirement of the old flow remain pending.
-  Acceptance: dry-run and import counts reconcile; original vault files are byte-identical afterward; existing service records remain intact; malformed source files are reported individually. Retire the old flow only after owner review of the reconciliation. Fixture evidence alone does not complete X01.
+- [ ] **X01 — Import the existing Obsidian library.** The offline converter is implemented in `scripts/obsidian-convert.ts`, with temporary-vault coverage and a local Worker/D1 restore rehearsal in `pnpm test:obsidian`. It reports valid, duplicate, and excluded records and preserves source bytes in fixtures. Fixture import/export/reimport checks reconcile records and preserve an existing normalized-URL record with its copy and read state. The Node prototype code has since been retired; the owner's actual vault has not been read and owner review/import remain pending.
+  Acceptance: dry-run and import counts reconcile; original vault files are byte-identical afterward; existing service records remain intact; malformed source files are reported individually. Retirement of the Node runtime is complete, while fixture evidence alone does not complete the actual-vault import task.
   Fixture evidence (October 2, 2026): ten converter unit tests pass. The temporary Worker/D1 rehearsal imports three eligible records with one existing-URL skip, exports and reconciles three records, then reimports with zero writes and three skips. The existing record's title, dates, read state, and Markdown copy remain unchanged. No actual-vault or production import was attempted.
 
 ## Parallel work and handoff
@@ -118,6 +120,6 @@ GitHub capture follow-up evidence (October 2, 2026): the capture dialog includes
 - Integrated backend: 17 Worker/D1 tests pass, including OAuth state/owner restrictions, session logout/expiry, capture scope/rate/revocation, bounded request parsing, import atomic rollback and first-page export failure.
 - Website: strict DOM TypeScript checks, content-hashed production asset build, desktop 1440px and phone 390px browser smoke pass. The committed `pnpm test:browser` uses temporary local D1, verifies read state after reload, last-page controls, draft recovery, ambiguous shared text, and capture guide routing. CI runs these checks on Ubuntu.
 - Deployment: Wrangler dry run passes; no Cloudflare resources or real credentials have been provisioned by these PRs.
-- Prototype: strict TypeScript checks and the isolated fixture/browser smoke pass; its built runtime uses only Node built-ins. Docker image execution has not been verified in this environment.
+- Retired prototype (historical): strict TypeScript checks and isolated fixture/browser smoke passed before the runtime was removed. The current CI does not build or test that retired application.
 
 PR stack (merge in order): [design #1](https://github.com/Pajdzik/read-it-later/pull/1), [foundation #2](https://github.com/Pajdzik/read-it-later/pull/2), [API #3](https://github.com/Pajdzik/read-it-later/pull/3), [website #4](https://github.com/Pajdzik/read-it-later/pull/4). Each implementation layer depends on the previous one.

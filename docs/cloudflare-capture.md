@@ -1,6 +1,6 @@
 # Cloudflare Container capture
 
-Decision, October 19, 2026: keep Workers, Static Assets, D1, and the one-minute Cron, and move the entire fetch-and-extract operation into a private Cloudflare Container. Workers Paid is accepted for this design. The implementation changes no account billing, deploys no resources, and leaves capture paused pending staging validation.
+Decision, October 19, 2026: keep Workers, Static Assets, D1, and the one-minute Cron, and move the entire fetch-and-extract operation into a private Cloudflare Container. Workers Paid is accepted for this design. The checked-in production config enables background capture and binds the private executor; local defaults and staging keep it disabled. This configuration does not establish live deployment state. The implementation changes no account billing and deploys no resources.
 
 ## Architecture
 
