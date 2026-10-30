@@ -195,12 +195,16 @@
       <nav class="reader-toolbar" aria-label="Saved copy controls">
         <div class="reader-column reader-toolbar-inner">
           <form method="dialog" class="reader-close">
-            <button class="reader-back" aria-label="Close saved copy">← <span>Back</span></button>
+            <button class="reader-back" aria-label="Close saved copy" title="Back">
+              <svg viewBox="0 0 20 20" aria-hidden="true"><path d="m10 3-7 7 7 7M3 10h14" /></svg>
+              <span class="reader-control-label">Back</span>
+            </button>
           </form>
+          <span id="reader-toolbar-title" class="reader-toolbar-title" aria-hidden="true"></span>
           <a id="reader-original" class="reader-original reader-action" target="_blank" rel="noopener noreferrer" aria-label="Open original" title="Open original">
-          <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M15 3h6v6m-1-5-9 9" /><path d="M11 5H7a4 4 0 0 0-4 4v8a4 4 0 0 0 4 4h8a4 4 0 0 0 4-4v-4" /></svg>
-        </a>
-
+            <span class="reader-control-label">Open original</span>
+            <svg viewBox="0 0 20 20" aria-hidden="true"><path d="M3 17 17 3M3 3h14v14" /></svg>
+          </a>
         </div>
       </nav>
       <div class="reader-column reader-content-column">
