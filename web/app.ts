@@ -1479,23 +1479,20 @@ function openReader(article: Article, copy: ArticleCopy, opener?: HTMLElement) {
   if (state.selected?.id !== article.id) return;
   if (readerPositionContext && (readerPositionContext.id !== article.id || readerPositionContext.revision !== copy.revision)) saveReadingPosition();
   const title = $("#reader-title");
-  const author = $("#reader-author");
   const metadata = $("#reader-metadata");
   const original = $<HTMLAnchorElement>("#reader-original");
   const body = $("#reader-body");
-  const about = $<HTMLDetailsElement>("#reader-about");
   setReaderTitle(article.title);
   readerArticleId = article.id;
   setArticleTitle(article);
   const canonicalPath = articlePath(article);
   if (location.pathname !== canonicalPath) history.replaceState(readerHistoryState(article.id, readerFromList), "", canonicalPath);
-  author.textContent = article.author ? `By ${article.author}` : "";
-  author.hidden = !article.author;
-  metadata.textContent = `Captured ${dateLabel(copy.capturedAt)} · ${copy.source === "upload" ? "uploaded file" : "captured or pasted Markdown"} · ${sourceHost(article.url)}`;
-  about.open = false;
+  const capturedOn = dateLabel(copy.capturedAt);
+  metadata.textContent = [sourceHost(article.url), article.author ? `By ${article.author}` : "", capturedOn ? `Captured ${capturedOn}` : ""]
+    .filter(Boolean)
+    .join(" · ");
   $("#reader-pending").hidden = true;
   $("#reader-new-copy").hidden = true;
-  $("#reader-image-note").hidden = false;
   body.hidden = false;
   original.href = safeHttpUrl(article.url) || "#";
   body.replaceChildren(renderMarkdown(copy.markdown, article.url, article.title));
@@ -1531,11 +1528,7 @@ function renderPendingReader(article: Article) {
   setArticleTitle(article);
   const canonicalPath = articlePath(article);
   if (location.pathname !== canonicalPath) history.replaceState(readerHistoryState(article.id, readerFromList), "", canonicalPath);
-  $<HTMLDetailsElement>("#reader-about").open = false;
-  const author = $("#reader-author");
-  author.textContent = article.author ? `By ${article.author}` : "";
-  author.hidden = !article.author;
-  $("#reader-metadata").textContent = `${sourceHost(article.url)} · ${extractionLabel(article.extraction)}`;
+  $("#reader-metadata").textContent = [sourceHost(article.url), ...(article.author ? [`By ${article.author}`] : [])].join(" · ");
   const original = $<HTMLAnchorElement>("#reader-original");
   original.href = safeHttpUrl(article.url) || "#";
   $("#reader-pending-status").textContent = article.extraction?.state === "failed"
@@ -1546,7 +1539,6 @@ function renderPendingReader(article: Article) {
   const retry = $<HTMLButtonElement>("#reader-retry");
   retry.hidden = article.extraction?.state !== "failed";
   retry.disabled = false;
-  $("#reader-image-note").hidden = true;
   $("#reader-body").hidden = true;
   const dialog = $<HTMLDialogElement>("#reader-dialog");
   if (!dialog.open) {
@@ -1600,13 +1592,10 @@ function clearReader() {
   dialog.scrollTop = 0;
   $("#reader-body").replaceChildren();
   setReaderTitle("");
-  $("#reader-author").textContent = "";
   $("#reader-metadata").textContent = "";
   $("#reader-pending").hidden = true;
-  $<HTMLDetailsElement>("#reader-about").open = false;
   $("#reader-pending-status").textContent = "";
   $("#reader-body").hidden = false;
-  $("#reader-image-note").hidden = false;
   $<HTMLAnchorElement>("#reader-original").removeAttribute("href");
 }
 function restoreReaderFocus(opener = readerReturnFocus) {
@@ -1646,13 +1635,10 @@ $("#reader-dialog").addEventListener("close", () => {
   resetReaderCompletion();
   $("#reader-body").replaceChildren();
   setReaderTitle("");
-  $("#reader-author").textContent = "";
   $("#reader-metadata").textContent = "";
   $("#reader-pending").hidden = true;
   $("#reader-pending-status").textContent = "";
-  $<HTMLDetailsElement>("#reader-about").open = false;
   $("#reader-body").hidden = false;
-  $("#reader-image-note").hidden = false;
   $<HTMLAnchorElement>("#reader-original").removeAttribute("href");
   if (!$<HTMLDialogElement>("#detail-dialog").open) {
     stopExtractionPolling();
