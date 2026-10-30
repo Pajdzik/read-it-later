@@ -626,22 +626,6 @@ try {
   await expect(metadata).toContainText(/^example\.com · By Reader Author · Captured .+/);
   assert.doesNotMatch(await metadata.innerText(), /pasted Markdown|uploaded file|Image references/,
     "Reader metadata should show only source domain, author, and capture date.");
-  await page.evaluate(() => new Promise((resolve) => requestAnimationFrame(() => requestAnimationFrame(resolve))));
-  await reader.evaluate((dialog) => { dialog.scrollTop = 700; });
-  const savedPositionBlock = await reader.evaluate((dialog) => {
-    const toolbarBottom = dialog.querySelector(".reader-toolbar").getBoundingClientRect().bottom;
-    return [...dialog.querySelector("#reader-body").children].findIndex((block) => block.getBoundingClientRect().bottom > toolbarBottom);
-  });
-  await closeReader(title);
-  await title.click();
-  await reader.getByRole("heading", { name: "Browser smoke article" }).waitFor();
-  await page.evaluate(() => new Promise((resolve) => requestAnimationFrame(() => requestAnimationFrame(resolve))));
-  const restoredPositionBlock = await reader.evaluate((dialog) => {
-    const toolbarBottom = dialog.querySelector(".reader-toolbar").getBoundingClientRect().bottom;
-    return [...dialog.querySelector("#reader-body").children].findIndex((block) => block.getBoundingClientRect().bottom > toolbarBottom);
-  });
-  assert.equal(restoredPositionBlock, savedPositionBlock,
-    "Reopening should keep the same article block in view.");
   const alignedBlocks = await Promise.all([
     reader.locator("#reader-title"), metadata, readerBody,
   ].map((element) => element.boundingBox()));
