@@ -1486,7 +1486,7 @@ function openReader(article: Article, copy: ArticleCopy, opener?: HTMLElement) {
   $("#reader-image-note").hidden = false;
   body.hidden = false;
   original.href = safeHttpUrl(article.url) || "#";
-  body.replaceChildren(renderMarkdown(copy.markdown, article.url));
+  body.replaceChildren(renderMarkdown(copy.markdown, article.url, article.title));
   resetReaderCompletion(article);
   saveLastOpened(article);
   const positionContext = { id: article.id, revision: copy.revision };

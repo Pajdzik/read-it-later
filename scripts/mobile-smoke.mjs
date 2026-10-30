@@ -303,7 +303,10 @@ async function runProfile(name, browserType, device) {
   const readCopyAction = shareDetail.getByRole("button", { name: "Read saved copy" });
   await readCopyAction.tap();
   const readyReader = page.locator("#reader-dialog");
-  await readyReader.locator("#reader-body").getByRole("heading", { name: shareTitle }).waitFor();
+  await expect(readyReader.locator("#reader-title")).toHaveText(shareTitle);
+  await expect(readyReader.locator("#reader-body")).toContainText("Manually saved while the background processor is paused.");
+  await expect(readyReader.getByRole("heading", { name: shareTitle, exact: true })).toHaveCount(1);
+  await expect(readyReader.locator("#reader-body").getByRole("heading", { name: shareTitle, exact: true })).toHaveCount(0);
   assert.equal(await readyReader.locator("#reader-body table tbody tr").count(), 1,
     `${name}: manually persisted Markdown should remain readable while extraction is paused.`);
   assert.equal(await page.evaluate(() => document.activeElement?.id), "reader-title",
@@ -357,15 +360,18 @@ async function runProfile(name, browserType, device) {
   const beforeResize = page.viewportSize();
   await page.setViewportSize({ width: Math.max(320, beforeResize.width - 32), height: beforeResize.height });
   await readCopyAction.tap();
-  await readyReader.locator("#reader-body").getByRole("heading", { name: shareTitle }).waitFor();
-  await page.evaluate(() => new Promise((resolve) => requestAnimationFrame(() => requestAnimationFrame(resolve))));
-  assert.ok(await readyReader.evaluate((dialog) => dialog.scrollTop > 0), `${name}: reopening should restore the saved reader position: ${JSON.stringify({ mobilePosition, viewport: page.viewportSize() })}.`);
-  const restoredMobileBlock = await readyReader.evaluate((dialog) => {
+  await expect(readyReader.locator("#reader-title")).toHaveText(shareTitle);
+  await expect(readyReader.locator("#reader-body")).toContainText("Manually saved while the background processor is paused.");
+  // Dialog layout and scroll restoration can finish after two frames in WebKit.
+  // Wait for the restored paragraph itself, preserving the position assertion.
+  await expect.poll(() => readyReader.evaluate((dialog) => {
     const toolbarBottom = dialog.querySelector(".reader-toolbar").getBoundingClientRect().bottom;
-    return [...dialog.querySelector("#reader-body").children].findIndex((block) => block.getBoundingClientRect().bottom > toolbarBottom);
-  });
-  assert.equal(restoredMobileBlock, mobilePosition.block,
-    `${name}: viewport width change should keep the same paragraph in view.`);
+    return {
+      scrolled: dialog.scrollTop > 0,
+      block: [...dialog.querySelector("#reader-body").children].findIndex((block) => block.getBoundingClientRect().bottom > toolbarBottom),
+    };
+  }), { message: `${name}: viewport width change should restore the saved paragraph: ${JSON.stringify({ mobilePosition, viewport: page.viewportSize() })}.` })
+    .toEqual({ scrolled: true, block: mobilePosition.block });
   await page.setViewportSize(beforeResize);
   assert.equal(await readyReader.locator("details").evaluate((details) => details.open), false,
     `${name}: reopening should collapse About this copy.`);
@@ -381,7 +387,8 @@ async function runProfile(name, browserType, device) {
     await expect(opener).toBeFocused();
   };
   await titleButton.tap();
-  await readyReader.locator("#reader-body").getByRole("heading", { name: shareTitle }).waitFor();
+  await expect(readyReader.locator("#reader-title")).toHaveText(shareTitle);
+  await expect(readyReader.locator("#reader-body")).toContainText("Manually saved while the background processor is paused.");
   assert.equal(new URL(page.url()).pathname, await titleButton.getAttribute("href"),
     `${name}: reopening from the list should use the canonical URL.`);
   await page.screenshot({ path: screenshot("portrait-reader-light") });
