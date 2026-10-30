@@ -1001,6 +1001,13 @@ button {
   font: 18px/1.7 Georgia, "Times New Roman", serif;
   overflow-wrap: anywhere;
 }
+.reader-body img {
+  display: block;
+  max-width: 100%;
+  height: auto;
+  margin: 1.25em auto;
+  border-radius: 6px;
+}
 .reader-body > :first-child { margin-top: 0; }
 .reader-completion {
   margin-top: 24px;

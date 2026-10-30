@@ -3,10 +3,10 @@ import MarkdownIt from "markdown-it";
 
 const allowedTags = [
   "a", "blockquote", "br", "code", "em", "h1", "h2", "h3", "h4", "h5", "h6",
-  "hr", "li", "ol", "p", "pre", "s", "strong", "table", "tbody", "td",
+  "hr", "img", "li", "ol", "p", "pre", "s", "strong", "table", "tbody", "td",
   "th", "thead", "tr", "ul",
 ];
-const allowedAttributes = ["href", "target", "rel", "start"];
+const allowedAttributes = ["alt", "decoding", "href", "loading", "referrerpolicy", "rel", "src", "start", "target"];
 
 function linkUrl(href: string, sourceUrl: string): string | null {
   const raw = href.trim();
@@ -36,6 +36,19 @@ function linkUrl(href: string, sourceUrl: string): string | null {
     const resolved = new URL(raw, sourceUrl);
     if (resolved.protocol !== "http:" && resolved.protocol !== "https:") return null;
     if (resolved.username || resolved.password) return null;
+    return resolved.href;
+  } catch {
+    return null;
+  }
+}
+
+function imageUrl(src: string, sourceUrl: string): string | null {
+  const raw = src.trim();
+  if (!raw || /[\u0000-\u0020\u007f]/.test(raw)) return null;
+
+  try {
+    const resolved = new URL(raw, sourceUrl);
+    if (resolved.protocol !== "https:" || resolved.username || resolved.password) return null;
     return resolved.href;
   } catch {
     return null;
@@ -88,8 +101,10 @@ export function renderMarkdown(markdown: string, sourceUrl: string, articleTitle
     tokens[index].meta?.rejectedLink ? "" : renderer.renderToken(tokens, index, options);
   parser.renderer.rules.image = (tokens, index) => {
     const token = tokens[index];
-    const alt = String(token.content || token.attrGet("alt") || "image").trim() || "image";
-    return `Image reference: ${parser.utils.escapeHtml(alt)}`;
+    const alt = String(token.content || token.attrGet("alt") || "").trim();
+    const src = imageUrl(String(token.attrGet("src") || ""), sourceUrl);
+    if (!src) return `Image reference: ${parser.utils.escapeHtml(alt || "image")}`;
+    return `<img src="${parser.utils.escapeHtml(src)}" alt="${parser.utils.escapeHtml(alt)}" loading="lazy" decoding="async" referrerpolicy="no-referrer">`;
   };
 
   const html = parser.render(markdown);
@@ -98,8 +113,8 @@ export function renderMarkdown(markdown: string, sourceUrl: string, articleTitle
     ALLOWED_ATTR: allowedAttributes,
     ALLOW_DATA_ATTR: false,
     ALLOW_ARIA_ATTR: false,
-    FORBID_TAGS: ["style", "script", "svg", "math", "iframe", "form", "img", "video", "audio", "source", "link", "meta"],
-    FORBID_ATTR: ["style", "id", "class", "src", "srcset", "name", "form", "onerror", "onclick"],
+    FORBID_TAGS: ["style", "script", "svg", "math", "iframe", "form", "video", "audio", "source", "link", "meta"],
+    FORBID_ATTR: ["style", "id", "class", "srcset", "name", "form", "onerror", "onclick"],
     RETURN_DOM_FRAGMENT: true,
   });
   const opening = fragment.firstElementChild;

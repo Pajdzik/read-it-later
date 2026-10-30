@@ -4,6 +4,11 @@ import { expect } from "playwright/test";
 export async function readerTitleSmoke(browser, base) {
   const context = await browser.newContext({ viewport: { width: 1440, height: 1000 } });
   const page = await context.newPage();
+  await page.route("https://example.com/hero.jpg", (route) => route.fulfill({
+    status: 200,
+    contentType: "image/svg+xml",
+    body: '<svg xmlns="http://www.w3.org/2000/svg" width="1" height="1"/>',
+  }));
   const title = "How's Linear so fast? A technical breakdown";
   const capturedHeading = "How's Linear so fast?A technical breakdown";
   const cases = [
@@ -56,8 +61,7 @@ export async function readerTitleSmoke(browser, base) {
       await expect(body.getByRole("heading")).toHaveText(sample.headings);
       if (index === 0) {
         await expect(body).toContainText("A few milliseconds is all it takes.");
-        await expect(body).toContainText("Image reference: Hero image");
-        assert.equal(await body.locator("img").count(), 0);
+        assert.equal(await body.locator("img[alt='Hero image']").count(), 1);
         await page.screenshot({ path: "/tmp/potem-reader-title-desktop.png" });
         await page.setViewportSize({ width: 390, height: 844 });
         await expect(page.locator("#reader-title")).toHaveText(title);

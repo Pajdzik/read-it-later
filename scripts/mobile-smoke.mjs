@@ -324,7 +324,7 @@ async function runProfile(name, browserType, device) {
     `${name}: About this copy should start collapsed.`);
   await aboutCopy.locator("summary").tap();
   await aboutCopy.getByText(/Captured .*pasted Markdown/).waitFor();
-  await aboutCopy.locator("#reader-image-note").getByText(/Image references are shown as text/).waitFor();
+  await aboutCopy.locator("#reader-image-note").getByText(/HTTPS images load from their original sites.*IP address/).waitFor();
   await aboutCopy.locator("summary").tap();
   await page.screenshot({ path: screenshot("portrait-reader-dark") });
   const sharedEdges = await Promise.all([
