@@ -961,6 +961,13 @@ button {
   font-size: 12px;
   line-height: 1.5;
 }
+.reader-image-note {
+  margin: -8px 0 12px;
+  color: var(--muted);
+  font-size: 12px;
+  line-height: 1.5;
+}
+.reader-image-note[hidden] { display: none; }
 .reader-original {
   margin: 0;
   border-radius: 7px;
@@ -989,6 +996,13 @@ button {
   margin: 0;
   font: 18px/1.7 Georgia, "Times New Roman", serif;
   overflow-wrap: anywhere;
+}
+.reader-body img {
+  display: block;
+  max-width: 100%;
+  height: auto;
+  margin: 1.25em auto;
+  border-radius: 6px;
 }
 .reader-body > :first-child { margin-top: 0; }
 .reader-completion {

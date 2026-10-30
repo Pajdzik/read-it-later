@@ -115,6 +115,24 @@ try {
     viewport: { width: 1440, height: 1000 },
   });
   const page = await context.newPage();
+  let unsafeImageRequests = 0;
+  await page.route("https://image-marker.invalid/**", async (route) => {
+    if (new URL(route.request().url()).pathname !== "/pixel.png") unsafeImageRequests++;
+    if ((await route.request().allHeaders()).referer) unsafeImageRequests++;
+    await route.fulfill({
+      status: 200,
+      contentType: "image/svg+xml",
+      body: '<svg xmlns="http://www.w3.org/2000/svg" width="1" height="1"/>',
+    });
+  });
+  await page.route("http://image-marker.invalid/**", async (route) => {
+    unsafeImageRequests++;
+    await route.fulfill({
+      status: 200,
+      contentType: "image/svg+xml",
+      body: '<svg xmlns="http://www.w3.org/2000/svg" width="1" height="1"/>',
+    });
+  });
   const waitForList = async (opener) => {
     await expect(page).toHaveURL(base + "/");
     // List restoration scrolls before returning focus to the opener.
@@ -292,6 +310,8 @@ try {
     "[Unsafe](javascript:alert(1)) · [Encoded](%6a%61%76%61%73%63%72%69%70%74:alert(2)) · [Credentials](https://user:pass@bad.invalid/)",
     "",
     "![Remote marker](https://image-marker.invalid/pixel.png)",
+    "![Unsafe image](javascript:alert(4))",
+    "![Insecure image](http://image-marker.invalid/insecure.png)",
     "",
     "```js",
     "const value = '<script>alert(3)</script>';",
@@ -603,12 +623,19 @@ try {
   assert.equal(await readerBody.locator("pre code").textContent(), "const value = '<script>alert(3)</script>';\n");
   assert.equal(await readerBody.locator("table tbody tr").count(), 1, "Markdown tables should render as tables.");
   assert.match(await readerBody.textContent(), /Unsafe.*Encoded.*Credentials/, "Dangerous destinations should remain readable text.");
-  assert.equal(await readerBody.locator("img, iframe, video, audio, source, svg, math, form, style, script").count(), 0, "Reader must contain no active or resource-loading nodes.");
+  assert.equal(await readerBody.locator("iframe, video, audio, source, svg, math, form, style, script").count(), 0, "Reader must contain no active or unapproved resource-loading nodes.");
+  const renderedImage = readerBody.locator("img");
+  assert.equal(await renderedImage.count(), 1, "Only the safe HTTPS Markdown image should render.");
+  assert.equal(await renderedImage.getAttribute("alt"), "Remote marker");
+  assert.equal(await renderedImage.getAttribute("loading"), "lazy");
+  assert.equal(await renderedImage.getAttribute("decoding"), "async");
+  assert.equal(await renderedImage.getAttribute("referrerpolicy"), "no-referrer");
+  assert.equal(await renderedImage.getAttribute("src"), "https://image-marker.invalid/pixel.png");
   const activeMarkup = await readerBody.evaluate((root) => {
     const attrs = [];
     for (const node of root.querySelectorAll("*")) {
       for (const attr of node.attributes) {
-        if (["href", "target", "rel", "start"].includes(attr.name)) continue;
+        if (["alt", "decoding", "href", "loading", "referrerpolicy", "rel", "src", "start", "target"].includes(attr.name)) continue;
         attrs.push(`${node.tagName.toLowerCase()}[${attr.name}]`);
       }
       if (node instanceof HTMLAnchorElement) {
@@ -620,12 +647,15 @@ try {
   });
   assert.deepEqual(activeMarkup, [], "Sanitized reader DOM must contain only allowed attributes and safe links.");
   assert.match(await readerBody.textContent(), /<img src=/, "Raw HTML should display as literal text.");
-  assert.match(await readerBody.textContent(), /Image reference: Remote marker/);
+  assert.match(await readerBody.textContent(), /!\[Unsafe image\]\(javascript:alert\(4\)\)/);
   assert.equal(await reader.locator("details").count(), 0, "Reader copy details should not be hidden behind a disclosure.");
   const metadata = reader.locator("#reader-metadata");
   await expect(metadata).toContainText(/^example\.com · By Reader Author · Captured .+/);
   assert.doesNotMatch(await metadata.innerText(), /pasted Markdown|uploaded file|Image references/,
     "Reader metadata should show only source domain, author, and capture date.");
+  await expect(reader.locator("#reader-image-note")).toContainText(/Images load from their original sites.*IP address/);
+  assert.equal(await reader.locator("#reader-image-note").isVisible(), true,
+    "The image loading and privacy note should be visible with a saved copy.");
   const alignedBlocks = await Promise.all([
     reader.locator("#reader-title"), metadata, readerBody,
   ].map((element) => element.boundingBox()));
@@ -635,7 +665,8 @@ try {
     `Reader blocks should share a column: ${JSON.stringify(alignedBlocks)}.`);
   const validLink = readerBody.getByRole("link", { name: "valid HTTPS link" });
   assert.equal(await validLink.getAttribute("href"), "https://example.net/read");
-  assert.equal(imageMarkerRequests, 0, "Markdown images and hostile HTML must not trigger network requests.");
+  assert.ok(imageMarkerRequests > 0, "The HTTPS Markdown image should load.");
+  assert.equal(unsafeImageRequests, 0, "Hostile HTML and unsafe image URLs must not request resources.");
   assert.equal(await page.evaluate(async (id) => (await (await fetch(`/api/articles/${id}`)).json()).article.readAt, articleId), readStateBefore, "Reading a copy must not change read state.");
   await page.screenshot({ path: "/tmp/potem-a03-desktop.png" });
   await page.setViewportSize({ width: 390, height: 844 });
