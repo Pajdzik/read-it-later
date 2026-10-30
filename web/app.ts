@@ -375,7 +375,6 @@ const searchControl = $<HTMLElement>("#search-control");
 const searchToggle = $<HTMLButtonElement>("#search-toggle");
 const searchField = $<HTMLElement>("#search-field");
 const searchInput = $<HTMLInputElement>("#search");
-const statusTabs = $<HTMLElement>("#status-tabs");
 function updateSearchState() {
   const hasQuery = Boolean(searchInput.value.trim());
   searchControl.classList.toggle("has-query", hasQuery);
@@ -2544,8 +2543,10 @@ $("#add-form").addEventListener("submit", async (e) => {
   }
 });
 const statusOrder = ["unread", "read", "all"] as const;
+let searchTimer: number;
 function setStatus(status: string) {
   if (!statusOrder.includes(status as (typeof statusOrder)[number])) return;
+  clearTimeout(searchTimer);
   setSearchOpen(false);
   invalidateLoads();
   stopExtractionPolling();
@@ -2559,27 +2560,41 @@ document
   .querySelectorAll<HTMLButtonElement>("[data-status]")
   .forEach((button) => button.addEventListener("click", () => setStatus(button.dataset.status || "unread")));
 
-let statusSwipeStart: { x: number; y: number } | null = null;
-statusTabs.addEventListener("touchstart", (event) => {
-  const touch = event.changedTouches[0];
-  if (touch) statusSwipeStart = { x: touch.clientX, y: touch.clientY };
+const library = $<HTMLElement>(".library");
+let statusSwipeStart: { id: number; x: number; y: number } | null = null;
+library.addEventListener("touchstart", (event) => {
+  const touch = event.touches.length === 1 ? event.touches[0] : null;
+  statusSwipeStart = touch ? { id: touch.identifier, x: touch.clientX, y: touch.clientY } : null;
 }, { passive: true });
-statusTabs.addEventListener("touchend", (event) => {
+library.addEventListener("touchmove", (event) => {
   if (!statusSwipeStart) return;
-  const touch = event.changedTouches[0];
+  const touch = event.touches[0];
+  if (event.touches.length !== 1 || touch.identifier !== statusSwipeStart.id) {
+    statusSwipeStart = null;
+    return;
+  }
+  const dx = Math.abs(touch.clientX - statusSwipeStart.x);
+  const dy = Math.abs(touch.clientY - statusSwipeStart.y);
+  // Once a vertical scroll starts, it must not turn into a tab change.
+  if (dy > 10 && dy >= dx) statusSwipeStart = null;
+}, { passive: true });
+library.addEventListener("touchend", (event) => {
+  if (!statusSwipeStart) return;
   const start = statusSwipeStart;
   statusSwipeStart = null;
-  if (!touch) return;
+  const touch = Array.from(event.changedTouches).find((touch) => touch.identifier === start.id);
+  if (!touch || event.touches.length) return;
   const dx = touch.clientX - start.x;
   const dy = touch.clientY - start.y;
   if (Math.abs(dx) < 48 || Math.abs(dx) <= Math.abs(dy) * 1.25) return;
   const current = statusOrder.indexOf(state.status as (typeof statusOrder)[number]);
   const next = Math.max(0, Math.min(statusOrder.length - 1, current + (dx < 0 ? 1 : -1)));
+  // Swiping over a link or button should not also activate it on release.
+  if (event.cancelable) event.preventDefault();
   if (next !== current) setStatus(statusOrder[next]);
-}, { passive: true });
-statusTabs.addEventListener("touchcancel", () => { statusSwipeStart = null; }, { passive: true });
+}, { passive: false });
+library.addEventListener("touchcancel", () => { statusSwipeStart = null; }, { passive: true });
 
-let searchTimer: number;
 searchToggle.addEventListener("click", () => {
   const open = searchControl.classList.contains("is-open");
   setSearchOpen(!open, !open);
