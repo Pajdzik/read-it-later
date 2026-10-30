@@ -516,6 +516,20 @@ async function runProfile(name, browserType, device) {
   assert.equal(page.url(), listUrl, `${name}: swiping a title opened the reader.`);
   await swipe(".library", right);
   await expectStatus("unread"); // Stop at the first tab.
+  await page.evaluate(() => {
+    window.mobileTouchTrace = [];
+    for (const type of ["touchstart", "touchmove", "touchend", "touchcancel", "pointerdown", "pointerup", "click"]) {
+      document.addEventListener(type, (event) => {
+        window.mobileTouchTrace.push({
+          type, target: event.target.outerHTML?.slice(0, 180),
+          time: event.timeStamp, prevented: event.defaultPrevented,
+          x: event.clientX, y: event.clientY,
+          touches: event.touches && Array.from(event.touches).map((t) => [t.identifier, t.clientX, t.clientY]),
+          changed: event.changedTouches && Array.from(event.changedTouches).map((t) => [t.identifier, t.clientX, t.clientY]),
+        });
+      }, { capture: true, passive: true });
+    }
+  });
   if (browserType === chromium) {
     // Browser-generated touches also exercise touch-action and accidental clicks.
     await waitForListIdle();
@@ -539,7 +553,12 @@ async function runProfile(name, browserType, device) {
   }
   await waitForListIdle();
   await page.locator('[data-status="all"]').tap();
-  await expectStatus("all");
+  try {
+    await expectStatus("all");
+  } catch (error) {
+    console.log(JSON.stringify(await page.evaluate(() => ({ events: window.mobileTouchTrace, touchPoints: navigator.maxTouchPoints, scrollY, status: document.querySelector('[data-status][aria-pressed="true"]').dataset.status }))));
+    throw error;
+  }
   await waitForListIdle();
   await article.getByRole("button", { name: "Mark unread" }).tap();
   await article.getByRole("button", { name: "Mark read" }).waitFor();
