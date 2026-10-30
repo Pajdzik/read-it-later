@@ -362,14 +362,16 @@ async function runProfile(name, browserType, device) {
   await readCopyAction.tap();
   await expect(readyReader.locator("#reader-title")).toHaveText(shareTitle);
   await expect(readyReader.locator("#reader-body")).toContainText("Manually saved while the background processor is paused.");
-  await page.evaluate(() => new Promise((resolve) => requestAnimationFrame(() => requestAnimationFrame(resolve))));
-  assert.ok(await readyReader.evaluate((dialog) => dialog.scrollTop > 0), `${name}: reopening should restore the saved reader position: ${JSON.stringify({ mobilePosition, viewport: page.viewportSize() })}.`);
-  const restoredMobileBlock = await readyReader.evaluate((dialog) => {
+  // Dialog layout and scroll restoration can finish after two frames in WebKit.
+  // Wait for the restored paragraph itself, preserving the position assertion.
+  await expect.poll(() => readyReader.evaluate((dialog) => {
     const toolbarBottom = dialog.querySelector(".reader-toolbar").getBoundingClientRect().bottom;
-    return [...dialog.querySelector("#reader-body").children].findIndex((block) => block.getBoundingClientRect().bottom > toolbarBottom);
-  });
-  assert.equal(restoredMobileBlock, mobilePosition.block,
-    `${name}: viewport width change should keep the same paragraph in view.`);
+    return {
+      scrolled: dialog.scrollTop > 0,
+      block: [...dialog.querySelector("#reader-body").children].findIndex((block) => block.getBoundingClientRect().bottom > toolbarBottom),
+    };
+  }), { message: `${name}: viewport width change should restore the saved paragraph: ${JSON.stringify({ mobilePosition, viewport: page.viewportSize() })}.` })
+    .toEqual({ scrolled: true, block: mobilePosition.block });
   await page.setViewportSize(beforeResize);
   assert.equal(await readyReader.locator("details").evaluate((details) => details.open), false,
     `${name}: reopening should collapse About this copy.`);
