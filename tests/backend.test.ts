@@ -277,33 +277,59 @@ describe('article HTTP handlers', () => {
     expect(created?.status).toBe(201);
     const createdData = await created!.json() as { id: string; token: string };
     const token = createdData.token;
+    const privateSaved = await route(request('/api/articles', 'POST', {
+      url: 'https://example.com/private-capture?utm_source=owner#private-fragment',
+      title: 'Owner private title', author: 'Private author', description: 'Private note', captureMarkdown: false,
+    }));
+    expect(privateSaved.status).toBe(201);
+    const privateArticle = (await privateSaved.json() as { article: { id: string; createdAt: string } }).article;
+    await route(request(`/api/articles/${privateArticle.id}`, 'PATCH', { read: true }));
+    await route(request(`/api/articles/${privateArticle.id}/copy`, 'PUT', { markdown: '# Private copy', source: 'paste', expectedRevision: null }));
+    // The owner-facing route continues to return its full article result.
+    const ownerDuplicate = await route(request('/api/articles', 'POST', {
+      url: 'https://example.com/private-capture?fbclid=owner#another-fragment', title: 'Ignored duplicate title', captureMarkdown: false,
+    }));
+    expect(ownerDuplicate.status).toBe(200);
+    expect(await ownerDuplicate.json()).toMatchObject({ duplicate: true, article: { id: privateArticle.id, title: 'Owner private title', author: 'Private author', description: 'Private note', readAt: expect.any(String) } });
     const captureRequest = () => new Request('https://service.example/api/capture', { method: 'POST', headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' }, body: JSON.stringify({ url: 'https://example.com/from-phone' }) });
     const saved = await handleArticles(captureRequest(), ownerEnv);
-    expect(saved?.status).toBe(201);
-    const savedCapture = await saved!.json() as { article: { id: string }; extractionRequested: boolean };
-    expect(savedCapture.extractionRequested).toBe(true);
-    expect(savedCapture).not.toHaveProperty('extraction');
-    expect(savedCapture).not.toHaveProperty('copy');
+    expect(saved?.status).toBe(200);
+    const savedAcknowledgment = await saved!.json();
+    expect(savedAcknowledgment).toEqual({ ok: true, extractionRequested: true });
+    const duplicateCapture = await handleArticles(new Request('https://service.example/api/capture', { method: 'POST', headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' }, body: JSON.stringify({ url: 'https://example.com/private-capture?gclid=token' }) }), ownerEnv);
+    expect(duplicateCapture?.status).toBe(saved?.status);
+    const duplicateAcknowledgment = await duplicateCapture!.json();
+    expect(duplicateAcknowledgment).toEqual(savedAcknowledgment);
+    expect(duplicateAcknowledgment).toEqual({ ok: true, extractionRequested: true });
     const tokenMetadata = await handleArticles(new Request('https://service.example/api/capture', { method: 'POST', headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' }, body: JSON.stringify({ url: 'https://example.com/token-metadata', author: 'Should be rejected' }) }), ownerEnv);
     expect(tokenMetadata?.status).toBe(400);
-    expect(await env.DB.prepare('SELECT extraction_requested_at FROM articles WHERE id = ?').bind(savedCapture.article.id).first()).toMatchObject({ extraction_requested_at: expect.any(String) });
-    const tokenStatus = await handleArticles(new Request(`https://service.example/api/articles/${savedCapture.article.id}/extraction`, { headers: { Authorization: `Bearer ${token}` } }), ownerEnv);
+    expect(await env.DB.prepare('SELECT extraction_requested_at FROM articles WHERE normalized_url = ?').bind(normalizeArticleUrl('https://example.com/from-phone').normalizedUrl).first()).toMatchObject({ extraction_requested_at: expect.any(String) });
+    const tokenStatus = await handleArticles(new Request(`https://service.example/api/articles/${privateArticle.id}/extraction`, { headers: { Authorization: `Bearer ${token}` } }), ownerEnv);
     expect(tokenStatus?.status).toBe(401);
-    const tokenRetry = await handleArticles(new Request(`https://service.example/api/articles/${savedCapture.article.id}/extraction/retry`, { method: 'POST', headers: { Authorization: `Bearer ${token}` } }), ownerEnv);
+    const tokenRetry = await handleArticles(new Request(`https://service.example/api/articles/${privateArticle.id}/extraction/retry`, { method: 'POST', headers: { Authorization: `Bearer ${token}` } }), ownerEnv);
     expect(tokenRetry?.status).toBe(401);
     const linkOnly = await handleArticles(new Request('https://service.example/api/capture', { method: 'POST', headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' }, body: JSON.stringify({ url: 'https://example.com/phone-link-only', captureMarkdown: false }) }), ownerEnv);
-    expect(linkOnly?.status).toBe(201);
-    expect(await linkOnly!.json()).toMatchObject({ extractionRequested: false });
+    expect(linkOnly?.status).toBe(200);
+    const linkOnlyAcknowledgment = await linkOnly!.json();
+    expect(linkOnlyAcknowledgment).toEqual({ ok: true, extractionRequested: false });
+    const linkOnlyDuplicate = await handleArticles(new Request('https://service.example/api/capture', { method: 'POST', headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' }, body: JSON.stringify({ url: 'https://example.com/private-capture?gclid=token', captureMarkdown: false }) }), ownerEnv);
+    expect(linkOnlyDuplicate?.status).toBe(linkOnly?.status);
+    expect(await linkOnlyDuplicate!.json()).toEqual(linkOnlyAcknowledgment);
+    expect(await env.DB.prepare('SELECT extraction_requested_at FROM articles WHERE normalized_url = ?').bind(normalizeArticleUrl('https://example.com/phone-link-only').normalizedUrl).first()).toEqual({ extraction_requested_at: null });
     const captureCopy = await handleArticles(new Request('https://service.example/api/capture', { method: 'POST', headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' }, body: JSON.stringify({ url: 'https://example.com/from-phone', captureMarkdown: true }) }), ownerEnv);
     expect(captureCopy?.status).toBe(200);
-    expect(await captureCopy!.json()).toMatchObject({ extractionRequested: true });
+    expect(await captureCopy!.json()).toEqual({ ok: true, extractionRequested: true });
     const forbiddenList = await handleArticles(new Request('https://service.example/api/articles', { headers: { Authorization: `Bearer ${token}` } }), ownerEnv);
     expect(forbiddenList?.status).toBe(401);
+    for (const [path, method] of [['/api/articles', 'GET'], ['/api/export', 'GET'], [`/api/articles/${privateArticle.id}`, 'GET'], [`/api/articles/${privateArticle.id}/copy`, 'GET']] as const) {
+      const denied = await handleArticles(new Request(`https://service.example${path}`, { method, headers: { Authorization: `Bearer ${token}` } }), ownerEnv);
+      expect(denied?.status).toBe(401);
+    }
     const revokeRequest = new Request(`https://service.example/api/capture-tokens/${createdData.id}`, { method: 'DELETE', headers: { Cookie: `read_later_session=${sessionToken}`, Origin: 'https://service.example', 'X-CSRF-Token': csrf } });
     expect((await handleAuth(revokeRequest, ownerEnv))?.status).toBe(204);
     const revoked = await handleArticles(captureRequest(), ownerEnv);
     expect(revoked?.status).toBe(401);
-    for (const [path, method] of [['/api/articles', 'GET'], ['/api/export', 'GET'], ['/api/import', 'POST'], [`/api/articles/${createdData.id}`, 'PATCH']] as const) {
+    for (const [path, method] of [['/api/import', 'POST'], [`/api/articles/${createdData.id}`, 'PATCH']] as const) {
       const denied = await handleArticles(new Request(`https://service.example${path}`, { method, headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' }, body: method === 'POST' || method === 'PATCH' ? '{}' : undefined }), ownerEnv);
       expect(denied?.status).toBe(401);
     }
@@ -325,7 +351,7 @@ describe('article HTTP handlers', () => {
       const rateRequest = () => new Request('https://service.example/api/capture', { method: 'POST', headers: { Authorization: `Bearer ${token2.token}`, 'Content-Type': 'application/json' }, body: JSON.stringify({ url: 'https://example.com/rate-limited', captureMarkdown: false }) });
       expect((await handleArticles(rateRequest(), ownerEnv))?.status).toBe(429);
       clock.mockReturnValue(windowEnd + 1);
-      expect((await handleArticles(rateRequest(), ownerEnv))?.status).toBe(201);
+      expect((await handleArticles(rateRequest(), ownerEnv))?.status).toBe(200);
     } finally {
       clock.mockRestore();
     }

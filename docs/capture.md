@@ -30,7 +30,7 @@ Create a capture token under **Settings → Capture tokens**. The plaintext toke
 3. Add **Get Contents of URL**. Set the URL to `https://YOUR-APP-ORIGIN/api/capture`, method to `POST`, and request body to JSON.
 4. Add the `Authorization` header with value `Bearer YOUR_CAPTURE_TOKEN`.
 5. Send JSON with `url` set to the single URL from step 2. Add `title` only when the Shortcut Input has a non-empty name; omit the key when it is blank.
-6. Show the response. A successful response includes `duplicate` and `extractionRequested`. The response confirms the link and background request were saved; it does not confirm extraction finished. A failed request should be shown as an error. Add `"captureMarkdown": false` to save link-only.
+6. Show the response. A successful response is `{ "ok": true, "extractionRequested": true }` by default; `extractionRequested` is `false` when link-only was requested. It confirms the save and background request were accepted; it does not reveal whether the URL was already in the library or confirm extraction finished. A failed request should be shown as an error. Add `"captureMarkdown": false` to save link-only. New and duplicate saves both return HTTP 200 with the same acknowledgment shape.
 
 Replace the origin with the deployed Potem origin and token with the one-time value from Settings. Do not put a capture token in a bookmarklet, URL, or shared shortcut. Revoke a lost token in Settings and create another. The capture token can add links only; it cannot read or change the library.
 

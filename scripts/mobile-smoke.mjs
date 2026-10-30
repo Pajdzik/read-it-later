@@ -695,7 +695,7 @@ try {
     body: JSON.stringify({ url: `${sourceBase}/shortcut-contract`, title: "Shortcut contract" }),
   });
   const captured = await capture();
-  assert.equal(captured.status, 201);
+  assert.equal(captured.status, 200);
   assert.match(captured.headers.get("cache-control") || "", /no-store/i);
   const captureResult = await captured.json();
   assert.equal(captureResult.extractionRequested, true, "Token capture should request background extraction by default.");
@@ -703,27 +703,33 @@ try {
   assert.equal(Object.hasOwn(captureResult, "job"), false, "Token acknowledgment must not expose extraction job history.");
   assert.equal(Object.hasOwn(captureResult, "jobHistory"), false, "Token acknowledgment must not expose extraction job history.");
   assert.equal(Object.hasOwn(captureResult, "extraction"), false, "Token acknowledgment exposes intent only; owners read status through the authenticated API.");
-  assert.equal(Object.hasOwn(captureResult.article, "extraction"), false, "Token acknowledgment must not expose internal job status on the article record.");
-  const tokenArticle = await fetch(`${base}/api/articles/${encodeURIComponent(captureResult.article.id)}`, { headers: { Origin: base } }).then((response) => response.json());
-  assert.equal(tokenArticle.article.extraction.state, "queued", "Token capture should persist extraction intent with the link.");
-  assert.equal(tokenArticle.article.extraction.paused, true, "The local runtime should report that extraction is paused.");
-  assert.equal(tokenArticle.article.hasCopy, false, "Token capture should persist the link before a Markdown copy exists.");
-  const tokenCopy = await fetch(`${base}/api/articles/${encodeURIComponent(captureResult.article.id)}/copy`, { headers: { Origin: base } }).then((response) => response.json());
+  assert.deepEqual(captureResult, { ok: true, extractionRequested: true }, "Token acknowledgment must not disclose article metadata or duplicate state.");
+  const ownerList = await fetch(`${base}/api/articles?status=all`, { headers: { Origin: base } }).then((response) => response.json());
+  const tokenArticle = ownerList.items.find((article) => article.url === `${sourceBase}/shortcut-contract`);
+  assert.ok(tokenArticle, "Owner can still find the token-saved article.");
+  const tokenArticleId = tokenArticle.id;
+  const tokenArticleDetails = await fetch(`${base}/api/articles/${encodeURIComponent(tokenArticleId)}`, { headers: { Origin: base } }).then((response) => response.json());
+  assert.equal(tokenArticleDetails.article.extraction.state, "queued", "Token capture should persist extraction intent with the link.");
+  assert.equal(tokenArticleDetails.article.extraction.paused, true, "The local runtime should report that extraction is paused.");
+  assert.equal(tokenArticleDetails.article.hasCopy, false, "Token capture should persist the link before a Markdown copy exists.");
+  const tokenCopy = await fetch(`${base}/api/articles/${encodeURIComponent(tokenArticleId)}/copy`, { headers: { Origin: base } }).then((response) => response.json());
   assert.equal(tokenCopy.copy, null, "Token capture must not synchronously create a Markdown copy.");
   const duplicate = await capture();
   assert.equal(duplicate.status, 200);
   const duplicateResult = await duplicate.json();
-  assert.equal(duplicateResult.duplicate, true);
-  assert.equal(duplicateResult.extractionRequested, true, "Duplicate token shares should retain the existing extraction request.");
+  assert.deepEqual(duplicateResult, captureResult, "New and duplicate token saves have the same acknowledgment.");
   const linkOnly = await fetch(`${base}/api/capture`, {
     method: "POST", headers: { Authorization: `Bearer ${token.token}`, "Content-Type": "application/json" },
     body: JSON.stringify({ url: `${sourceBase}/shortcut-link-only`, captureMarkdown: false }),
   });
-  assert.equal(linkOnly.status, 201);
+  assert.equal(linkOnly.status, 200);
   const linkOnlyResult = await linkOnly.json();
-  assert.equal(linkOnlyResult.extractionRequested, false, "Token capture should honor explicit link-only opt-out.");
-  const linkOnlyArticle = await fetch(`${base}/api/articles/${encodeURIComponent(linkOnlyResult.article.id)}`).then((response) => response.json());
-  assert.equal(linkOnlyArticle.article.extraction.state, "none", "Explicit false should not persist an extraction intent.");
+  assert.deepEqual(linkOnlyResult, { ok: true, extractionRequested: false }, "Token capture should honor explicit link-only opt-out.");
+  const linkOnlyList = await fetch(`${base}/api/articles?status=all`).then((response) => response.json());
+  const linkOnlyArticle = linkOnlyList.items.find((article) => article.url === `${sourceBase}/shortcut-link-only`);
+  assert.ok(linkOnlyArticle, "Owner can find a link-only token save.");
+  const linkOnlyDetails = await fetch(`${base}/api/articles/${encodeURIComponent(linkOnlyArticle.id)}`).then((response) => response.json());
+  assert.equal(linkOnlyDetails.article.extraction.state, "none", "Explicit false should not persist an extraction intent.");
   const revoked = await fetch(`${base}/api/capture-tokens/${encodeURIComponent(token.id)}`, {
     method: "DELETE", headers: { ...ownerHeaders },
   });
