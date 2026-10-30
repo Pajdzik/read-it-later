@@ -137,6 +137,7 @@ button {
 .top-actions svg,
 .search-control svg,
 .action-button svg,
+.reader-back svg,
 .reader-action svg {
   width: 20px;
   height: 20px;
@@ -866,9 +867,10 @@ button {
 }
 .reader-toolbar-inner {
   min-height: 56px;
-  display: flex;
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr) auto;
   align-items: center;
-  justify-content: space-between;
+  gap: 16px;
 }
 .reader-column {
   width: min(100%, 42rem);
@@ -880,29 +882,52 @@ button {
   align-items: center;
   margin: 0;
 }
-.reader-back {
+.reader-back,
+.reader-original {
   display: inline-flex;
   min-width: 44px;
   min-height: 44px;
   align-items: center;
   gap: 7px;
-  padding: 0 8px;
+  padding: 0;
   border: 0;
   border-radius: 7px;
   background: transparent;
   color: var(--green);
   font-size: 14px;
   font-weight: 600;
+  line-height: 20px;
+  white-space: nowrap;
 }
-.reader-original {
-  display: inline-flex;
-  min-height: 44px;
-  align-items: center;
+.reader-back svg,
+.reader-original svg {
+  display: block;
+}
+.reader-toolbar-title {
+  min-width: 0;
   margin: 0;
-  font-size: 13px;
+  overflow: hidden;
+  color: var(--ink);
+  font-size: 14px;
   font-weight: 600;
-  text-decoration-thickness: 1px;
-  text-underline-offset: 3px;
+  line-height: 20px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  visibility: hidden;
+}
+.reader-toolbar.is-compact .reader-toolbar-title {
+  visibility: visible;
+}
+.reader-toolbar.is-compact .reader-toolbar-inner {
+  grid-template-columns: 44px minmax(0, 1fr) 44px;
+}
+.reader-toolbar.is-compact .reader-control-label {
+  display: none;
+}
+.reader-toolbar.is-compact .reader-back,
+.reader-toolbar.is-compact .reader-original {
+  width: 44px;
+  justify-content: center;
 }
 .reader-content-column {
   padding-top: 16px;
@@ -943,14 +968,13 @@ button {
   line-height: 1.5;
 }
 .reader-original {
-  margin-top: 8px;
+  margin: 0;
+  border-radius: 7px;
   text-decoration: none;
 }
 .reader-action {
-  display: grid;
-  place-items: center;
   padding: 0;
-  color: var(--muted);
+  color: var(--green);
 }
 .reader-action:hover {
   border-color: var(--green);

@@ -1463,6 +1463,19 @@ $("#reader-read-toggle").addEventListener("click", async () => {
     feedback.hidden = false;
   }
 });
+function setReaderTitle(text: string) {
+  $("#reader-title").textContent = text;
+  const compactTitle = $("#reader-toolbar-title");
+  compactTitle.textContent = text;
+  $(".reader-toolbar").classList.remove("is-compact");
+}
+function updateReaderToolbarTitle() {
+  const dialog = $<HTMLDialogElement>("#reader-dialog");
+  const title = $("#reader-title");
+  const toolbar = $(".reader-toolbar");
+  toolbar.classList.toggle("is-compact", dialog.open && Boolean(title.textContent) &&
+    title.getBoundingClientRect().bottom <= toolbar.getBoundingClientRect().bottom);
+}
 function openReader(article: Article, copy: ArticleCopy, opener?: HTMLElement) {
   if (state.selected?.id !== article.id) return;
   if (readerPositionContext && (readerPositionContext.id !== article.id || readerPositionContext.revision !== copy.revision)) saveReadingPosition();
@@ -1472,7 +1485,7 @@ function openReader(article: Article, copy: ArticleCopy, opener?: HTMLElement) {
   const original = $<HTMLAnchorElement>("#reader-original");
   const body = $("#reader-body");
   const about = $<HTMLDetailsElement>("#reader-about");
-  title.textContent = article.title;
+  setReaderTitle(article.title);
   readerArticleId = article.id;
   setArticleTitle(article);
   const canonicalPath = articlePath(article);
@@ -1498,6 +1511,7 @@ function openReader(article: Article, copy: ArticleCopy, opener?: HTMLElement) {
     showDialog(dialog, title);
   }
   if (!readerIsSameCopy) dialog.scrollTop = 0;
+  updateReaderToolbarTitle();
   title.focus({ preventScroll: true });
   restoreReadingPosition(positionContext);
   stopExtractionPolling();
@@ -1513,7 +1527,7 @@ function renderPendingReader(article: Article) {
   readerPositionContext = null;
   state.selected = article;
   const title = $("#reader-title");
-  title.textContent = article.title;
+  setReaderTitle(article.title);
   readerArticleId = article.id;
   setArticleTitle(article);
   const canonicalPath = articlePath(article);
@@ -1541,6 +1555,7 @@ function renderPendingReader(article: Article) {
     showDialog(dialog, title);
   }
   dialog.scrollTop = 0;
+  updateReaderToolbarTitle();
   title.focus({ preventScroll: true });
   startExtractionPolling(article);
 }
@@ -1585,7 +1600,7 @@ function clearReader() {
   readerArticleId = null;
   dialog.scrollTop = 0;
   $("#reader-body").replaceChildren();
-  $("#reader-title").textContent = "";
+  setReaderTitle("");
   $("#reader-author").textContent = "";
   $("#reader-metadata").textContent = "";
   $("#reader-pending").hidden = true;
@@ -1631,7 +1646,7 @@ $("#reader-dialog").addEventListener("close", () => {
   dialog.scrollTop = 0;
   resetReaderCompletion();
   $("#reader-body").replaceChildren();
-  $("#reader-title").textContent = "";
+  setReaderTitle("");
   $("#reader-author").textContent = "";
   $("#reader-metadata").textContent = "";
   $("#reader-pending").hidden = true;
@@ -1668,7 +1683,13 @@ document.addEventListener("pointerdown", (event) => {
     clearReader();
   }
 }, true);
-$("#reader-dialog").addEventListener("scroll", scheduleReadingPositionSave, { passive: true });
+$("#reader-dialog").addEventListener("scroll", () => {
+  updateReaderToolbarTitle();
+  scheduleReadingPositionSave();
+}, { passive: true });
+const readerTitleResizeObserver = new ResizeObserver(updateReaderToolbarTitle);
+readerTitleResizeObserver.observe($("#reader-title"));
+readerTitleResizeObserver.observe($(".reader-toolbar"));
 window.addEventListener("pagehide", saveReadingPosition);
 document.addEventListener("visibilitychange", () => { if (document.visibilityState === "hidden") saveReadingPosition(); });
 function openDetail(article: Article) {
