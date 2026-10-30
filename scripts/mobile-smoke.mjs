@@ -318,17 +318,19 @@ async function runProfile(name, browserType, device) {
     `${name}: ready reader should cover the phone viewport: ${JSON.stringify(readyReaderBounds)}.`);
   assert.equal(await readyReader.evaluate((dialog) => dialog.scrollWidth <= dialog.clientWidth + 1), true,
     `${name}: wide copy must not overflow the reader dialog horizontally.`);
-  const aboutCopy = readyReader.locator("details");
-  assert.equal(await aboutCopy.locator("summary").innerText(), "About this copy");
-  assert.equal(await aboutCopy.evaluate((details) => details.open), false,
-    `${name}: About this copy should start collapsed.`);
-  await aboutCopy.locator("summary").tap();
-  await aboutCopy.getByText(/Captured .*pasted Markdown/).waitFor();
-  await aboutCopy.locator("#reader-image-note").getByText(/HTTPS images load from their original sites.*IP address/).waitFor();
-  await aboutCopy.locator("summary").tap();
+  assert.equal(await readyReader.locator("details").count(), 0,
+    `${name}: reader metadata should be visible without a disclosure.`);
+  const readerMetadata = readyReader.locator("#reader-metadata");
+  const readerMetadataText = await readerMetadata.innerText();
+  assert.ok(readerMetadataText.startsWith(new URL(shareUrl).hostname),
+    `${name}: reader metadata should start with the source domain: ${readerMetadataText}.`);
+  assert.match(readerMetadataText, / · Captured .+$/, `${name}: reader metadata should include the capture date.`);
+  assert.doesNotMatch(readerMetadataText, /pasted Markdown|uploaded file|Image references/,
+    `${name}: reader metadata should only show source details and capture date.`);
+  await expect(readyReader.locator("#reader-image-note")).toContainText(/Images load from their original sites.*IP address/);
   await page.screenshot({ path: screenshot("portrait-reader-dark") });
   const sharedEdges = await Promise.all([
-    readyReader.locator("#reader-title"), aboutCopy, readyReader.locator("#reader-body"),
+    readyReader.locator("#reader-title"), readerMetadata, readyReader.locator("#reader-body"),
   ].map((element) => element.boundingBox()));
   assert.ok(sharedEdges.every(Boolean), `${name}: reader content blocks should be visible.`);
   assert.ok(Math.max(...sharedEdges.map((bounds) => bounds.x)) - Math.min(...sharedEdges.map((bounds) => bounds.x)) <= 2 &&
@@ -373,8 +375,8 @@ async function runProfile(name, browserType, device) {
   }), { message: `${name}: viewport width change should restore the saved paragraph: ${JSON.stringify({ mobilePosition, viewport: page.viewportSize() })}.` })
     .toEqual({ scrolled: true, block: mobilePosition.block });
   await page.setViewportSize(beforeResize);
-  assert.equal(await readyReader.locator("details").evaluate((details) => details.open), false,
-    `${name}: reopening should collapse About this copy.`);
+  assert.equal(await readyReader.locator("details").count(), 0,
+    `${name}: reader metadata should remain visible on reopen.`);
   await page.locator("#reader-dialog .reader-close button").tap();
   await page.locator("#detail-dialog .dialog-close button").tap();
   await page.locator("#settings-open").tap();

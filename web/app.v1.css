@@ -889,6 +889,7 @@ button {
   min-width: 44px;
   min-height: 44px;
   align-items: center;
+  justify-content: center;
   gap: 7px;
   padding: 0;
   border: 0;
@@ -904,6 +905,13 @@ button {
 .reader-original svg {
   display: block;
 }
+.reader-control-label {
+  max-width: 8em;
+  overflow: hidden;
+  flex-shrink: 0;
+  opacity: 1;
+  visibility: visible;
+}
 .reader-toolbar-title {
   min-width: 0;
   margin: 0;
@@ -914,21 +922,23 @@ button {
   line-height: 20px;
   text-overflow: ellipsis;
   white-space: nowrap;
+  opacity: 0;
+  transform: translateY(4px);
   visibility: hidden;
 }
 .reader-toolbar.is-compact .reader-toolbar-title {
+  opacity: 1;
+  transform: translateY(0);
   visibility: visible;
 }
-.reader-toolbar.is-compact .reader-toolbar-inner {
-  grid-template-columns: 44px minmax(0, 1fr) 44px;
-}
 .reader-toolbar.is-compact .reader-control-label {
-  display: none;
+  max-width: 0;
+  opacity: 0;
+  visibility: hidden;
 }
 .reader-toolbar.is-compact .reader-back,
 .reader-toolbar.is-compact .reader-original {
-  width: 44px;
-  justify-content: center;
+  gap: 0;
 }
 .reader-content-column {
   padding-top: 16px;
@@ -946,28 +956,18 @@ button {
 .reader-header > .muted {
   margin: 0 0 12px;
 }
-.reader-about {
-  color: var(--muted);
-  font-size: 13px;
-}
-.reader-about summary {
-  width: fit-content;
-  min-height: 36px;
-  display: list-item;
-  list-style-position: inside;
-  color: var(--green);
-  cursor: pointer;
-  font-weight: 600;
-}
-.reader-about-content {
-  padding: 0 0 8px 18px;
-}
-.reader-metadata,
-.reader-image-note {
-  margin: 4px 0 0;
+.reader-metadata {
+  margin: 0 0 12px;
   font-size: 12px;
   line-height: 1.5;
 }
+.reader-image-note {
+  margin: -8px 0 12px;
+  color: var(--muted);
+  font-size: 12px;
+  line-height: 1.5;
+}
+.reader-image-note[hidden] { display: none; }
 .reader-original {
   margin: 0;
   border-radius: 7px;
@@ -992,10 +992,6 @@ button {
 .reader-pending-status { margin: 0 0 14px; line-height: 1.55; }
 .reader-pending-actions { display: flex; flex-wrap: wrap; gap: 8px; }
 .reader-pending[hidden] { display: none; }
-.reader-image-note {
-  padding-top: 8px;
-  border-top: 1px solid var(--line);
-}
 .reader-body {
   margin: 0;
   font: 18px/1.7 Georgia, "Times New Roman", serif;
@@ -1317,6 +1313,31 @@ body:has(#reader-dialog[open]) {
       color 0.15s ease,
       background 0.15s ease,
       border-color 0.15s ease;
+  }
+  .reader-back,
+  .reader-original {
+    transition:
+      gap 220ms cubic-bezier(0.2, 0.8, 0.2, 1),
+      color 0.15s ease,
+      background 0.15s ease;
+  }
+  .reader-control-label {
+    transition:
+      max-width 220ms cubic-bezier(0.2, 0.8, 0.2, 1),
+      opacity 140ms ease 60ms,
+      visibility 0s;
+  }
+  .reader-toolbar.is-compact .reader-control-label {
+    transition-delay: 0s, 0s, 140ms;
+  }
+  .reader-toolbar-title {
+    transition:
+      opacity 160ms ease,
+      transform 220ms cubic-bezier(0.2, 0.8, 0.2, 1),
+      visibility 0s linear 220ms;
+  }
+  .reader-toolbar.is-compact .reader-toolbar-title {
+    transition-delay: 60ms, 60ms, 0s;
   }
 }
 .extension-actions { display: flex; flex-wrap: wrap; gap: .65rem; margin-top: 1rem; align-items: center; }

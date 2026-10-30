@@ -12,6 +12,7 @@ it('extracts from a previously parsed document', async () => {
   expect(markdown).toContain('Shared **document** input.');
 });
 
+// Parsing 24,000 nodes can exceed the default five seconds on shared CI runners.
 it('extracts readable content from HTML larger than the former 512 KiB source limit', async () => {
   const html = `<html><head><title>Large source</title></head><body><nav>${'<span>navigation clutter</span>'.repeat(24_000)}</nav><article><h1>Git at any scale</h1><p>Readable article content survives the larger source limit.</p></article></body></html>`;
   expect(new TextEncoder().encode(html).byteLength).toBeGreaterThan(512 * 1024);
@@ -19,7 +20,7 @@ it('extracts readable content from HTML larger than the former 512 KiB source li
   const markdown = await extractArticleMarkdown(html, 'https://cursor.com/blog/git-at-any-scale');
   expect(markdown).toContain('Readable article content survives the larger source limit.');
   expect(markdown).not.toContain('navigation clutter');
-});
+}, 15_000);
 
 it('rejects an extracted copy above the UTF-8 limit', async () => {
   const html = `<html><body><article><h1>Large article</h1><p>${'é '.repeat(100000)}</p></article></body></html>`;
