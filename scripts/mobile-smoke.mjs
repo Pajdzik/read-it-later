@@ -303,7 +303,10 @@ async function runProfile(name, browserType, device) {
   const readCopyAction = shareDetail.getByRole("button", { name: "Read saved copy" });
   await readCopyAction.tap();
   const readyReader = page.locator("#reader-dialog");
-  await readyReader.locator("#reader-body").getByRole("heading", { name: shareTitle }).waitFor();
+  await expect(readyReader.locator("#reader-title")).toHaveText(shareTitle);
+  await expect(readyReader.locator("#reader-body")).toContainText("Manually saved while the background processor is paused.");
+  await expect(readyReader.getByRole("heading", { name: shareTitle, exact: true })).toHaveCount(1);
+  await expect(readyReader.locator("#reader-body").getByRole("heading", { name: shareTitle, exact: true })).toHaveCount(0);
   assert.equal(await readyReader.locator("#reader-body table tbody tr").count(), 1,
     `${name}: manually persisted Markdown should remain readable while extraction is paused.`);
   assert.equal(await page.evaluate(() => document.activeElement?.id), "reader-title",
@@ -357,7 +360,8 @@ async function runProfile(name, browserType, device) {
   const beforeResize = page.viewportSize();
   await page.setViewportSize({ width: Math.max(320, beforeResize.width - 32), height: beforeResize.height });
   await readCopyAction.tap();
-  await readyReader.locator("#reader-body").getByRole("heading", { name: shareTitle }).waitFor();
+  await expect(readyReader.locator("#reader-title")).toHaveText(shareTitle);
+  await expect(readyReader.locator("#reader-body")).toContainText("Manually saved while the background processor is paused.");
   await page.evaluate(() => new Promise((resolve) => requestAnimationFrame(() => requestAnimationFrame(resolve))));
   assert.ok(await readyReader.evaluate((dialog) => dialog.scrollTop > 0), `${name}: reopening should restore the saved reader position: ${JSON.stringify({ mobilePosition, viewport: page.viewportSize() })}.`);
   const restoredMobileBlock = await readyReader.evaluate((dialog) => {
@@ -381,7 +385,8 @@ async function runProfile(name, browserType, device) {
     await expect(opener).toBeFocused();
   };
   await titleButton.tap();
-  await readyReader.locator("#reader-body").getByRole("heading", { name: shareTitle }).waitFor();
+  await expect(readyReader.locator("#reader-title")).toHaveText(shareTitle);
+  await expect(readyReader.locator("#reader-body")).toContainText("Manually saved while the background processor is paused.");
   assert.equal(new URL(page.url()).pathname, await titleButton.getAttribute("href"),
     `${name}: reopening from the list should use the canonical URL.`);
   await page.screenshot({ path: screenshot("portrait-reader-light") });
