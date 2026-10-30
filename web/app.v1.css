@@ -318,6 +318,7 @@ button {
 }
 .library {
   padding: 20px 2px 0;
+  touch-action: pan-y pinch-zoom;
 }
 .search {
   width: 0;
@@ -1248,6 +1249,7 @@ body:has(#reader-dialog[open]) {
   }
   .library {
     padding-top: 16px;
+    min-height: calc(100svh - 128px);
   }
   .tabs button {
     padding: 9px 12px;

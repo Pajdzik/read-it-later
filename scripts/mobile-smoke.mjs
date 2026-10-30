@@ -473,20 +473,76 @@ async function runProfile(name, browserType, device) {
   await page.locator('[data-status="unread"]').tap();
   await page.locator("#search-toggle").tap();
   await page.locator("#search").waitFor({ state: "visible" });
-  await page.evaluate(() => {
-    const tabs = document.querySelector("#status-tabs");
-    if (!tabs) throw new Error("Status tabs are unavailable.");
-    const emit = (type, clientX) => {
-      const event = new Event(type, { bubbles: true });
-      Object.defineProperty(event, "changedTouches", { value: [{ clientX, clientY: 100 }] });
-      tabs.dispatchEvent(event);
-    };
-    emit("touchstart", 320);
-    emit("touchend", 100);
-  });
-  await page.waitForFunction(() => document.querySelector('[data-status="read"]')?.getAttribute("aria-pressed") === "true");
+  const swipe = async (selector, points, { cancel = false, fingers = 1 } = {}) => {
+    await page.locator(selector).first().evaluate((target, { points, cancel, fingers }) => {
+      const emit = (type, [clientX, clientY]) => {
+        const touches = Array.from({ length: fingers }, (_, identifier) => ({ identifier, clientX, clientY }));
+        const event = new Event(type, { bubbles: true, cancelable: true });
+        Object.defineProperties(event, {
+          changedTouches: { value: touches },
+          touches: { value: type === "touchend" || type === "touchcancel" ? [] : touches },
+        });
+        target.dispatchEvent(event);
+      };
+      emit("touchstart", points[0]);
+      for (const point of points.slice(1, -1)) emit("touchmove", point);
+      emit(cancel ? "touchcancel" : "touchend", points.at(-1));
+    }, { points, cancel, fingers });
+  };
+  const expectStatus = (status) => expect(page.locator(`[data-status="${status}"]`)).toHaveAttribute("aria-pressed", "true");
+  const left = [[320, 180], [100, 180]];
+  const right = [...left].reverse();
+  // Swipe the article panel itself, including content, blank space, and tabs.
+  await swipe("#articles", left);
+  await expectStatus("read");
   await page.locator("#search").waitFor({ state: "hidden" });
+  await article.waitFor();
+  await swipe(".library", left);
+  await expectStatus("all");
+  await swipe(".library", left);
+  await expectStatus("all"); // Stop at the last tab.
+  await swipe("#status-tabs", right);
+  await expectStatus("read");
+  await article.waitFor();
+  await swipe("#articles", [[200, 180], [210, 400]]); // Vertical scroll.
+  await swipe("#articles", [[200, 180], [220, 185]]); // Short drag.
+  await swipe("#articles", [[100, 180], [110, 240], [320, 250]]); // Scroll then drift.
+  await swipe("#articles", right, { cancel: true });
+  await swipe("#articles", right, { fingers: 2 }); // Pinch gesture.
+  await expectStatus("read");
+  const listUrl = page.url();
+  await swipe("#articles .article-title", right);
+  await expectStatus("unread");
+  assert.equal(page.url(), listUrl, `${name}: swiping a title opened the reader.`);
+  await swipe(".library", right);
+  await expectStatus("unread"); // Stop at the first tab.
+  if (browserType === chromium) {
+    // Keep raw protocol input isolated from Playwright's touchscreen input state.
+    const nativePage = await context.newPage();
+    await nativePage.goto(base);
+    await expect(nativePage.locator("#loading")).toBeHidden();
+    const title = nativePage.locator("#articles .article-title").first();
+    await title.scrollIntoViewIfNeeded();
+    const bounds = await title.boundingBox();
+    assert.ok(bounds);
+    const client = await context.newCDPSession(nativePage);
+    const x = Math.min(bounds.x + bounds.width - 5, nativePage.viewportSize().width - 30);
+    const y = bounds.y + bounds.height / 2;
+    await client.send("Input.dispatchTouchEvent", { type: "touchStart", touchPoints: [{ x, y }] });
+    await nativePage.waitForTimeout(20);
+    for (let dx = 20; dx <= 140; dx += 20) {
+      await client.send("Input.dispatchTouchEvent", { type: "touchMove", touchPoints: [{ x: x - dx, y }] });
+      await nativePage.waitForTimeout(20);
+    }
+    await client.send("Input.dispatchTouchEvent", { type: "touchEnd", touchPoints: [] });
+    await expect(nativePage.locator('[data-status="read"]')).toHaveAttribute("aria-pressed", "true");
+    assert.equal(nativePage.url(), base + "/", `${name}: native swipe activated an article title.`);
+    await nativePage.close();
+  }
+  await waitForListIdle();
   await page.locator('[data-status="all"]').tap();
+  await expectStatus("all");
+  await waitForListIdle();
   await article.getByRole("button", { name: "Mark unread" }).tap();
   await article.getByRole("button", { name: "Mark read" }).waitFor();
   await reload();
