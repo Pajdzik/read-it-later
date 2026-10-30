@@ -547,6 +547,19 @@ try {
   await page.unroute(`**/api/articles/${articleId}/copy`);
   await page.locator("#detail-dialog .dialog-close button").click();
   await waitForList(title);
+  const setReaderAuthorStatus = await page.evaluate(async (id) => {
+    const session = await (await fetch("/api/session")).json();
+    const response = await fetch(`/api/articles/${encodeURIComponent(id)}`, {
+      method: "PATCH",
+      headers: { "Content-Type": "application/json", "X-CSRF-Token": session.csrfToken },
+      body: JSON.stringify({ author: "Reader Author" }),
+    });
+    return response.status;
+  }, articleId);
+  assert.equal(setReaderAuthorStatus, 200, "Reader metadata fixture should include an author.");
+  await page.reload();
+  await page.locator("#loading").waitFor({ state: "hidden" });
+  await title.waitFor();
   const readStateBefore = await page.evaluate(async (id) => (await (await fetch(`/api/articles/${id}`)).json()).article.readAt, articleId);
   let imageMarkerRequests = 0;
   page.on("request", (request) => {
@@ -608,18 +621,13 @@ try {
   assert.deepEqual(activeMarkup, [], "Sanitized reader DOM must contain only allowed attributes and safe links.");
   assert.match(await readerBody.textContent(), /<img src=/, "Raw HTML should display as literal text.");
   assert.match(await readerBody.textContent(), /Image reference: Remote marker/);
-  const aboutCopy = reader.locator("details");
-  const aboutSummary = aboutCopy.locator("summary");
-  assert.equal(await aboutSummary.innerText(), "About this copy");
-  assert.equal(await aboutCopy.evaluate((details) => details.open), false,
-    "About this copy should start collapsed for a fresh reader open.");
-  await aboutSummary.click();
-  await aboutCopy.getByText(/Captured .*captured or pasted Markdown/).waitFor();
-  await aboutCopy.locator("#reader-image-note").getByText(/Image references are shown as text/).waitFor();
-  await aboutSummary.click();
+  assert.equal(await reader.locator("details").count(), 0, "Reader copy details should not be hidden behind a disclosure.");
+  const metadata = reader.locator("#reader-metadata");
+  await expect(metadata).toContainText(/^example\.com · By Reader Author · Captured .+/);
+  assert.doesNotMatch(await metadata.innerText(), /pasted Markdown|uploaded file|Image references/,
+    "Reader metadata should show only source domain, author, and capture date.");
   await reader.evaluate((dialog) => { dialog.scrollTop = 700; });
-  await aboutSummary.click();
-  const expandedAboutBlock = await reader.evaluate((dialog) => {
+  const savedPositionBlock = await reader.evaluate((dialog) => {
     const toolbarBottom = dialog.querySelector(".reader-toolbar").getBoundingClientRect().bottom;
     return [...dialog.querySelector("#reader-body").children].findIndex((block) => block.getBoundingClientRect().bottom > toolbarBottom);
   });
@@ -627,18 +635,16 @@ try {
   await title.click();
   await reader.getByRole("heading", { name: "Browser smoke article" }).waitFor();
   await page.evaluate(() => new Promise((resolve) => requestAnimationFrame(() => requestAnimationFrame(resolve))));
-  const collapsedAboutBlock = await reader.evaluate((dialog) => {
+  const restoredPositionBlock = await reader.evaluate((dialog) => {
     const toolbarBottom = dialog.querySelector(".reader-toolbar").getBoundingClientRect().bottom;
     return [...dialog.querySelector("#reader-body").children].findIndex((block) => block.getBoundingClientRect().bottom > toolbarBottom);
   });
-  assert.equal(collapsedAboutBlock, expandedAboutBlock,
-    "Reopening after expanding About this copy should keep the same article block in view.");
-  assert.equal(await reader.locator("#reader-about").evaluate((details) => details.open), false,
-    "About this copy should collapse while preserving the article position.");
+  assert.equal(restoredPositionBlock, savedPositionBlock,
+    "Reopening should keep the same article block in view.");
   const alignedBlocks = await Promise.all([
-    reader.locator("#reader-title"), aboutCopy, readerBody,
+    reader.locator("#reader-title"), metadata, readerBody,
   ].map((element) => element.boundingBox()));
-  assert.ok(alignedBlocks.every(Boolean), "Reader title, disclosure, and copy should all be visible.");
+  assert.ok(alignedBlocks.every(Boolean), "Reader title, metadata, and copy should all be visible.");
   assert.ok(Math.max(...alignedBlocks.map((bounds) => bounds.x)) - Math.min(...alignedBlocks.map((bounds) => bounds.x)) <= 2 &&
     Math.max(...alignedBlocks.map((bounds) => bounds.x + bounds.width)) - Math.min(...alignedBlocks.map((bounds) => bounds.x + bounds.width)) <= 2,
     `Reader blocks should share a column: ${JSON.stringify(alignedBlocks)}.`);
@@ -705,8 +711,8 @@ try {
     "Reading another article must not overwrite its position record.");
   assert.ok(Math.abs(restoredSameLayout - savedPosition.scrollTop) <= 2,
     `Reopen should restore same-layout pixels: expected ${savedPosition.scrollTop}, got ${restoredSameLayout}.`);
-  assert.equal(await reader.locator("details").evaluate((details) => details.open), false,
-    "About this copy should collapse on each fresh reader open.");
+  assert.equal(await reader.locator("details").count(), 0,
+    "Reader metadata should remain directly visible on each fresh reader open.");
   await page.evaluate(() => window.dispatchEvent(new Event("pagehide")));
   assert.equal(await page.evaluate((id) => JSON.parse(localStorage.getItem(`later-reading-position:${encodeURIComponent(id)}`)).scrollTop, articleId), savedPosition.scrollTop,
     "pagehide should preserve the current restored position.");
