@@ -626,6 +626,7 @@ try {
   await expect(metadata).toContainText(/^example\.com · By Reader Author · Captured .+/);
   assert.doesNotMatch(await metadata.innerText(), /pasted Markdown|uploaded file|Image references/,
     "Reader metadata should show only source domain, author, and capture date.");
+  await page.evaluate(() => new Promise((resolve) => requestAnimationFrame(() => requestAnimationFrame(resolve))));
   await reader.evaluate((dialog) => { dialog.scrollTop = 700; });
   const savedPositionBlock = await reader.evaluate((dialog) => {
     const toolbarBottom = dialog.querySelector(".reader-toolbar").getBoundingClientRect().bottom;
