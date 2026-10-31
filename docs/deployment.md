@@ -1,5 +1,7 @@
 # Cloudflare deployment and operations
 
+For the managed HTML/PDF rollout, private R2 provisioning, new bindings and staging gates, follow [unified ingestion](unified-ingestion.md#rollout-and-validation). The managed-conversion flag defaults off in every environment. Older Defuddle/gateway instructions below describe the preceding pipeline.
+
 The base app runs on Workers with Workers Static Assets and D1. Optional automatic capture uses a private Cloudflare Container and requires Workers Paid. Deployment requires your own Cloudflare account and a GitHub OAuth app. No deployment or paid service is provisioned by the implementation PRs.
 
 ## Before deployment
@@ -122,7 +124,7 @@ pnpm check:capture
 The native tests use a real Node extraction thread and deterministic DNS fixtures; Worker tests exercise the private response protocol and fenced D1 completion. Neither suite contacts arbitrary article origins. `pnpm build` validates the base app separately. CI runs these capture checks and the full image dry run on pushes and pull requests without deployment credentials. Production publishing runs only on a push to `main` after verification passes, using the protected `production` environment's Cloudflare secrets.
 
 1. Confirm Workers Paid is acceptable for the selected account; do not silently change billing. Replace staging origins in both Wrangler configurations and use an isolated staging D1 database.
-2. Deploy the private executor before an app version that refers to it. Its `workers_dev` and `preview_urls` settings are false. Keep it without routes or custom domains. Do not attach private-network bindings, outbound hostname proxies, or application secrets. Native DNS must produce real destination addresses, and native sockets must retain numeric destination pinning.
+2. Deploy the private executor before an app version that refers to it. Its `workers_dev` and `preview_urls` settings are false. Keep it without routes or custom domains. Do not attach private-network bindings, catch-all outbound interception, or application secrets to the Container. The static `potem.convert` handler accesses D1/R2 and Workers AI outside the Container. Native DNS must produce real destination addresses, and native sockets must retain numeric destination pinning.
 
 ```sh
 pnpm exec wrangler deploy --config capture/wrangler.jsonc --env staging
@@ -131,7 +133,7 @@ pnpm queue:ensure --env staging --execute
 pnpm exec wrangler deploy --env staging
 ```
 
-The first executor deployment can need several minutes for provisioning. The production workflow builds and deploys the executor first, then migrates D1 and deploys the app. If executor deployment fails, subsequent migration/app deployment steps do not run. A standalone app deployment command still does not update the executor. The commands above are an optional manual staging path; they require Docker on the machine running them, while the normal production CI path does not require Docker on your computer. The checked-in production flag is already true, so do not deploy that production config until the separate activation gate passes. Live deployment state is not established by this repository configuration.
+The first executor deployment can need several minutes for provisioning. The production workflow provisions private PDF storage and applies additive D1 migrations before deploying the executor, then provisions the Queue and deploys the app. If executor deployment fails, the app deployment does not run; additive migrations remain applied. A standalone app deployment command still does not update the executor. The commands above are an optional manual staging path; they require Docker on the machine running them, while the normal production CI path does not require Docker on your computer. The checked-in production flag is already true, so do not deploy that production config until the separate activation gate passes. Live deployment state is not established by this repository configuration.
 
 3. While the flag is still false, validate deployment configuration and private-only access. Temporarily enable staging capture to test real queue processing and hourly recovery against controlled public, blocked, redirected, dual-stack, mixed public/private DNS, rebinding, oversized, truncated, and slow-stream sources. Check original-host TLS validation and absence of third-party extraction requests. Record cold-start latency, worst-case HTML conversion time/memory, and account usage. The 5-second conversion limit needs measurement on the 1/4-vCPU instance; local desktop speed does not establish this fit.
 4. Verify transient backoff, generation/lease fencing, manual-copy priority, edited-title protection, and reader polling. The app's 90-second service deadline is shorter than the two-minute lease. An expired result cannot commit, even if an executor survives cancellation. Copies remain create-only.

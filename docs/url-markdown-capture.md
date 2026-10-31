@@ -1,5 +1,7 @@
 # Markdown capture when pasting or sharing a URL
 
+Current HTML/PDF conversion, original storage and complete archive behavior are documented in [unified ingestion](unified-ingestion.md). Server-side Defuddle architecture and manual-only/R2-deferred statements below are historical. Managed conversion is disabled in checked-in configs pending staging validation.
+
 Add requests a background Markdown copy by default using `captureMarkdown: true` on the owner-authenticated `POST /api/articles` route. The response confirms a saved link and durable extraction intent, not a completed copy. It returns `extraction` status instead of the former synchronous `copy`/`copyCaptureError` fields. The original URL, identity, saved date, and read state remain independent of extraction.
 
 The iOS Shortcut's save-only `POST /api/capture` route defaults to requesting extraction, so existing `{url, title?}` payloads work. Tokens receive only `{ok:true, extractionRequested}` with HTTP 200 for both new and duplicate saves; the response does not reveal stored article metadata or whether the URL was already saved. Tokens never receive Markdown, revisions, or job history, cannot access owner status/retry endpoints, and cannot submit a copy. Explicit `captureMarkdown: false` saves a link only; omitting the field on the owner article route also remains link-only for API compatibility. Saves never fetch the source inline, and link-only saves retain supplied/fallback titles without metadata enrichment.

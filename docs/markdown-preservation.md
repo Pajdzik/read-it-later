@@ -1,5 +1,7 @@
 # Markdown preservation and browser capture (A01 decision and A02 design)
 
+Current HTML/PDF conversion, original storage and complete archive behavior are documented in [unified ingestion](unified-ingestion.md). Server-side Defuddle architecture and manual-only/R2-deferred statements below are historical. Managed conversion is disabled in checked-in configs pending staging validation.
+
 October 19 update: the [Worker-first Defuddle benchmark](worker-extraction-benchmark.md) now supplies deployed extraction evidence and Free CPU-limit failures. The historical browser/manual decision below remains the safe production fallback while protected fetching and a larger Paid Worker budget are validated.
 
 ## Decision

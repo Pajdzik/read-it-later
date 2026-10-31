@@ -1,0 +1,37 @@
+{
+  "date": "2026-10-31",
+  "wrangler": "4.145.0",
+  "localCompatibilityDate": "2026-08-01",
+  "converter": "Real remote Workers AI toMarkdown via a Wrangler remote AI binding",
+  "storage": "Isolated local D1 and R2; no production library or settings changed",
+  "fixtures": [
+    {
+      "format": "html",
+      "httpStatus": 200,
+      "wallMs": 199,
+      "checks": [
+        "Article text present",
+        "Header/navigation/footer fixture clutter absent",
+        "Bold preserved",
+        "Relative link resolved against final source URL",
+        "Code block preserved",
+        "Table preserved"
+      ],
+      "outcome": "passed"
+    },
+    {
+      "format": "pdf",
+      "inputBytes": 626,
+      "inputSha256": "b744c7e02cb305253cc5d12ffd2795e02e4b36f855ada9f8c4aa191e4b7296c1",
+      "httpStatus": 200,
+      "wallMs": 133,
+      "checks": [
+        "Embedded text from both lines present",
+        "Original asset preserved in isolated local R2",
+        "Original checksum returned"
+      ],
+      "outcome": "passed"
+    }
+  ],
+  "limits": "One synthetic sample per format. No CPU or memory measurements. This does not validate deployed Container outbound routing, remote R2, staging OAuth, real-world fidelity, or production billing."
+}

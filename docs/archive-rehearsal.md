@@ -1,5 +1,7 @@
 # Archive restore rehearsal (A05)
 
+Current HTML/PDF conversion, original storage and complete archive behavior are documented in [unified ingestion](unified-ingestion.md). Server-side Defuddle architecture and manual-only/R2-deferred statements below are historical. Managed conversion is disabled in checked-in configs pending staging validation.
+
 ## Next unfinished archive work
 
 A03's saved-copy reader and download are merged. A04 remains deferred by the manual-only A01 decision. A05 is next: prove that portable backups recover preserved text, metadata, and read state, and measure storage rather than assuming headroom. This change delivers repeatable local restore evidence and an operator command. A05 remains unchecked until the separate deployed-origin release checks pass.

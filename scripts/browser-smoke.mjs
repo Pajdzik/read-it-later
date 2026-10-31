@@ -1,3 +1,4 @@
+import { pdfArchiveSmoke } from "./pdf-archive-smoke.mjs";
 import { chromium } from "playwright";
 import { expect } from "playwright/test";
 import { spawn } from "node:child_process";
@@ -1388,6 +1389,7 @@ try {
   await urlPage.unroute("**/api/articles?*");
   await urlContext.close();
   await readerCompletionSmoke(context, base, sourceBase);
+  await pdfArchiveSmoke(context, base);
   const cachedPaths = await page.evaluate(async () => {
     const paths = [];
     for (const name of await caches.keys()) {

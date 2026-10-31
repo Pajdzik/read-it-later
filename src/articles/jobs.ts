@@ -1,4 +1,4 @@
-import type { ArticleCopy, ExtractionMessage, ExtractionStatus } from "../contracts";
+import type { ArticleCopy, ExtractionMessage, ExtractionStatus, OriginalPdf } from "../contracts";
 import { completeRecapture, metadataSnapshot } from './recovery';
 
 export interface ExtractionJob {
@@ -207,7 +207,7 @@ export async function claimExtractionJob(
 export async function completeExtractionJob(
   db: D1Database,
   job: ExtractionJob,
-  result: { markdown: string; metadata: ExtractionMetadata },
+  result: { markdown: string; metadata: ExtractionMetadata; originalPdf?: OriginalPdf },
   now = new Date().toISOString(),
 ): Promise<boolean> {
   if (job.kind === 'recapture') return completeRecapture(db, job, result, now);
@@ -246,8 +246,13 @@ export async function completeExtractionJob(
       AND lease_expires_at > ? AND EXISTS (SELECT 1 FROM articles WHERE id = ?)
       AND EXISTS (SELECT 1 FROM article_copies WHERE article_id = ?)`)
     .bind(now, now, job.articleId, job.generation, job.leaseToken, now, job.articleId, job.articleId);
-  const results = await db.batch([insertCopy, metadataUpdate, finish]);
-  return (results[2]?.meta.changes ?? 0) > 0;
+  const attach = db.prepare(`UPDATE articles SET pdf_asset_id=? WHERE id=? AND ${fence}
+    AND EXISTS(SELECT 1 FROM article_copies WHERE article_id=? AND revision=?)
+    `)
+    .bind(result.originalPdf?.id ?? null, job.articleId, job.articleId, job.generation, job.leaseToken, now,
+      job.articleId, copy.revision);
+  const results = await db.batch([insertCopy, metadataUpdate, attach, finish]);
+  return (results[3]?.meta.changes ?? 0) > 0;
 }
 
 /** Record only a bounded stable failure code; stale workers cannot alter a retry. */

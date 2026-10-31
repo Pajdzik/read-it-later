@@ -6,6 +6,7 @@ export function createCaptureServer(appOrigin: string, execute = executeCapture)
   let busy = false;
   const server = createServer(async (request, response) => {
     const send = (result: CaptureResult) => {
+      if(response.destroyed || response.writableEnded)return;
       response.writeHead(200, { "Content-Type": "application/json", "Cache-Control": "no-store" });
       response.end(JSON.stringify(result));
     };
@@ -14,6 +15,9 @@ export function createCaptureServer(appOrigin: string, execute = executeCapture)
     }
     if (busy) { send({ version: 1, ok: false, error: { code: "capture_busy", retryable: true } }); return; }
     busy = true;
+    const controller=new AbortController();
+    const disconnect=()=>{if(!response.writableEnded)controller.abort();};
+    response.once('close',disconnect);
     try {
       const chunks: Buffer[] = [];
       let size = 0;
@@ -26,12 +30,13 @@ export function createCaptureServer(appOrigin: string, execute = executeCapture)
       try { body = JSON.parse(Buffer.concat(chunks).toString("utf8")); }
       catch { throw new SourceFetchError("invalid_url", false); }
       if (!body || typeof body.url !== "string" || new TextEncoder().encode(body.url).byteLength > 8 * 1024) throw new SourceFetchError("invalid_url", false);
-      const article = await execute(body.url, appOrigin);
+      if (body.originalPdfId !== undefined && (typeof body.originalPdfId !== "string" || !/^[a-f0-9-]{36}$/.test(body.originalPdfId))) throw new SourceFetchError("invalid_pdf", false);
+      const article = await execute(body.url, appOrigin, body.originalPdfId, controller.signal);
       send({ version: 1, ok: true, article });
     } catch (error) {
       const failure = error instanceof SourceFetchError ? error : new SourceFetchError("capture_unavailable", true);
       send({ version: 1, ok: false, error: { code: failure.code, retryable: failure.retryable, retryAfterSeconds: failure.retryAfterSeconds } });
-    } finally { busy = false; }
+    } finally { response.removeListener('close',disconnect); busy = false; }
   });
   server.requestTimeout = 5_000;
   server.headersTimeout = 5_000;

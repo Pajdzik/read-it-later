@@ -1,9 +1,12 @@
+import { importArticles } from "./library-import";
+import { handleArchive } from "../archive/handler";
+import { getOriginalPdf, originalPdfSummaries, servePdf } from "./pdf";
 import type { Article, ArticleCopy, Env } from '../contracts.js';
 import { errorResponse } from '../contracts.js';
 import { exceptionResponse, jsonResponse, logUnexpectedError, PRIVATE_HEADERS } from '../http.js';
 import { deleteArticle, getArticle, getArticleCopy, listArticles, listArticlesForExport, saveArticle, saveArticleCopy, suggestArticle, updateArticle } from './repository.js';
 import {
-  BodyTooLargeError, defaultTitle, MAX_IMPORT_BYTES, MAX_IMPORT_ITEMS, MAX_TITLE_LENGTH,
+  BodyTooLargeError, defaultTitle, MAX_TITLE_LENGTH,
   normalizeArticleUrl, parseObject, readJson, ValidationError, validateTitle,
 } from './validation.js';
 import { isResponse, requireSession, validateCaptureToken } from '../auth/core.js';
@@ -17,7 +20,6 @@ import { IntegrationError } from '../integrations/types';
 import { requestRecapture, undoRecapture } from './recovery.js';
 
 const PRIVATE = PRIVATE_HEADERS;
-type ImportArticle = Article;
 const MAX_COPY_BYTES = 256 * 1024;
 const MAX_COPY_ENVELOPE_BYTES = 2 * 1024 * 1024;
 
@@ -27,13 +29,19 @@ const storageError = { status: 503, code: 'storage_unavailable', message: 'The s
 export async function handleArticles(request: Request, env: Env, ctx?: ExecutionContext): Promise<Response | null> {
   const url = new URL(request.url); const method = request.method.toUpperCase();
   if (url.pathname === '/api/capture' && method === 'POST') return capture(request, env, ctx);
-  const isArticlePath = url.pathname === '/api/articles' || /^\/api\/articles\/[^/]+(?:\/copy|\/github|\/integrations(?:\/[a-z][a-z0-9-]{0,47})?|\/extraction(?:\/(?:retry|recapture|undo))?)?$/.test(url.pathname);
-  if (!isArticlePath && !['/api/export', '/api/import', '/api/github', '/api/github/reconcile', '/api/integrations'].includes(url.pathname)) return null;
+  const isArticlePath = url.pathname === '/api/articles' || /^\/api\/articles\/[^/]+(?:\/pdf|\/copy|\/github|\/integrations(?:\/[a-z][a-z0-9-]{0,47})?|\/extraction(?:\/(?:retry|recapture|undo))?)?$/.test(url.pathname);
+  if (!url.pathname.startsWith('/api/archive') && !isArticlePath && !['/api/export', '/api/import', '/api/github', '/api/github/reconcile', '/api/integrations'].includes(url.pathname)) return null;
   const needsWrite = method !== 'GET';
   let session: Awaited<ReturnType<typeof requireSession>>;
   try { session = await requireSession(request, env, needsWrite); } catch (error) { return exceptionResponse(error, 'articles.auth', storageError); }
   if (isResponse(session)) return session;
   try {
+    if (url.pathname.startsWith('/api/archive')) return await handleArchive(request, env);
+    const pdfRoute = /^\/api\/articles\/([^/]+)\/pdf$/.exec(url.pathname);
+    if (pdfRoute && method === 'GET') {
+      if (!isArticleId(pdfRoute[1])) throw new ValidationError('Article ID must contain eight lowercase letters or digits.');
+      return await servePdf(request, env, pdfRoute[1]);
+    }
     if (url.pathname === '/api/integrations' && method === 'GET') return jsonResponse({ integrations: integrationConfigurations(env) });
     const integrationRoute = /^\/api\/articles\/([^/]+)\/integrations(?:\/([a-z][a-z0-9-]{0,47}))?$/.exec(url.pathname);
     if (integrationRoute) {
@@ -143,7 +151,7 @@ export async function handleArticles(request: Request, env: Env, ctx?: Execution
         const article = await getArticle(env.DB, id);
         if (!article) return fail(404, 'not_found', 'Article not found.');
         const extraction = await getExtractionStatus(env.DB, id, isBackgroundCapturePaused(env));
-        return jsonResponse({ article: { ...article, hasCopy: extraction?.state === 'ready', extraction } });
+        return jsonResponse({ article: { ...article, originalPdf: await getOriginalPdf(env.DB, article.id), hasCopy: extraction?.state === 'ready', extraction } });
       }
       if (method === 'PATCH') return await patchArticle(request, env, id);
       if (method === 'DELETE') { await deleteArticle(env.DB, id); return new Response(null, { status: 204, headers: PRIVATE }); }
@@ -241,9 +249,10 @@ async function listRoute(url: URL, env: Env): Promise<Response> {
   if (cursor && cursor.length > 2048) throw new ValidationError('cursor is invalid');
   const page = await listArticles(env.DB, { status, q, limit, cursor });
   const statuses = await getExtractionStatuses(env.DB, page.items.map(article => article.id), isBackgroundCapturePaused(env));
+  const pdfs = await originalPdfSummaries(env.DB, page.items.map(a => a.id));
   return jsonResponse({ ...page, items: page.items.map(article => {
     const extraction = statuses.get(article.id);
-    return { ...article, hasCopy: extraction?.state === 'ready', extraction };
+    return { ...article, originalPdf: pdfs.get(article.id), hasCopy: extraction?.state === 'ready', extraction };
   }) });
 }
 
@@ -264,7 +273,7 @@ async function patchArticle(request: Request, env: Env, id: string): Promise<Res
   const article = await updateArticle(env.DB, id, patch);
   if (!article) return fail(404, 'not_found', 'Article not found.');
   const extraction = await getExtractionStatus(env.DB, id, isBackgroundCapturePaused(env));
-  return jsonResponse({ article: { ...article, hasCopy: extraction?.state === 'ready', extraction } });
+  return jsonResponse({ article: { ...article, originalPdf: await getOriginalPdf(env.DB, article.id), hasCopy: extraction?.state === 'ready', extraction } });
 }
 
 function optionalMetadata(value: unknown, field: string, limit: number): string | null {
@@ -308,97 +317,4 @@ async function exportArticles(env: Env): Promise<Response> {
     ...PRIVATE, 'Content-Type': 'application/json; charset=utf-8',
     'Content-Disposition': `attachment; filename="read-later-export-${exportedAt.slice(0, 10)}.json"`,
   } });
-}
-
-async function importArticles(request: Request, env: Env): Promise<Response> {
-  const input = parseObject(await readJson(request, MAX_IMPORT_BYTES), ['version', 'exportedAt', 'articles'], ['version', 'exportedAt', 'articles']);
-  if (input.version !== 1 && input.version !== 2) throw new ValidationError('unsupported import version');
-  validTimestamp(input.exportedAt, 'exportedAt');
-  if (!Array.isArray(input.articles) || input.articles.length > MAX_IMPORT_ITEMS) throw new ValidationError('articles must be an array with at most 1000 items');
-  const seenIds = new Set<string>();
-  const normalized: Array<ImportArticle & { normalizedUrl: string; copy?: ArticleCopy }> = [];
-  for (const value of input.articles) {
-    const item = parseObject(value, ['id', 'url', 'title', 'author', 'description', 'createdAt', 'updatedAt', 'readAt', ...(input.version === 2 ? ['copy'] : [])], ['id', 'url', 'title', 'createdAt', 'updatedAt', 'readAt']);
-    if (!isArticleId(item.id)) throw new ValidationError('article id must contain eight lowercase letters or digits; convert legacy backups before importing');
-    if (seenIds.has(item.id)) throw new ValidationError('import contains duplicate article IDs');
-    seenIds.add(item.id);
-    const url = normalizeArticleUrl(item.url);
-    if (typeof item.title !== 'string' || !item.title.trim() || item.title.trim().length > MAX_TITLE_LENGTH) throw new ValidationError('article title is invalid');
-    const createdAt = validTimestamp(item.createdAt, 'createdAt'); const updatedAt = validTimestamp(item.updatedAt, 'updatedAt');
-    const readAt = item.readAt === null ? null : validTimestamp(item.readAt, 'readAt');
-    const author = optionalImportText(item.author, 'author', 200);
-    const description = optionalImportText(item.description, 'description', 500);
-    let copy: ArticleCopy | undefined;
-    if (item.copy !== undefined) {
-      const value = parseObject(item.copy, ['markdown', 'capturedAt', 'source', 'revision'], ['markdown', 'capturedAt', 'source', 'revision']);
-      if (typeof value.markdown !== 'string' || !value.markdown.trim()) throw new ValidationError('article copy markdown is invalid');
-      const bytes = new TextEncoder().encode(value.markdown);
-      if (new TextDecoder('utf-8', { fatal: true }).decode(bytes) !== value.markdown) throw new ValidationError('article copy markdown must contain valid Unicode text');
-      if (bytes.byteLength > MAX_COPY_BYTES) throw new ValidationError('article copy exceeds 262144 UTF-8 bytes');
-      if (value.source !== 'paste' && value.source !== 'upload') throw new ValidationError('article copy source is invalid');
-      const capturedAt = validTimestamp(value.capturedAt, 'copy capturedAt');
-      if (typeof value.revision !== 'string' || !/^[A-Za-z0-9_-]{1,128}$/.test(value.revision)) throw new ValidationError('article copy revision is invalid');
-      copy = { markdown: value.markdown, capturedAt, source: value.source, revision: value.revision };
-    }
-    normalized.push({ id: item.id, url: url.url, normalizedUrl: url.normalizedUrl, title: item.title.trim(), author, description, createdAt, updatedAt, readAt, ...(copy ? { copy } : {}) });
-  }
-  const existingIds = new Map<string, string>();
-  for (const group of chunks(normalized, 80)) {
-    const idRows = await env.DB.prepare(`SELECT id, normalized_url FROM articles WHERE id IN (${group.map(() => '?').join(',')})`).bind(...group.map((x) => x.id)).all<{ id: string; normalized_url: string }>();
-    for (const row of idRows.results || []) existingIds.set(row.id, row.normalized_url);
-  }
-  const seenUrls = new Set<string>(); const toInsert: typeof normalized = [];
-  let skipped = 0;
-  for (const item of normalized) {
-    const idUrl = existingIds.get(item.id);
-    if (idUrl !== undefined && idUrl !== item.normalizedUrl) throw new ValidationError('an article ID already belongs to a different URL');
-    if (seenUrls.has(item.normalizedUrl) || idUrl !== undefined) { skipped++; seenUrls.add(item.normalizedUrl); continue; }
-    seenUrls.add(item.normalizedUrl);
-    toInsert.push(item);
-  }
-  let imported = 0;
-  if (toInsert.length) {
-    const statements: D1PreparedStatement[] = [];
-    for (const item of toInsert) {
-      statements.push(env.DB.prepare(`INSERT INTO articles (id,url,normalized_url,title,author,description,created_at,updated_at,read_at)
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?) ON CONFLICT(normalized_url) DO NOTHING`)
-        .bind(item.id, item.url, item.normalizedUrl, item.title, item.author, item.description, item.createdAt, item.updatedAt, item.readAt));
-      if (item.copy) statements.push(env.DB.prepare(`INSERT INTO article_copies (article_id,markdown,captured_at,source,revision)
-        SELECT ?,?,?,?,? WHERE changes() = 1 AND EXISTS (SELECT 1 FROM articles WHERE id = ?)
-        ON CONFLICT(article_id) DO NOTHING`)
-        .bind(item.id, item.copy.markdown, item.copy.capturedAt, item.copy.source, item.copy.revision, item.id));
-    }
-    const results = await env.DB.batch(statements);
-    // A copy insertion follows its article insertion in the same D1 batch and
-    // is gated by changes(), so a skipped duplicate can never receive a copy.
-    imported = 0;
-    let resultIndex = 0;
-    for (const item of toInsert) {
-      const articleResult = results[resultIndex++];
-      const inserted = articleResult?.meta.changes ?? 0;
-      imported += inserted;
-      if (item.copy) resultIndex++;
-      if (!inserted) skipped++;
-    }
-  }
-  return jsonResponse({ imported, skipped }, 200);
-}
-
-function validTimestamp(value: unknown, field: string): string {
-  let valid = false;
-  if (typeof value === 'string' && /^\d{4}-\d\d-\d\dT\d\d:\d\d:\d\d\.\d{3}Z$/.test(value)) {
-    try { valid = new Date(value).toISOString() === value; } catch { valid = false; }
-  }
-  if (!valid || typeof value !== 'string') {
-    throw new ValidationError(`${field} must be a UTC ISO timestamp`);
-  }
-  return value;
-}
-function optionalImportText(value: unknown, field: string, limit: number): string | null {
-  if (value === undefined || value === null) return null;
-  if (typeof value !== 'string' || value.length > limit || !value.trim()) throw new ValidationError(`article ${field} is invalid`);
-  return value.trim();
-}
-function* chunks<T>(values: T[], size: number): Generator<T[]> {
-  for (let i = 0; i < values.length; i += size) yield values.slice(i, i + size);
 }

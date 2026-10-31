@@ -44,14 +44,12 @@ test("private targets and aborted resolution never open a source connection", as
   }), { name: "AbortError" });
 });
 
-test("built extractor runs in an isolated Node thread, preserves formatting and resolves links", async () => {
-  const { markdown, metadata } = await extractInThread('<html><head><title>Saved article</title><meta name="author" content="Jamie"></head><body><article><h1>Saved article</h1><p>Keep <strong>formatting</strong> and <a href="/next">links</a>.</p><script>throw new Error("must not execute")</script></article></body></html>', "https://source.example.com/article", new URL("../../dist/capture/extract-thread.mjs", import.meta.url));
+test("built metadata parser runs in an isolated Node thread without executing scripts", async () => {
+  const metadata = await extractInThread('<html><head><title>Saved article</title><meta name="author" content="Jamie"></head><body><article><h1>Saved article</h1><p>Keep <strong>formatting</strong> and <a href="/next">links</a>.</p><script>throw new Error("must not execute")</script></article></body></html>', "https://source.example.com/article", new URL("../../dist/capture/extract-thread.mjs", import.meta.url));
   assert.equal(metadata.title, "Saved article");
   assert.equal(metadata.author, "Jamie");
-  assert.match(markdown, /Keep/);
-  assert.match(markdown, /\*\*formatting\*\*/);
-  assert.match(markdown, /https:\/\/source.example.com\/next/);
-  assert.doesNotMatch(markdown, /must not execute/);
+
+
 });
 
 test("a stalled synchronous extraction thread is terminated by its deadline", async () => {

@@ -1,5 +1,7 @@
 # Background Markdown extraction
 
+Current HTML/PDF conversion, original storage and complete archive behavior are documented in [unified ingestion](unified-ingestion.md). Server-side Defuddle architecture and manual-only/R2-deferred statements below are historical. Managed conversion is disabled in checked-in configs pending staging validation.
+
 Updated October 19, 2026: [Cloudflare Container capture](cloudflare-capture.md) supersedes the fetch/runtime architecture in this original October 6 specification. The app now calls a private `ARTICLE_EXTRACTOR` service for both retrieval and conversion; native Node sockets pin validated public IPs, and Defuddle runs in a bounded Container thread. Existing D1 intent, fencing, retry, API, and reader contracts below remain applicable. Checked-in Wrangler config enables processing in production and disables it in local defaults/staging; this is not live-deployment verification. The older `ARTICLE_FETCHER` deployment instructions and Workers Free conversion discussion below describe the previous design, not current setup. Use the [current deployment instructions](deployment.md#background-markdown-extraction).
 
 Updated October 31, 2026: queue notifications now trigger extraction after Save, Retry, and Recapture. The hourly cron repairs missed jobs and republishes unfinished work. D1 remains authoritative; see [queue delivery and recovery](deployment.md#queue-delivery-and-hourly-recovery). The scheduling discussion below records the original design.

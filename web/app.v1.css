@@ -1338,3 +1338,6 @@ body:has(#reader-dialog[open]) {
 #capture-preview-details summary { cursor: pointer; color: var(--muted, #65655b); }
 #capture-preview { margin-top: .75rem; max-height: 28rem; overflow: auto; }
 #capture-byte-count { text-align: right; margin: .2rem 0; }
+
+.reader-pdf-actions { display: flex; flex-wrap: wrap; gap: 1rem; font-size: .9rem; }
+.reader-pdf-actions[hidden] { display: none; }

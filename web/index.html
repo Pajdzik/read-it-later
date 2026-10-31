@@ -127,7 +127,7 @@
         <span class="add-plus" aria-hidden="true">＋</span>
         <div>
           <h2 id="add-heading">Save something for later</h2>
-          <p>Save a link now and capture its Markdown in the background.</p>
+          <p>Save an article or PDF link and prepare a reading copy in the background.</p>
         </div>
       </div>
       <form id="add-form" class="add-form">
@@ -155,7 +155,7 @@
       /></label>
       <label id="capture-author-option" class="title-option" for="capture-author" hidden>Author <span>(optional)</span><input id="capture-author" type="text" maxlength="200" autocomplete="off" /></label>
       <label id="capture-description-option" class="title-option" for="capture-description" hidden>Description <span>(optional)</span><textarea id="capture-description" rows="2" maxlength="500"></textarea></label>
-      <label id="add-url-copy-option" class="capture-copy-toggle"><input id="add-capture-markdown" type="checkbox" checked /> Save a Markdown copy of the article</label>
+      <label id="add-url-copy-option" class="capture-copy-toggle"><input id="add-capture-markdown" type="checkbox" checked /> Save a reading copy (and the original for PDFs)</label>
       <section id="capture-copy" class="capture-copy" hidden>
         <label for="capture-markdown" class="field-label">Captured Markdown</label>
         <textarea id="capture-markdown" rows="10" maxlength="262144" aria-describedby="capture-copy-status"></textarea>
@@ -211,6 +211,10 @@
         <header class="reader-header">
           <h2 id="reader-title" tabindex="-1"></h2>
           <p id="reader-metadata" class="muted reader-metadata"></p>
+          <p id="reader-pdf-actions" class="reader-pdf-actions" hidden>
+            <a id="reader-pdf-open" target="_blank" rel="noopener noreferrer">Open saved PDF</a>
+            <a id="reader-pdf-download" target="_blank" rel="noopener noreferrer">Download PDF</a>
+          </p>
         </header>
         <section id="reader-pending" class="reader-pending" hidden aria-live="polite">
           <p id="reader-pending-status" class="reader-pending-status"></p>
@@ -250,7 +254,10 @@
       <section class="settings-section">
         <h3>Library</h3>
         <div class="settings-library-actions">
-          <button id="export" class="button secondary" type="button">Export library</button>
+          <button id="export" class="button secondary" type="button">Export JSON (without PDFs)</button>
+          <a id="export-archive" class="button secondary" href="/api/archive">Export complete archive</a>
+          <button id="import-archive-open" class="button secondary" type="button">Restore archive</button>
+          <input id="import-archive-file" type="file" accept="application/zip,.zip" hidden />
           <button id="import-open" class="button secondary" type="button">Import JSON</button>
           <input id="import-file" type="file" accept="application/json,.json" hidden />
         </div>

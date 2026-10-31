@@ -1,5 +1,7 @@
 # Defuddle on Cloudflare Workers
 
+Current HTML/PDF conversion, original storage and complete archive behavior are documented in [unified ingestion](unified-ingestion.md). Server-side Defuddle architecture and manual-only/R2-deferred statements below are historical. Managed conversion is disabled in checked-in configs pending staging validation.
+
 The extractor was deployed as an isolated Cloudflare Worker and exercised directly on Free (October 19, 2026) and Paid (October 25, 2026 UTC). Extraction remains in the application Worker; the separate fetch-only gateway handles source fetching. Neither benchmark changes production bindings or enables capture. The account owner enabled Workers Paid before the second trial.
 
 ## Result

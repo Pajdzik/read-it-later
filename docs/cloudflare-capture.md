@@ -1,5 +1,7 @@
 # Cloudflare Container capture
 
+Current HTML/PDF conversion, original storage and complete archive behavior are documented in [unified ingestion](unified-ingestion.md). Server-side Defuddle architecture and manual-only/R2-deferred statements below are historical. Managed conversion is disabled in checked-in configs pending staging validation.
+
 Decision, October 19, 2026: keep Workers, Static Assets, D1, and D1 jobs, and move the entire fetch-and-extract operation into a private Cloudflare Container. Workers Paid is accepted for this design. The checked-in production config enables background capture and binds the private executor; local defaults and staging keep it disabled. This configuration does not establish live deployment state. The implementation changes no account billing and deploys no resources.
 
 ## Architecture

@@ -5,7 +5,7 @@ export interface ExtractionMessage {
   generation: number;
 }
 
-export interface Env extends Pick<WorkerBindings, 'DB' | 'ASSETS'> {
+export interface Env extends Pick<WorkerBindings, "DB" | "ASSETS">, Partial<Pick<WorkerBindings, "PDF_BUCKET" | "MANAGED_CONVERSION_ENABLED">> {
   GITHUB_CLIENT_ID?: string;
   GITHUB_CLIENT_SECRET?: string;
   OWNER_GITHUB_ID?: string;
@@ -43,7 +43,16 @@ export interface ExtractionStatus {
   undoAvailable: boolean;
 }
 
+export interface OriginalPdf {
+  id: string;
+  checksum: string;
+  bytes: number;
+  capturedAt: string;
+  sourceUrl: string;
+}
+
 export interface Article {
+  originalPdf?: OriginalPdf;
   id: string;
   url: string;
   title: string;

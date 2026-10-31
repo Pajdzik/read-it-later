@@ -5,23 +5,143 @@
   "compatibility_date": "2026-10-19",
   "workers_dev": false,
   "preview_urls": false,
-  "observability": { "enabled": true, "traces": { "enabled": true } },
-  "containers": [{ "class_name": "ArticleCaptureContainer", "image": "../Dockerfile.capture", "image_build_context": "..", "max_instances": 1, "instance_type": "basic" }],
-  "durable_objects": { "bindings": [{ "name": "CAPTURE_CONTAINER", "class_name": "ArticleCaptureContainer" }] },
-  "migrations": [{ "tag": "v1", "new_sqlite_classes": ["ArticleCaptureContainer"] }],
-  "vars": { "APP_ORIGIN": "http://localhost:8787" },
+  "observability": {
+    "enabled": true,
+    "traces": {
+      "enabled": true
+    }
+  },
+  "containers": [
+    {
+      "class_name": "ArticleCaptureContainer",
+      "image": "../Dockerfile.capture",
+      "image_build_context": "..",
+      "max_instances": 1,
+      "instance_type": "basic"
+    }
+  ],
+  "durable_objects": {
+    "bindings": [
+      {
+        "name": "CAPTURE_CONTAINER",
+        "class_name": "ArticleCaptureContainer"
+      }
+    ]
+  },
+  "migrations": [
+    {
+      "tag": "v1",
+      "new_sqlite_classes": [
+        "ArticleCaptureContainer"
+      ]
+    }
+  ],
+  "vars": {
+    "APP_ORIGIN": "http://localhost:8787",
+    "MANAGED_CONVERSION_ENABLED": "false"
+  },
   "env": {
     "staging": {
       "name": "read-it-later-capture-staging",
-      "vars": { "APP_ORIGIN": "https://read-it-later-staging.<account-subdomain>.workers.dev" },
-      "containers": [{ "class_name": "ArticleCaptureContainer", "image": "../Dockerfile.capture", "image_build_context": "..", "max_instances": 1, "instance_type": "basic" }],
-      "durable_objects": { "bindings": [{ "name": "CAPTURE_CONTAINER", "class_name": "ArticleCaptureContainer" }] }
+      "vars": {
+        "APP_ORIGIN": "https://read-it-later-staging.<account-subdomain>.workers.dev",
+        "MANAGED_CONVERSION_ENABLED": "false"
+      },
+      "containers": [
+        {
+          "class_name": "ArticleCaptureContainer",
+          "image": "../Dockerfile.capture",
+          "image_build_context": "..",
+          "max_instances": 1,
+          "instance_type": "basic"
+        }
+      ],
+      "durable_objects": {
+        "bindings": [
+          {
+            "name": "CAPTURE_CONTAINER",
+            "class_name": "ArticleCaptureContainer"
+          }
+        ]
+      },
+      "ai": {
+        "binding": "AI",
+        "remote": true
+      },
+      "r2_buckets": [
+        {
+          "binding": "PDF_BUCKET",
+          "bucket_name": "read-it-later-pdfs-staging"
+        }
+      ],
+      "d1_databases": [
+        {
+          "binding": "DB",
+          "database_name": "read-later-staging",
+          "database_id": "11111111-1111-4111-8111-111111111111",
+          "migrations_dir": "../migrations"
+        }
+      ]
     },
     "production": {
       "name": "read-it-later-capture-production",
-      "vars": { "APP_ORIGIN": "https://read.pajdzik.pl" },
-      "containers": [{ "class_name": "ArticleCaptureContainer", "image": "../Dockerfile.capture", "image_build_context": "..", "max_instances": 1, "instance_type": "basic" }],
-      "durable_objects": { "bindings": [{ "name": "CAPTURE_CONTAINER", "class_name": "ArticleCaptureContainer" }] }
+      "vars": {
+        "APP_ORIGIN": "https://read.pajdzik.pl",
+        "MANAGED_CONVERSION_ENABLED": "false"
+      },
+      "containers": [
+        {
+          "class_name": "ArticleCaptureContainer",
+          "image": "../Dockerfile.capture",
+          "image_build_context": "..",
+          "max_instances": 1,
+          "instance_type": "basic"
+        }
+      ],
+      "durable_objects": {
+        "bindings": [
+          {
+            "name": "CAPTURE_CONTAINER",
+            "class_name": "ArticleCaptureContainer"
+          }
+        ]
+      },
+      "ai": {
+        "binding": "AI",
+        "remote": true
+      },
+      "r2_buckets": [
+        {
+          "binding": "PDF_BUCKET",
+          "bucket_name": "read-it-later-pdfs-production"
+        }
+      ],
+      "d1_databases": [
+        {
+          "binding": "DB",
+          "database_name": "read-later-production",
+          "database_id": "e4a7e714-8e4e-413d-8f13-51c0c02fab5f",
+          "migrations_dir": "../migrations"
+        }
+      ]
     }
-  }
+  },
+  "ai": {
+    "binding": "AI",
+    "remote": true
+  },
+  "r2_buckets": [
+    {
+      "binding": "PDF_BUCKET",
+      "bucket_name": "read-it-later-pdfs-local"
+    }
+  ],
+  "d1_databases": [
+    {
+      "binding": "DB",
+      "database_name": "read-later",
+      "database_id": "replace-with-d1-database-id",
+      "migrations_dir": "../migrations"
+    }
+  ]
 }
