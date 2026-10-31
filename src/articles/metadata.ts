@@ -32,14 +32,14 @@ export function parseArticleMetadata(input: string | ArticleDocument): ArticleMe
     if (label && /author|written\s+by|byline/i.test(label)) socialAuthor = meta.get(`twitter:data${index}`);
   }
   const description = meta.get("og:description") || meta.get("twitter:description") || meta.get("description");
-  let lead: string | undefined;
-  if (!description) {
-    const content = document.querySelector("article, main, [role='main'], .content, .article-content, .post-content") ?? document.body;
-    lead = clean(content.querySelector("p")?.textContent || undefined, MAX_DESCRIPTION);
-  }
+  const content = document.querySelector("[data-article-part='body'], [itemprop='articleBody']") ??
+    document.querySelector("article, main, [role='main'], .content, .article-content, .post-content") ?? document.body;
+  const lead = clean(content.querySelector("p")?.textContent || undefined, MAX_DESCRIPTION);
+  const repeatsHeadline = description && [...document.querySelectorAll("h1")].some(heading =>
+    clean(heading.textContent || undefined, MAX_DESCRIPTION)?.toLowerCase() === description.toLowerCase());
   return {
     title: clean(meta.get("og:title") || meta.get("twitter:title") || titleTag, MAX_TITLE),
     author: clean(meta.get("author") || meta.get("article:author") || socialAuthor, MAX_AUTHOR),
-    description: clean(description, MAX_DESCRIPTION) || lead,
+    description: (repeatsHeadline ? lead : clean(description, MAX_DESCRIPTION)) || lead,
   };
 }
