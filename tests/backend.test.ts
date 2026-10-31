@@ -2,13 +2,13 @@ import { captureFixture } from './capture-fixture';
 import { env as testEnv } from 'cloudflare:test';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import type { Env, ExtractionStatus } from '../src/contracts';
-import { processExtractionJobs } from '../src/articles/processor';
+import { deliverPendingExtractions, extractionQueueStub } from './extraction-queue-fixture';
 import { handleArticles } from '../src/articles/handler';
 import { handleAuth } from '../src/auth/handler';
 import { normalizeArticleUrl, readJson, BodyTooLargeError } from '../src/articles/validation';
 import { digest } from '../src/auth/core';
 
-const env = { DB: testEnv.DB, ASSETS: testEnv.ASSETS, APP_ORIGIN: 'http://localhost:8787', DEV_AUTH_BYPASS: 'true' } as Env;
+const env = { EXTRACTION_QUEUE: extractionQueueStub().binding, DB: testEnv.DB, ASSETS: testEnv.ASSETS, APP_ORIGIN: 'http://localhost:8787', DEV_AUTH_BYPASS: 'true' } as Env;
 const origin = 'http://localhost:8787';
 const ownerEnv = {
   DB: testEnv.DB, ASSETS: testEnv.ASSETS, APP_ORIGIN: 'https://service.example', GITHUB_CLIENT_ID: 'client',
@@ -132,8 +132,8 @@ describe('article HTTP handlers', () => {
     expect(data.extraction).toMatchObject({ state: 'queued', paused: false });
     expect(fetcher).not.toHaveBeenCalled();
     expect(await (await route(request(`/api/articles/${data.article.id}/copy`))).json()).toEqual({ copy: null });
-    // The scheduled invocation has no dependency on the original request or phone.
-    await processExtractionJobs(enabledEnv);
+    // Queue delivery has no dependency on the original request or phone.
+    await deliverPendingExtractions(enabledEnv);
     const copyData = await (await route(request(`/api/articles/${data.article.id}/copy`))).json() as { copy: { markdown: string; revision: string } };
     expect(copyData.copy.markdown).toContain('Readable article');
     expect(copyData.copy.markdown).toContain('**important formatting**');
@@ -147,7 +147,7 @@ describe('article HTTP handlers', () => {
     const duplicate = await route(request('/api/articles', 'POST', { url: 'https://source.example.com/article#section', captureMarkdown: true }));
     expect(duplicate.status).toBe(200);
     expect(await duplicate.json()).toMatchObject({ duplicate: true, article: { id: data.article.id, readAt: expect.any(String) }, extraction: { state: 'ready' } });
-    await processExtractionJobs(enabledEnv);
+    await deliverPendingExtractions(enabledEnv);
     expect(fetcher).toHaveBeenCalledTimes(1);
     expect(await (await route(request(`/api/articles/${data.article.id}/copy`))).json()).toEqual(copyData);
   });
@@ -159,7 +159,7 @@ describe('article HTTP handlers', () => {
     expect(response.status).toBe(201);
     const data = await response.json() as { article: { id: string }; extraction: ExtractionStatus };
     expect(data.extraction).toMatchObject({ state: 'queued', paused: true });
-    await processExtractionJobs(enabledEnv);
+    await deliverPendingExtractions(enabledEnv);
     const statusPath = `/api/articles/${data.article.id}/extraction`;
     expect(await (await route(request(statusPath))).json()).toMatchObject({ extraction: { state: 'failed' } });
     const duplicate = await route(request('/api/articles', 'POST', { url: 'https://source.example.com/retry', captureMarkdown: true }));
@@ -172,7 +172,7 @@ describe('article HTTP handlers', () => {
     expect(await retried.json()).toMatchObject({ extraction: { state: 'queued', attempts: 0 } });
     expect((await route(request(statusPath + '/retry', 'POST', { url: 'https://other.example' }))).status).toBe(400);
     fetcher.mockImplementation(async () => await captureFixture('<html><body><article><h1>Retry worked</h1><p>This article is now available to read and preserve.</p></article></body></html>'));
-    await processExtractionJobs(enabledEnv);
+    await deliverPendingExtractions(enabledEnv);
     expect(await (await route(request(`/api/articles/${data.article.id}/copy`))).json()).toMatchObject({ copy: { markdown: expect.stringContaining('This article is now available') } });
   });
 
@@ -210,7 +210,7 @@ describe('article HTTP handlers', () => {
       ...env, BACKGROUND_CAPTURE_ENABLED: 'true',
       ARTICLE_EXTRACTOR: { fetch: async () => await captureFixture('<article><h1>Recovered</h1><p>A complete preserved article from the durable request.</p></article>'), connect() { throw new Error('No socket access'); } },
     };
-    await processExtractionJobs(enabledEnv);
+    await deliverPendingExtractions(enabledEnv);
     expect(await (await route(request(`/api/articles/${articleId!}/copy`))).json()).toMatchObject({ copy: { markdown: expect.stringContaining('durable request') } });
   });
 

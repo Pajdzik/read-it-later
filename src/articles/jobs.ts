@@ -1,4 +1,4 @@
-import type { ArticleCopy, ExtractionStatus } from "../contracts";
+import type { ArticleCopy, ExtractionMessage, ExtractionStatus } from "../contracts";
 import { completeRecapture, metadataSnapshot } from './recovery';
 
 export interface ExtractionJob {
@@ -110,7 +110,9 @@ export async function enqueueExtractionJob(db: D1Database, id: string, now = new
 }
 
 /** Reconcile missed intents and consume expired leases in bounded batches. */
-export async function reconcileExtractionJobs(db: D1Database, now = new Date().toISOString()): Promise<void> {
+export async function reconcileExtractionJobs(
+  db: D1Database, now = new Date().toISOString(), target?: ExtractionMessage,
+): Promise<{ recovered: number; materialized: number }> {
   const recover = db.prepare(`UPDATE article_extraction_jobs SET
       state = CASE WHEN attempts >= ? THEN 'failed' ELSE 'retry_wait' END,
       next_attempt_at = CASE attempts
@@ -121,8 +123,15 @@ export async function reconcileExtractionJobs(db: D1Database, now = new Date().t
       finished_at = CASE WHEN attempts >= ? THEN ? ELSE NULL END,
       updated_at = ?
     WHERE article_id IN (SELECT article_id FROM article_extraction_jobs
-      WHERE state = 'running' AND lease_expires_at <= ? ORDER BY lease_expires_at,article_id LIMIT ?)`)
-    .bind(MAX_ATTEMPTS, now, now, MAX_ATTEMPTS, MAX_ATTEMPTS, now, now, now, MAX_RECONCILE);
+      WHERE state = 'running' AND lease_expires_at <= ?
+        ${target ? 'AND article_id = ? AND generation = ?' : ''}
+      ORDER BY lease_expires_at,article_id LIMIT ?)`)
+    .bind(MAX_ATTEMPTS, now, now, MAX_ATTEMPTS, MAX_ATTEMPTS, now, now, now,
+      ...(target ? [target.articleId, target.generation] : []), MAX_RECONCILE);
+  if (target) {
+    const result = await recover.run();
+    return { recovered: result.meta.changes ?? 0, materialized: 0 };
+  }
   const materialize = db.prepare(`INSERT INTO article_extraction_jobs
       (article_id,generation,state,attempts,next_attempt_at,created_at,updated_at)
     SELECT a.id,1,'queued',0,?,?,? FROM articles a
@@ -131,11 +140,39 @@ export async function reconcileExtractionJobs(db: D1Database, now = new Date().t
       AND NOT EXISTS (SELECT 1 FROM article_extraction_jobs j WHERE j.article_id = a.id)
     ORDER BY a.extraction_requested_at,a.id LIMIT ?`)
     .bind(now, now, now, MAX_RECONCILE);
-  await db.batch([recover, materialize]);
+  const results = await db.batch([recover, materialize]);
+  return { recovered: results[0].meta.changes ?? 0, materialized: results[1].meta.changes ?? 0 };
+}
+
+export interface ExtractionDelivery {
+  articleId: string;
+  generation: number;
+  state: string;
+  nextAttemptAt: string;
+  leaseExpiresAt: string | null;
+}
+
+const DELIVERY_SELECT = `SELECT j.article_id AS articleId,j.generation,j.state,
+    j.next_attempt_at AS nextAttemptAt,j.lease_expires_at AS leaseExpiresAt
+  FROM article_extraction_jobs j JOIN articles a ON a.id=j.article_id
+  WHERE (j.kind='recapture' OR NOT EXISTS (SELECT 1 FROM article_copies c WHERE c.article_id=j.article_id))`;
+
+export async function getExtractionDelivery(db: D1Database, id: string): Promise<ExtractionDelivery | null> {
+  return db.prepare(`${DELIVERY_SELECT} AND j.article_id=?`).bind(id).first<ExtractionDelivery>();
+}
+
+/** Keyset pagination prevents repeated notifications of the first pending page. */
+export async function pendingExtractionPage(db: D1Database, after = ''): Promise<ExtractionDelivery[]> {
+  const result = await db.prepare(`${DELIVERY_SELECT}
+    AND j.state IN ('queued','retry_wait') AND j.article_id>? ORDER BY j.article_id LIMIT 50`)
+    .bind(after).all<ExtractionDelivery>();
+  return result.results;
 }
 
 /** One conditional UPDATE elects a single claimant and installs its lease. */
-export async function claimExtractionJob(db: D1Database, now = new Date().toISOString()): Promise<ExtractionJob | null> {
+export async function claimExtractionJob(
+  db: D1Database, now = new Date().toISOString(), target?: ExtractionMessage,
+): Promise<ExtractionJob | null> {
   const token = crypto.randomUUID();
   const leaseExpiresAt = isoAfter(now, LEASE_MS / 1000);
   const row = await db.prepare(`UPDATE article_extraction_jobs SET state = 'running',
@@ -144,13 +181,15 @@ export async function claimExtractionJob(db: D1Database, now = new Date().toISOS
       SELECT j.article_id FROM article_extraction_jobs j
       JOIN articles a ON a.id = j.article_id
       WHERE j.state IN ('queued','retry_wait') AND j.next_attempt_at <= ? AND j.attempts < ?
+        ${target ? 'AND j.article_id = ? AND j.generation = ?' : ''}
         AND (j.kind='recapture' OR NOT EXISTS (SELECT 1 FROM article_copies c WHERE c.article_id = j.article_id))
       ORDER BY j.next_attempt_at,j.article_id LIMIT 1
     ) AND state IN ('queued','retry_wait') AND next_attempt_at <= ? AND attempts < ?
       AND (kind='recapture' OR NOT EXISTS (SELECT 1 FROM article_copies c WHERE c.article_id = article_extraction_jobs.article_id))
     RETURNING article_id,generation,attempts,lease_expires_at,kind,
       (SELECT url FROM articles WHERE id = article_extraction_jobs.article_id) AS url`)
-    .bind(token, leaseExpiresAt, now, now, MAX_ATTEMPTS, now, MAX_ATTEMPTS)
+    .bind(token, leaseExpiresAt, now, now, MAX_ATTEMPTS,
+      ...(target ? [target.articleId, target.generation] : []), now, MAX_ATTEMPTS)
     .first<Record<string, unknown>>();
   if (!row) return null;
   return {

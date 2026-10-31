@@ -8,6 +8,7 @@ import {
 } from './validation.js';
 import { isResponse, requireSession, validateCaptureToken } from '../auth/core.js';
 import { enqueueExtractionJob, getExtractionStatus, getExtractionStatuses, retryExtractionJob } from './jobs.js';
+import { scheduleExtraction } from './extraction-queue';
 import { isBackgroundCapturePaused } from './capture-client.js';
 import { getGitHubBackupConfiguration, getGitHubBackupStatus, GitHubBackupError, reconcileGitHubBackupPaths, saveGitHubBackup } from './github.js';
 import { isArticleId } from './identity.js';
@@ -23,9 +24,9 @@ const MAX_COPY_ENVELOPE_BYTES = 2 * 1024 * 1024;
 function fail(status: number, code: string, message: string): Response { return errorResponse(status, code, message); }
 const storageError = { status: 503, code: 'storage_unavailable', message: 'The service is temporarily unavailable. Please retry.' };
 
-export async function handleArticles(request: Request, env: Env): Promise<Response | null> {
+export async function handleArticles(request: Request, env: Env, ctx?: ExecutionContext): Promise<Response | null> {
   const url = new URL(request.url); const method = request.method.toUpperCase();
-  if (url.pathname === '/api/capture' && method === 'POST') return capture(request, env);
+  if (url.pathname === '/api/capture' && method === 'POST') return capture(request, env, ctx);
   const isArticlePath = url.pathname === '/api/articles' || /^\/api\/articles\/[^/]+(?:\/copy|\/github|\/integrations(?:\/[a-z][a-z0-9-]{0,47})?|\/extraction(?:\/(?:retry|recapture|undo))?)?$/.test(url.pathname);
   if (!isArticlePath && !['/api/export', '/api/import', '/api/github', '/api/github/reconcile', '/api/integrations'].includes(url.pathname)) return null;
   const needsWrite = method !== 'GET';
@@ -53,7 +54,7 @@ export async function handleArticles(request: Request, env: Env): Promise<Respon
       if (request.body) parseObject(await readJson(request), []);
       return jsonResponse(await reconcileGitHubBackupPaths(env));
     }
-    if (url.pathname === '/api/articles' && method === 'POST') return await createArticle(request, env);
+    if (url.pathname === '/api/articles' && method === 'POST') return await createArticle(request, env, false, ctx);
     if (url.pathname === '/api/articles' && method === 'GET') return await listRoute(url, env);
     if (url.pathname === '/api/articles/suggestion' && method === 'GET') {
       const exclude = url.searchParams.get('exclude');
@@ -90,6 +91,7 @@ export async function handleArticles(request: Request, env: Env): Promise<Respon
           response.headers.set('Retry-After', '60');
           return response;
         }
+        if (!undo && result === 'queued') await scheduleExtraction(env, id, ctx);
         return jsonResponse({ extraction: await getExtractionStatus(env.DB, id, isBackgroundCapturePaused(env)) }, result === 'queued' ? 202 : 200);
       }
       if (method === 'POST' && extractionRoute[2] === '/retry') {
@@ -103,6 +105,7 @@ export async function handleArticles(request: Request, env: Env): Promise<Respon
           response.headers.set('Retry-After', '60');
           return response;
         }
+        if (result === 'queued') await scheduleExtraction(env, id, ctx);
         return jsonResponse({ extraction: await getExtractionStatus(env.DB, id, isBackgroundCapturePaused(env)) });
       }
     }
@@ -183,7 +186,7 @@ async function putArticleCopy(request: Request, env: Env, id: string): Promise<R
   return jsonResponse({ copy });
 }
 
-async function createArticle(request: Request, env: Env, tokenCapture = false): Promise<Response> {
+async function createArticle(request: Request, env: Env, tokenCapture = false, ctx?: ExecutionContext): Promise<Response> {
   const input = parseObject(await readJson(request), ['url', 'title', 'author', 'description', 'captureMarkdown'], ['url']);
   if (tokenCapture && ('author' in input || 'description' in input)) throw new ValidationError('capture tokens cannot set article metadata');
   if (input.captureMarkdown !== undefined && typeof input.captureMarkdown !== 'boolean') throw new ValidationError('captureMarkdown must be a boolean');
@@ -199,7 +202,10 @@ async function createArticle(request: Request, env: Env, tokenCapture = false): 
     titleOrigin: suppliedTitle ? 'supplied' : 'fallback',
   });
   if (extractionRequested) {
-    try { await enqueueExtractionJob(env.DB, result.article.id); }
+    try {
+      await enqueueExtractionJob(env.DB, result.article.id);
+      await scheduleExtraction(env, result.article.id, ctx);
+    }
     catch { logUnexpectedError('articles.extraction_enqueue'); }
   }
   // Capture tokens can confirm that work was accepted, but cannot learn
@@ -208,13 +214,13 @@ async function createArticle(request: Request, env: Env, tokenCapture = false): 
   return jsonResponse({ ...result, extraction: await getExtractionStatus(env.DB, result.article.id, isBackgroundCapturePaused(env)) }, result.duplicate ? 200 : 201);
 }
 
-async function capture(request: Request, env: Env): Promise<Response> {
+async function capture(request: Request, env: Env, ctx?: ExecutionContext): Promise<Response> {
   if (request.headers.has('Cookie') || request.headers.has('Origin')) return fail(403, 'forbidden', 'Capture requests must use a bearer token without browser credentials.');
   let auth: Awaited<ReturnType<typeof validateCaptureToken>>;
   try { auth = await validateCaptureToken(request, env); } catch (error) { return exceptionResponse(error, 'articles.capture_auth', storageError); }
   if (isResponse(auth)) return auth;
   try {
-    return await createArticle(request, env, true);
+    return await createArticle(request, env, true, ctx);
   } catch (error) {
     return exceptionResponse(error, 'articles.capture', storageError);
   }

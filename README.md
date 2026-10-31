@@ -22,7 +22,9 @@ flowchart LR
     Shortcut[iOS Shortcut: save-only token] --> Worker
     Worker --> Assets[Workers Static Assets]
     Worker --> D1[(D1: library and auth)]
-    Cron[Scheduled trigger] --> Worker
+    Cron[Hourly recovery] --> Worker
+    Worker --> Queue[Extraction queue]
+    Queue --> Worker
     Worker --> Fetcher[Protected article fetch service]
     Fetcher --> Source[Original website]
     Browser --> Original[Original article or document]
@@ -38,7 +40,7 @@ The frontend is bundled with esbuild. JavaScript and CSS use content-hashed file
 
 Both the authenticated Add form and token capture API use the same save path. URLs must be absolute HTTP(S), have no embedded credentials, and fit within 8 KiB. The submitted URL is retained for opening the original. A separate normalized URL is the unique deduplication key: normalize host/default ports, remove fragments and `utm_*`, `fbclid`, and `gclid`, and retain other query bytes/order, path case, and trailing slashes. This deliberately treats fragment-only differences as the same article; changing the policy later requires an explicit data migration.
 
-Saving commits the URL immediately with a supplied title or hostname/path fallback. The website Add form enables **Save a Markdown copy of the article** by default and records durable extraction intent through `captureMarkdown: true`. A scheduled Worker later claims the job and calls a private Cloudflare Container service to fetch bounded HTML and extract title/author/description and Markdown. The Worker creates the private copy in D1. Closing the browser or phone after the link-save acknowledgment does not cancel that intent. Uncheck the option for a link-only save; link-only saves do not fetch metadata.
+Saving commits the URL immediately with a supplied title or hostname/path fallback. The website Add form enables **Save a Markdown copy of the article** by default and records durable extraction intent through `captureMarkdown: true`. The Worker publishes a queue notification after the durable save. Its queue consumer claims that article and generation and calls a private Cloudflare Container service to fetch bounded HTML and extract title/author/description and Markdown. The Worker creates the private copy in D1. Closing the browser or phone after the link-save acknowledgment does not cancel that intent. An hourly recovery sweep repairs missed jobs and republishes unfinished work after notification failures. Uncheck the option for a link-only save; link-only saves do not fetch metadata.
 
 Mobile capture tokens request background extraction by default, including existing iOS Shortcut `{url, title?}` payloads. `captureMarkdown: false` opts out. Tokens remain save-only: they cannot read copies or job history, submit Markdown, retry failed jobs, or publish to GitHub. Website details show queued, running, retrying, ready, failed, or paused status and provide an owner-only retry. Duplicate saves preserve existing copies and do not restart exhausted jobs. Reviewed browser clips take priority and continue using their existing explicit copy-save path.
 
