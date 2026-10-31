@@ -8,6 +8,7 @@
 !src/
 !src/articles/
 !src/articles/**
+!src/http.ts
 !capture/
 !capture/**
 !scripts/

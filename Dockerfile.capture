@@ -5,6 +5,7 @@ COPY package.json pnpm-lock.yaml pnpm-workspace.yaml ./
 RUN pnpm install --frozen-lockfile
 COPY tsconfig.node.json ./tsconfig.node.json
 COPY src/articles ./src/articles
+COPY src/http.ts ./src/http.ts
 COPY fetcher ./fetcher
 COPY capture ./capture
 COPY scripts/build-capture.ts ./scripts/build-capture.ts
