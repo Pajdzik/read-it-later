@@ -653,9 +653,6 @@ try {
   await expect(metadata).toContainText(/^example\.com · By Reader Author · Captured .+/);
   assert.doesNotMatch(await metadata.innerText(), /pasted Markdown|uploaded file|Image references/,
     "Reader metadata should show only source domain, author, and capture date.");
-  await expect(reader.locator("#reader-image-note")).toContainText(/Images load from their original sites.*IP address/);
-  assert.equal(await reader.locator("#reader-image-note").isVisible(), true,
-    "The image loading and privacy note should be visible with a saved copy.");
   const alignedBlocks = await Promise.all([
     reader.locator("#reader-title"), metadata, readerBody,
   ].map((element) => element.boundingBox()));

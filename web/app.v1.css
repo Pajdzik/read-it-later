@@ -961,13 +961,6 @@ button {
   font-size: 12px;
   line-height: 1.5;
 }
-.reader-image-note {
-  margin: -8px 0 12px;
-  color: var(--muted);
-  font-size: 12px;
-  line-height: 1.5;
-}
-.reader-image-note[hidden] { display: none; }
 .reader-original {
   margin: 0;
   border-radius: 7px;
