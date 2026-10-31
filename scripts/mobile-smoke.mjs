@@ -327,7 +327,6 @@ async function runProfile(name, browserType, device) {
   assert.match(readerMetadataText, / · Captured .+$/, `${name}: reader metadata should include the capture date.`);
   assert.doesNotMatch(readerMetadataText, /pasted Markdown|uploaded file|Image references/,
     `${name}: reader metadata should only show source details and capture date.`);
-  await expect(readyReader.locator("#reader-image-note")).toContainText(/Images load from their original sites.*IP address/);
   await page.screenshot({ path: screenshot("portrait-reader-dark") });
   const sharedEdges = await Promise.all([
     readyReader.locator("#reader-title"), readerMetadata, readyReader.locator("#reader-body"),

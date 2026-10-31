@@ -1493,7 +1493,6 @@ function openReader(article: Article, copy: ArticleCopy, opener?: HTMLElement) {
     .join(" · ");
   $("#reader-pending").hidden = true;
   $("#reader-new-copy").hidden = true;
-  $("#reader-image-note").hidden = false;
   body.hidden = false;
   original.href = safeHttpUrl(article.url) || "#";
   body.replaceChildren(renderMarkdown(copy.markdown, article.url, article.title));
@@ -1530,7 +1529,6 @@ function renderPendingReader(article: Article) {
   const canonicalPath = articlePath(article);
   if (location.pathname !== canonicalPath) history.replaceState(readerHistoryState(article.id, readerFromList), "", canonicalPath);
   $("#reader-metadata").textContent = [sourceHost(article.url), ...(article.author ? [`By ${article.author}`] : [])].join(" · ");
-  $("#reader-image-note").hidden = true;
   const original = $<HTMLAnchorElement>("#reader-original");
   original.href = safeHttpUrl(article.url) || "#";
   $("#reader-pending-status").textContent = article.extraction?.state === "failed"
@@ -1595,7 +1593,6 @@ function clearReader() {
   $("#reader-body").replaceChildren();
   setReaderTitle("");
   $("#reader-metadata").textContent = "";
-  $("#reader-image-note").hidden = true;
   $("#reader-pending").hidden = true;
   $("#reader-pending-status").textContent = "";
   $("#reader-body").hidden = false;
@@ -1639,7 +1636,6 @@ $("#reader-dialog").addEventListener("close", () => {
   $("#reader-body").replaceChildren();
   setReaderTitle("");
   $("#reader-metadata").textContent = "";
-  $("#reader-image-note").hidden = true;
   $("#reader-pending").hidden = true;
   $("#reader-pending-status").textContent = "";
   $("#reader-body").hidden = false;
