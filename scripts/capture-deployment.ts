@@ -143,6 +143,7 @@ export function createCaptureDeploymentPlan(options: {
     ["pnpm", "build:fetcher"],
     ["pnpm", "exec", "wrangler", "d1", "migrations", "apply", db.database_name, "--remote", "--env", environment, "--config", generatedConfigPath],
     ["pnpm", "exec", "wrangler", "deploy", "--config", gatewayConfigPath, "--env", environment, "--var", `APP_ORIGIN:${origin}`],
+    ["pnpm", "queue:ensure", "--env", environment, "--config", generatedConfigPath, "--execute"],
     ["pnpm", "exec", "wrangler", "deploy", "--config", generatedConfigPath, "--env", environment],
   ];
   return { environment, origin, appWorker, gatewayWorker, databaseName: db.database_name, databaseId: db.database_id, generatedConfigPath, generatedConfig, commands };

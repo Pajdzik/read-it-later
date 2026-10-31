@@ -2,7 +2,7 @@ import type { Env } from "../contracts";
 import { CAPTURE_TIMEOUT_MS, MAX_CAPTURE_RESPONSE_BYTES, MAX_MARKDOWN_BYTES, SourceFetchError, captureErrorCodes, type CapturedArticle } from "./capture-protocol";
 
 export function isBackgroundCapturePaused(env: Env): boolean {
-  return env.BACKGROUND_CAPTURE_ENABLED !== "true" || !env.ARTICLE_EXTRACTOR;
+  return env.BACKGROUND_CAPTURE_ENABLED !== "true" || !env.ARTICLE_EXTRACTOR || !env.EXTRACTION_QUEUE;
 }
 
 function invalidResponse(): never { throw new SourceFetchError("invalid_capture_response", true); }

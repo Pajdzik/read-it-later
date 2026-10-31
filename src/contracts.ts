@@ -1,6 +1,11 @@
-export interface Env {
-  DB: D1Database;
-  ASSETS: Fetcher;
+/// <reference path="./worker-bindings.d.ts" />
+export interface ExtractionMessage {
+  version: 1;
+  articleId: string;
+  generation: number;
+}
+
+export interface Env extends Pick<WorkerBindings, 'DB' | 'ASSETS'> {
   GITHUB_CLIENT_ID?: string;
   GITHUB_CLIENT_SECRET?: string;
   OWNER_GITHUB_ID?: string;
@@ -14,6 +19,8 @@ export interface Env {
   ARTICLE_HOOKS?: Fetcher;
   ARTICLE_HOOKS_CONFIG?: string;
   BACKGROUND_CAPTURE_ENABLED?: string;
+  /** Durable delivery notifications; D1 remains authoritative for job state. */
+  EXTRACTION_QUEUE?: Queue<ExtractionMessage>;
   /** Private Cloudflare Container capture service; returns Markdown and metadata, never source HTML. */
   ARTICLE_EXTRACTOR?: Fetcher;
   /** Legacy gateway binding retained for staged source-fetch compatibility. */

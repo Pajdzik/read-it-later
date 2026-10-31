@@ -2,7 +2,7 @@ import type { Env } from "./contracts";
 import { handleAuth } from "./auth/handler";
 import { handleArticles } from "./articles/handler";
 import { errorResponse, logUnexpectedError } from "./http";
-import { processExtractionJobs } from "./articles/processor";
+import { consumeExtractionBatch, recoverExtractionJobs } from "./articles/processor";
 
 const securityHeaders = {
   "Cache-Control": "private, no-store",
@@ -19,21 +19,24 @@ function withSecurityHeaders(response: Response): Response {
 }
 
 export default {
+  async queue(batch: MessageBatch<unknown>, env: Env): Promise<void> {
+    await consumeExtractionBatch(batch, env);
+  },
   async scheduled(_controller: ScheduledController, env: Env): Promise<void> {
-    try { await processExtractionJobs(env); }
+    try { await recoverExtractionJobs(env); }
     catch {
       logUnexpectedError("worker.scheduled");
       throw new Error("Background extraction processing failed");
     }
   },
-  async fetch(request: Request, env: Env): Promise<Response> {
+  async fetch(request: Request, env: Env, ctx?: ExecutionContext): Promise<Response> {
     const url = new URL(request.url);
     if (url.pathname === "/healthz") {
       return withSecurityHeaders(Response.json({ ok: true }, { headers: { "Cache-Control": "public, max-age=30" } }));
     }
     if (url.pathname === "/api" || url.pathname.startsWith("/api/") || url.pathname === "/auth" || url.pathname.startsWith("/auth/")) {
       try {
-        const response = await handleAuth(request, env) ?? await handleArticles(request, env);
+        const response = await handleAuth(request, env) ?? await handleArticles(request, env, ctx);
         return withSecurityHeaders(response ?? errorResponse(404, "not_found", "Route not found"));
       } catch {
         logUnexpectedError("worker.request");

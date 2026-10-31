@@ -1,6 +1,6 @@
 # Cloudflare Container capture
 
-Decision, October 19, 2026: keep Workers, Static Assets, D1, and the one-minute Cron, and move the entire fetch-and-extract operation into a private Cloudflare Container. Workers Paid is accepted for this design. The checked-in production config enables background capture and binds the private executor; local defaults and staging keep it disabled. This configuration does not establish live deployment state. The implementation changes no account billing and deploys no resources.
+Decision, October 19, 2026: keep Workers, Static Assets, D1, and D1 jobs, and move the entire fetch-and-extract operation into a private Cloudflare Container. Workers Paid is accepted for this design. The checked-in production config enables background capture and binds the private executor; local defaults and staging keep it disabled. This configuration does not establish live deployment state. The implementation changes no account billing and deploys no resources.
 
 ## Architecture
 
@@ -55,6 +55,8 @@ The app calls `POST https://capture.internal/capture` **through the service bind
 An optional `retryAfterSeconds` is validated between 1 and 3600. The app accepts only known codes/version and bounded field types, 500/200/500-character title/author/description, nonempty Markdown within the byte cap, and at most 2 MiB of response JSON (allowing escape expansion). Unknown/raw service errors become safe retryable categories. It never persists arbitrary exception text. Logs retain stable codes and job IDs, without URLs or page text.
 
 The application service deadline is 90 seconds including cold start and response reading, less than the two-minute D1 lease. Active and late response streams are cancelled. The executor's own deadlines bound work if binding cancellation is delayed. Existing generation/lease fencing prevents a result from committing after expiry, deletion, manual-copy completion, or a newer retry generation.
+
+Updated October 31, 2026: the application now uses Cloudflare Queues for immediate extraction delivery, with hourly cron for repair and republication. See [queue delivery and recovery](deployment.md#queue-delivery-and-hourly-recovery). The private Container fetch/extract boundary below is unchanged.
 
 ## Existing contracts retained
 

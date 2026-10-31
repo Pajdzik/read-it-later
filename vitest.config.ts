@@ -5,6 +5,7 @@ export default defineConfig({
   plugins: [cloudflareTest(async () => ({
     wrangler: { configPath: "./wrangler.jsonc" },
     miniflare: {
+      queueConsumers: [],
       bindings: {
         TEST_MIGRATIONS: await readD1Migrations(new URL("./migrations", import.meta.url).pathname),
       },

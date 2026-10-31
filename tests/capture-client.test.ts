@@ -3,8 +3,10 @@ import type { Env } from "../src/contracts";
 import { captureArticle, isBackgroundCapturePaused } from "../src/articles/capture-client";
 import { CAPTURE_TIMEOUT_MS, MAX_CAPTURE_RESPONSE_BYTES } from "../src/articles/capture-protocol";
 
+import { extractionQueueStub } from './extraction-queue-fixture';
+
 function configured(fetch: (input: RequestInfo | URL, init?: RequestInit) => Promise<Response>, overrides: Partial<Env> = {}): Env {
-  return { DB: {} as D1Database, ASSETS: {} as Fetcher, BACKGROUND_CAPTURE_ENABLED: "true",
+  return { EXTRACTION_QUEUE: extractionQueueStub().binding, DB: {} as D1Database, ASSETS: {} as Fetcher, BACKGROUND_CAPTURE_ENABLED: "true",
     ARTICLE_EXTRACTOR: { fetch, connect() { throw new Error("unused"); } } as Fetcher, ...overrides };
 }
 const success = () => Response.json({ version: 1, ok: true, article: { markdown: "# Saved", metadata: { title: "Saved" } } });
@@ -14,7 +16,7 @@ describe("private capture service", () => {
 
   it("requires explicit enablement and binding, without a source-fetch fallback", async () => {
     const fetcher = vi.fn(async () => success());
-    for (const env of [configured(fetcher, { BACKGROUND_CAPTURE_ENABLED: "false" }), configured(fetcher, { ARTICLE_EXTRACTOR: undefined })]) {
+    for (const env of [configured(fetcher, { BACKGROUND_CAPTURE_ENABLED: "false" }), configured(fetcher, { ARTICLE_EXTRACTOR: undefined }), configured(fetcher, { EXTRACTION_QUEUE: undefined })]) {
       expect(isBackgroundCapturePaused(env)).toBe(true);
       await expect(captureArticle("https://news.example.com/post", env)).rejects.toMatchObject({ code: "capture_paused" });
     }
