@@ -49,7 +49,8 @@
     "build:benchmark": "CLOUDFLARE_LOAD_DEV_VARS_FROM_DOT_ENV=false wrangler deploy --config benchmarks/wrangler.jsonc --dry-run --outdir dist/extraction-benchmark",
     "types": "CLOUDFLARE_LOAD_DEV_VARS_FROM_DOT_ENV=false wrangler types src/worker-bindings.d.ts --env-interface WorkerBindings --include-runtime=false --strict-vars=false",
     "queue:ensure": "tsx scripts/ensure-extraction-queue.ts",
-    "test:queues-deployment": "node --import tsx --test scripts/extraction-queue-deployment.test.ts"
+    "test:queues-deployment": "node --import tsx --test scripts/extraction-queue-deployment.test.ts",
+    "types:capture": "CLOUDFLARE_LOAD_DEV_VARS_FROM_DOT_ENV=false wrangler types capture/bindings.d.ts --config capture/wrangler.jsonc --env-interface CaptureBindings --include-runtime=false --strict-vars=false"
   },
   "devDependencies": {
     "@cloudflare/vitest-plugin": "1.3.4",

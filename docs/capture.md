@@ -4,7 +4,7 @@ Potem accepts links from the Add form, desktop bookmarklet, iOS Shortcut, and (i
 
 ## Paste a URL
 
-Open **Add**, paste the article URL, and choose **Save link**. **Save a Markdown copy of the article** starts checked: Potem saves the link and queues private Markdown extraction in the background. The confirmation means the request was saved; it does not mean extraction has finished. You can close the tab after the link-save confirmation. Uncheck the option to save only the link. Articles show a compact capture status; open a pending article to see its status and the original link. When Markdown is ready, open the article to read or download it.
+Open **Add**, paste the article URL, and choose **Save link**. **Save a reading copy (and the original for PDFs)** starts checked: Potem saves the link and queues private Markdown extraction in the background. The confirmation means the request was saved; it does not mean extraction has finished. You can close the tab after the link-save confirmation. Uncheck the option to save only the link. Articles show a compact capture status; open a pending article to see its status and the original link. When Markdown is ready, open the article to read or download it.
 
 If the source blocks access, requires JavaScript/login, is not HTML, or exceeds the capture limits, the URL remains saved and capture reports a failure. Open article details to retry or paste/upload a browser-captured copy. A paused runtime keeps links savable and shows **Capture paused**. Re-saving a duplicate does not restart a failed capture. See [capture limits and behavior](url-markdown-capture.md).
 
@@ -39,3 +39,5 @@ Replace the origin with the deployed Potem origin and token with the one-time va
 On a browser that supports Web Share Target, install Potem using the browser’s install command. Sharing an article to the installed app opens `/add` with the URL/title/text for review. If shared text contains several links and no URL field identifies the intended one, paste the desired link into the form. Support varies by browser; iOS users should use the Shortcut or paste fallback.
 
 Potem’s service worker caches only versioned public app assets. It does not cache account pages, article data, or API responses, and it does not support offline saves.
+
+PDF links use the same background flow and preserve a private original for opening/downloading. See [unified ingestion](unified-ingestion.md) for text extraction limits and complete archive backups.

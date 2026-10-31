@@ -7,6 +7,7 @@ export default defineConfig({
     miniflare: {
       queueConsumers: [],
       bindings: {
+        MANAGED_CONVERSION_ENABLED: "true",
         TEST_MIGRATIONS: await readD1Migrations(new URL("./migrations", import.meta.url).pathname),
       },
     },

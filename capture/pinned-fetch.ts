@@ -39,7 +39,7 @@ export function pinnedRequestOptions(target: URL, address: Address, signal?: Abo
     // The TCP destination is numeric; Host, SNI and certificate identity remain the original hostname.
     servername: target.hostname, rejectUnauthorized: true,
     checkServerIdentity: (_hostname, certificate) => checkServerIdentity(target.hostname, certificate),
-    headers: { Host: target.host, Accept: "text/html,application/xhtml+xml;q=0.9", "User-Agent": "PotemReader/1.0", "Accept-Encoding": "identity" },
+    headers: { Host: target.host, Accept: "text/html,application/pdf,application/xhtml+xml;q=0.9", "User-Agent": "PotemReader/1.0", "Accept-Encoding": "identity" },
     signal: signal ?? undefined, maxHeaderSize: 16 * 1024,
   };
 }

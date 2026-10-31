@@ -24,7 +24,11 @@ test("plans the selected environment with a private gateway binding and capture 
   assert.equal(plan.environment, "production");
   assert.equal(plan.gatewayWorker, "read-it-later-safe-fetch-production");
   assert.equal(productionVars.BACKGROUND_CAPTURE_ENABLED, "false");
-  assert.deepEqual(plan.generatedConfig.env.production.services, [{ binding: "ARTICLE_EXTRACTOR", service: "read-it-later-capture-production" }, { binding: "ARTICLE_FETCHER", service: "read-it-later-safe-fetch-production" }]);
+  assert.deepEqual(plan.generatedConfig.env.production.services, [
+    { binding: "ARTICLE_EXTRACTOR", service: "read-it-later-capture-production" },
+    { binding: "ARTICLE_FETCHER", service: "read-it-later-safe-fetch-production" },
+  ]);
+  assert.equal(productionVars.MANAGED_CONVERSION_ENABLED, "false");
   assert.deepEqual(plan.generatedConfig.env.staging.services, [{ binding: "ARTICLE_EXTRACTOR", service: "read-it-later-capture-staging" }]);
 });
 
@@ -44,7 +48,12 @@ test("plans a configured staging stack while preserving its resources and isolat
     assert.equal(plan.gatewayWorker, "read-it-later-safe-fetch-staging");
     assert.equal(stagingVars.APP_ORIGIN, stagingOrigin);
     assert.equal(stagingVars.BACKGROUND_CAPTURE_ENABLED, "false");
-    assert.deepEqual(plan.generatedConfig.env.staging.services, [{ binding: "ARTICLE_EXTRACTOR", service: "read-it-later-capture-staging" }, { binding: "ARTICLE_FETCHER", service: "read-it-later-safe-fetch-staging" }]);
+    assert.deepEqual(plan.generatedConfig.env.staging.services, [
+      ...app.env.staging.services,
+      { binding: "ARTICLE_FETCHER", service: "read-it-later-safe-fetch-staging" },
+    ]);
+    assert.equal(stagingVars.MANAGED_CONVERSION_ENABLED, "false");
+    assert.deepEqual(plan.generatedConfig.env.staging.r2_buckets, app.env.staging.r2_buckets);
     assert.deepEqual(plan.generatedConfig.env.staging.d1_databases, app.env.staging.d1_databases);
     assert.deepEqual(plan.generatedConfig.env.staging.triggers, app.env.staging.triggers);
     assert.deepEqual(plan.generatedConfig.env.production, app.env.production);

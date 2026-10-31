@@ -1,7 +1,9 @@
 import assert from "node:assert/strict";
-import { test } from "node:test";
+import { test, mock } from "node:test";
 import { fetchSourcePage } from "../../src/articles/source-fetch";
-import { extractInThread } from "../executor";
+import { executeCapture, extractInThread } from "../executor";
+import { EXECUTOR_TIMEOUT_MS } from '../../src/articles/capture-limits';
+import { CAPTURE_TIMEOUT_MS } from '../../src/articles/capture-protocol';
 
 const threadUrl = new URL("../../dist/capture/extract-thread.mjs", import.meta.url);
 
@@ -25,6 +27,32 @@ test("slow metadata stays inside the bounded thread and subsequent extraction st
   } finally { clearInterval(interval); }
 
   const article = await extractInThread("<html><head><title>Recovered</title></head><body><article><p>A readable article after the timeout.</p></article></body></html>", url, threadUrl);
-  assert.equal(article.metadata.title, "Recovered");
-  assert.match(article.markdown, /A readable article after the timeout/);
+  assert.equal(article.title, "Recovered");
+  assert.equal(article.description, "A readable article after the timeout.");
+});
+
+test('executor bounds an unresponsive conversion gateway even when it ignores abort', async () => {
+  let cancelled=false;
+  const replacement=mock.method(globalThis,'fetch',async (_input: RequestInfo | URL, init?: RequestInit)=>{
+    init?.signal?.addEventListener('abort',()=>{cancelled=true;},{once:true});
+    return new Promise<Response>(()=>undefined);
+  });
+  try {
+    await assert.rejects(executeCapture('https://news.example.com/paper','https://read.example.com',crypto.randomUUID(),undefined,25),{code:'timeout',retryable:true});
+    assert.equal(cancelled,true);
+    assert.ok(EXECUTOR_TIMEOUT_MS<CAPTURE_TIMEOUT_MS);
+  } finally { replacement.mock.restore(); }
+});
+
+test('executor cancels a stalled conversion response and remains usable', async () => {
+  let cancelled=false;
+  const replacement=mock.method(globalThis,'fetch',async()=>new Response(new ReadableStream({
+    pull(){return new Promise(()=>undefined);},cancel(){cancelled=true;},
+  })));
+  try {
+    await assert.rejects(executeCapture('https://news.example.com/paper','https://read.example.com',crypto.randomUUID(),undefined,25),{code:'timeout',retryable:true});
+    assert.equal(cancelled,true);
+    replacement.mock.mockImplementation(async()=>Response.json({version:1,ok:true,article:{markdown:'# Recovered',metadata:{}}}));
+    assert.equal((await executeCapture('https://news.example.com/paper','https://read.example.com',crypto.randomUUID(),undefined,100)).markdown,'# Recovered');
+  } finally { replacement.mock.restore(); }
 });

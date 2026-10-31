@@ -1,3 +1,4 @@
+import { inspectArchive, restoreArchive } from "./archive";
 import { markdownDownload, markdownDownloadName, renderMarkdown } from "./markdown.js";
 import type { IntegrationConfiguration, IntegrationStatus, IntegrationConsent } from "../src/integrations/contracts.js";
 import { articlePath, isArticleId } from "../src/articles/identity.js";
@@ -37,6 +38,7 @@ if (buildInfoButton && buildInfoDialog) {
 }
 
 type Article = {
+  originalPdf?: { id: string; bytes: number; capturedAt: string };
   id: string;
   url: string;
   title: string;
@@ -652,6 +654,12 @@ function extractionIsPending(extraction?: ExtractionStatus) {
 }
 function extractionFailureMessage(code: string | null | undefined) {
   switch (code) {
+    case 'pdf_no_text': return 'PDF saved; no extractable text. Scanned PDFs need OCR, which is not available yet.';
+    case 'markdown_too_large': return 'The extracted text exceeds the reading-copy limit.';
+    case 'invalid_pdf': return 'The source did not contain a valid PDF.';
+    case 'pdf_storage_unavailable': return 'PDF storage is temporarily unavailable. Retry capture.';
+    case 'converter_unavailable':
+    case 'conversion_timeout': return 'Document conversion is temporarily unavailable. Retry capture.';
     case 'copy_changed': return 'The saved copy changed. Your latest copy was kept.';
     case 'metadata_changed': return 'Article details changed during capture. Your saved content was kept.';
     case "source_http":
@@ -1026,9 +1034,16 @@ function renderDetail(article: Article) {
     }
   });
   actions.append(toggle, del);
+  if (article.originalPdf) {
+    const saved = el('a', 'Open saved PDF', 'button secondary');
+    saved.href = `/api/articles/${article.id}/pdf?asset=${article.originalPdf.id}`; saved.target = '_blank'; saved.rel = 'noopener noreferrer';
+    const download = el('a', 'Download PDF', 'button secondary');
+    download.href = `/api/articles/${article.id}/pdf?asset=${article.originalPdf.id}&download=1`; download.target = '_blank'; download.rel = 'noopener noreferrer';
+    actions.append(saved, download);
+  }
   const extractionPanel = el("section", undefined, "extraction-panel");
   extractionPanel.setAttribute("aria-live", "polite");
-  const extractionStatus = el("p", extractionLabel(article.extraction), "extraction-detail-status");
+  const extractionStatus = el("p", `${article.originalPdf ? "PDF saved · " : ""}${extractionLabel(article.extraction)}`, "extraction-detail-status");
   extractionStatus.id = "detail-extraction-status";
   const retryCapture = el("button", "Retry capture", "button secondary");
   retryCapture.type = "button";
@@ -1475,6 +1490,14 @@ function updateReaderToolbarTitle() {
   toolbar.classList.toggle("is-compact", dialog.open && Boolean(title.textContent) &&
     title.getBoundingClientRect().bottom <= toolbar.getBoundingClientRect().bottom);
 }
+function updatePdfReader(article?: Article) {
+  $('#reader-pdf-actions').hidden = !article?.originalPdf;
+  for (const [selector, suffix] of [['#reader-pdf-open', ''], ['#reader-pdf-download', '&download=1']]) {
+    const anchor = $<HTMLAnchorElement>(selector);
+    if (article?.originalPdf) anchor.href = `/api/articles/${article.id}/pdf?asset=${article.originalPdf.id}${suffix}`;
+    else anchor.removeAttribute('href');
+  }
+}
 function openReader(article: Article, copy: ArticleCopy, opener?: HTMLElement) {
   if (state.selected?.id !== article.id) return;
   if (readerPositionContext && (readerPositionContext.id !== article.id || readerPositionContext.revision !== copy.revision)) saveReadingPosition();
@@ -1482,6 +1505,7 @@ function openReader(article: Article, copy: ArticleCopy, opener?: HTMLElement) {
   const metadata = $("#reader-metadata");
   const original = $<HTMLAnchorElement>("#reader-original");
   const body = $("#reader-body");
+  updatePdfReader(article);
   setReaderTitle(article.title);
   readerArticleId = article.id;
   setArticleTitle(article);
@@ -1523,6 +1547,7 @@ function renderPendingReader(article: Article) {
   readerPositionContext = null;
   state.selected = article;
   const title = $("#reader-title");
+  updatePdfReader(article);
   setReaderTitle(article.title);
   readerArticleId = article.id;
   setArticleTitle(article);
@@ -1596,6 +1621,7 @@ function clearReader() {
   $("#reader-pending").hidden = true;
   $("#reader-pending-status").textContent = "";
   $("#reader-body").hidden = false;
+  updatePdfReader();
   $<HTMLAnchorElement>("#reader-original").removeAttribute("href");
 }
 function restoreReaderFocus(opener = readerReturnFocus) {
@@ -1639,6 +1665,7 @@ $("#reader-dialog").addEventListener("close", () => {
   $("#reader-pending").hidden = true;
   $("#reader-pending-status").textContent = "";
   $("#reader-body").hidden = false;
+  updatePdfReader();
   $<HTMLAnchorElement>("#reader-original").removeAttribute("href");
   if (!$<HTMLDialogElement>("#detail-dialog").open) {
     stopExtractionPolling();
@@ -2811,6 +2838,24 @@ $<HTMLInputElement>("#import-file").addEventListener("change", async (e) => {
   } finally {
     input.value = "";
   }
+});
+$('#import-archive-open').addEventListener('click', () => $<HTMLInputElement>('#import-archive-file').click());
+$<HTMLInputElement>('#import-archive-file').addEventListener('change', async event => {
+  const input = event.target as HTMLInputElement, file = input.files?.[0];
+  if (!file) return;
+  const button = $<HTMLButtonElement>('#import-archive-open');
+  const progress = (text: string) => { $('#settings-status').textContent = text; };
+  button.disabled = true;
+  try {
+    progress('Checking archive…');
+    const archive = await inspectArchive(file, progress);
+    if (!confirm(`Restore ${archive.library.articles.length} articles and ${archive.pdfs.length} PDF associations? Existing links will be skipped.`)) { progress('Restore cancelled.'); return; }
+    invalidateLoads();
+    const result = await restoreArchive(file, archive, request, progress);
+    progress(`Restored ${result.imported} articles; skipped ${result.skipped}.`);
+    await load();
+  } catch (error) { progress(`Archive restore failed. ${(error as Error).message}`); }
+  finally { button.disabled = false; input.value = ''; }
 });
 const params = new URLSearchParams(location.search);
 if (

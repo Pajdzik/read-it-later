@@ -1,7 +1,7 @@
 import type { Env } from "../contracts";
 import { failSourceFetch as fail, SourceFetchError, validateSourceTarget } from "./source-policy";
 import { FETCH_FAILURE_HEADER, isFetchErrorCode } from "../../fetcher/protocol";
-import { CONTAINER_STARTUP_TIMEOUT_MS, MAX_SOURCE_HTML_BYTES, SOURCE_HOP_TIMEOUT_MS, SOURCE_TOTAL_TIMEOUT_MS } from "./capture-limits";
+import { CONTAINER_STARTUP_TIMEOUT_MS, MAX_SOURCE_HTML_BYTES, MAX_SOURCE_PDF_BYTES, SOURCE_HOP_TIMEOUT_MS, SOURCE_TOTAL_TIMEOUT_MS } from "./capture-limits";
 
 export { SourceFetchError } from "./source-policy";
 export { validateSourceTarget as validateTarget } from "./source-policy";
@@ -35,20 +35,24 @@ function contentCharset(contentType: string): string {
   return "utf-8";
 }
 
-async function readHtml(response: Response, signal: AbortSignal): Promise<string> {
+export type SourceDocument = { kind: "html"; html: string; url: string } | { kind: "pdf"; bytes: Uint8Array; url: string };
+
+async function readDocument(response: Response, signal: AbortSignal, allowPdf: boolean): Promise<Omit<Extract<SourceDocument, {kind: "html"}>, "url"> | Omit<Extract<SourceDocument, {kind: "pdf"}>, "url">> {
   const contentType = response.headers.get("content-type") || "";
-  if (!/^\s*(?:text\/html|application\/xhtml\+xml)(?:\s*;|\s*$)/i.test(contentType)) {
+  const pdf = allowPdf && /^\s*application\/(?:pdf|octet-stream)(?:\s*;|\s*$)/i.test(contentType);
+  const limit = pdf ? MAX_SOURCE_PDF_BYTES : MAX_SOURCE_HTML_BYTES;
+  if (!pdf && !/^\s*(?:text\/html|application\/xhtml\+xml)(?:\s*;|\s*$)/i.test(contentType)) {
     await response.body?.cancel().catch(() => undefined);
     fail("unsupported_content");
   }
   let charset: string;
-  try { charset = contentCharset(contentType); }
+  try { charset = pdf ? "utf-8" : contentCharset(contentType); }
   catch (error) {
     await response.body?.cancel().catch(() => undefined);
     throw error;
   }
   const length = response.headers.get("content-length");
-  if (length && /^\d+$/.test(length) && Number(length) > MAX_SOURCE_HTML_BYTES) {
+  if (length && /^\d+$/.test(length) && Number(length) > limit) {
     await response.body?.cancel().catch(() => undefined);
     fail("source_too_large");
   }
@@ -64,7 +68,7 @@ async function readHtml(response: Response, signal: AbortSignal): Promise<string
       const { done, value } = await reader.read();
       if (done) break;
       size += value.byteLength;
-      if (size > MAX_SOURCE_HTML_BYTES) fail("source_too_large");
+      if (size > limit) fail("source_too_large");
       chunks.push(value);
     }
   } catch (error) {
@@ -80,6 +84,10 @@ async function readHtml(response: Response, signal: AbortSignal): Promise<string
   const bytes = new Uint8Array(size);
   let offset = 0;
   for (const chunk of chunks) { bytes.set(chunk, offset); offset += chunk.byteLength; }
+  if (pdf) {
+    if (new TextDecoder().decode(bytes.subarray(0, 5)) !== "%PDF-") fail("invalid_pdf");
+    return { kind: "pdf", bytes };
+  }
   let html: string;
   try {
     html = new TextDecoder(charset, { fatal: true }).decode(bytes);
@@ -88,7 +96,7 @@ async function readHtml(response: Response, signal: AbortSignal): Promise<string
   }
   if (!html.trim()) fail("empty_source");
   if (!/<(?:!doctype\s+html|html\b|head\b|body\b|article\b|main\b)/i.test(html)) fail("malformed_html");
-  return html;
+  return { kind: "html", html };
 }
 
 /**
@@ -97,7 +105,7 @@ async function readHtml(response: Response, signal: AbortSignal): Promise<string
  * connect to a validated public address while preserving TLS hostname checks.
  * A Worker-side DNS preflight cannot prove which address an ordinary fetch uses.
  */
-export async function fetchSourcePage(url: string, env: SourceFetchEnv): Promise<{ html: string; url: string }> {
+export async function fetchSourceDocument(url: string, env: SourceFetchEnv, allowPdf = true): Promise<SourceDocument> {
   if (isBackgroundCapturePaused(env)) fail("capture_paused");
   const fetcher = env.ARTICLE_FETCHER;
   if (!fetcher) fail("capture_paused");
@@ -132,7 +140,7 @@ export async function fetchSourcePage(url: string, env: SourceFetchEnv): Promise
         redirect: "manual",
         signal: controller.signal,
         headers: {
-          Accept: "text/html,application/xhtml+xml;q=0.9",
+          Accept: "text/html,application/pdf,application/xhtml+xml;q=0.9",
           "User-Agent": "PotemReader/1.0",
         },
       });
@@ -179,14 +187,21 @@ export async function fetchSourcePage(url: string, env: SourceFetchEnv): Promise
       clearTimeout(timeoutId!);
       fail("unvalidated_redirect");
     }
-    let html: string;
-    try { html = await Promise.race([readHtml(response, controller.signal), hopTimeout]); }
+    let document: Awaited<ReturnType<typeof readDocument>>;
+    try { document = await Promise.race([readDocument(response, controller.signal, allowPdf), hopTimeout]); }
     catch (error) {
       if (error instanceof SourceFetchError) throw error;
       fail(Date.now() >= deadline || controller.signal.aborted ? "timeout" : "network_error", true);
     }
     finally { clearTimeout(timeoutId!); }
     // Parsing belongs to the executor's bounded thread, after the network deadline.
-    return { html, url: target.href };
+    return { ...document, url: target.href };
   }
+}
+
+/** Legacy HTML-only interface retained for the fetch gateway and its checks. */
+export async function fetchSourcePage(url: string, env: SourceFetchEnv): Promise<{ html: string; url: string }> {
+  const source = await fetchSourceDocument(url, env, false);
+  if (source.kind !== "html") fail("unsupported_content");
+  return { html: source.html, url: source.url };
 }

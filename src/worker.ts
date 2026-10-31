@@ -14,7 +14,10 @@ const securityHeaders = {
 
 function withSecurityHeaders(response: Response): Response {
   const headers = new Headers(response.headers);
-  for (const [name, value] of Object.entries(securityHeaders)) headers.set(name, value);
+  for (const [name, value] of Object.entries(securityHeaders)) {
+    if (name === "Content-Security-Policy" && response.headers.get("Content-Type") === "application/pdf" && headers.get(name)?.startsWith("sandbox;")) continue;
+    headers.set(name, value);
+  }
   return new Response(response.body, { status: response.status, statusText: response.statusText, headers });
 }
 

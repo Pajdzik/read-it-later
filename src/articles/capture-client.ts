@@ -1,8 +1,9 @@
-import type { Env } from "../contracts";
+import { assetId, MAX_PDF_BYTES } from "./pdf";
+import type { Env, OriginalPdf } from "../contracts";
 import { CAPTURE_TIMEOUT_MS, MAX_CAPTURE_RESPONSE_BYTES, MAX_MARKDOWN_BYTES, SourceFetchError, captureErrorCodes, type CapturedArticle } from "./capture-protocol";
 
 export function isBackgroundCapturePaused(env: Env): boolean {
-  return env.BACKGROUND_CAPTURE_ENABLED !== "true" || !env.ARTICLE_EXTRACTOR || !env.EXTRACTION_QUEUE;
+  return env.BACKGROUND_CAPTURE_ENABLED !== "true" || env.MANAGED_CONVERSION_ENABLED === "false" || !env.ARTICLE_EXTRACTOR || !env.EXTRACTION_QUEUE;
 }
 
 function invalidResponse(): never { throw new SourceFetchError("invalid_capture_response", true); }
@@ -48,7 +49,14 @@ async function readResult(response: Response, signal: AbortSignal): Promise<Capt
     throw new SourceFetchError(error.code, error.retryable, error.retryAfterSeconds);
   }
   const article = result.article;
-  if (result.ok !== true || !article || typeof article.markdown !== "string" || !article.markdown.trim() ||
+  const originalPdf = article?.originalPdf;
+  const conversionError = article?.conversionError;
+  if (originalPdf && (!assetId(originalPdf.id) || !/^[a-f0-9]{64}$/.test(originalPdf.checksum) ||
+    !Number.isInteger(originalPdf.bytes) || originalPdf.bytes < 1 || originalPdf.bytes > MAX_PDF_BYTES ||
+    typeof originalPdf.capturedAt !== "string" || !Number.isFinite(Date.parse(originalPdf.capturedAt)) ||
+    typeof originalPdf.sourceUrl !== "string" || originalPdf.sourceUrl.length > 8192 || !/^https?:\/\//.test(originalPdf.sourceUrl))) invalidResponse();
+  if (conversionError && (!originalPdf || !captureErrorCodes.includes(conversionError.code) || typeof conversionError.retryable !== "boolean" || article.markdown !== "")) invalidResponse();
+  if (result.ok !== true || !article || typeof article.markdown !== "string" || (!article.markdown.trim() && !conversionError) ||
     new TextEncoder().encode(article.markdown).byteLength > MAX_MARKDOWN_BYTES ||
     !article.metadata || typeof article.metadata !== "object" || Array.isArray(article.metadata)) invalidResponse();
   const metadata: CapturedArticle["metadata"] = {};
@@ -59,11 +67,11 @@ async function readResult(response: Response, signal: AbortSignal): Promise<Capt
       metadata[key] = value;
     }
   }
-  return { markdown: article.markdown, metadata };
+  return { markdown: article.markdown, metadata, ...(originalPdf ? { originalPdf: originalPdf as OriginalPdf } : {}), ...(conversionError ? { conversionError } : {}) };
 }
 
 /** Private service call. The application Worker never fetches source URLs or parses source HTML. */
-export async function captureArticle(url: string, env: Env): Promise<CapturedArticle> {
+export async function captureArticle(url: string, env: Env, originalPdfId?: string): Promise<CapturedArticle> {
   if (isBackgroundCapturePaused(env) || !env.ARTICLE_EXTRACTOR) throw new SourceFetchError("capture_paused", false);
   const controller = new AbortController();
   let response: Response | undefined;
@@ -78,7 +86,7 @@ export async function captureArticle(url: string, env: Env): Promise<CapturedArt
   try {
     const pending = env.ARTICLE_EXTRACTOR.fetch("https://capture.internal/capture", {
       method: "POST", headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ url }), signal: controller.signal,
+      body: JSON.stringify({ url, ...(originalPdfId ? { originalPdfId } : {}) }), signal: controller.signal,
     });
     void pending.then(late => { if (controller.signal.aborted) void late.body?.cancel().catch(() => undefined); }).catch(() => undefined);
     response = await Promise.race([pending, timeout]);

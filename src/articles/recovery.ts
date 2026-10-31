@@ -1,3 +1,4 @@
+import type { OriginalPdf } from '../contracts';
 import type { ExtractionJob, ExtractionMetadata } from './jobs';
 
 /** SQL representation shared by request, completion, and undo guards. */
@@ -70,14 +71,16 @@ export async function undoRecapture(
     .bind(now, now, id, id, revision);
   const consume = db.prepare(`DELETE FROM article_capture_recovery WHERE article_id=?
     AND EXISTS (SELECT 1 FROM article_copies WHERE article_id=? AND revision=?)`).bind(id, id, revision);
-  const results = await db.batch([restoreCopy, restoreMetadata, supersede, consume]);
+  const restorePdf = db.prepare(`UPDATE articles SET pdf_asset_id=(SELECT pdf_asset_id FROM article_capture_recovery WHERE article_id=?)
+    WHERE id=? AND EXISTS(SELECT 1 FROM article_copies WHERE article_id=? AND revision=?)`).bind(id,id,id,revision);
+  const results = await db.batch([restoreCopy, restoreMetadata, restorePdf, supersede, consume]);
   if (results[0].meta.changes > 0) return 'saved';
   return await db.prepare('SELECT id FROM articles WHERE id=?').bind(id).first() ? 'conflict' : 'missing';
 }
 
 /** All guards and writes run in one transaction; a no-op guard never publishes partial content. */
 export async function completeRecapture(
-  db: D1Database, job: ExtractionJob, result: { markdown: string; metadata: ExtractionMetadata }, now: string,
+  db: D1Database, job: ExtractionJob, result: { markdown: string; metadata: ExtractionMetadata; originalPdf?: OriginalPdf }, now: string,
 ): Promise<boolean> {
   const revision = crypto.randomUUID();
   const fence = `j.article_id=? AND j.generation=? AND j.state='running'
@@ -97,9 +100,9 @@ export async function completeRecapture(
   const clearSnapshot = db.prepare(`DELETE FROM article_capture_recovery WHERE article_id=? AND ${eligible}`)
     .bind(job.articleId, ...fenceValues);
   const snapshot = db.prepare(`INSERT INTO article_capture_recovery
-      (article_id,markdown,captured_at,source,previous_metadata,resulting_revision)
+      (article_id,markdown,captured_at,source,previous_metadata,resulting_revision,pdf_asset_id)
     SELECT c.article_id,c.markdown,c.captured_at,c.source,
-      CASE WHEN j.refresh_metadata=1 THEN ${metadataSnapshot('a')} ELSE NULL END,?
+      CASE WHEN j.refresh_metadata=1 THEN ${metadataSnapshot('a')} ELSE NULL END,?,a.pdf_asset_id
     FROM article_copies c JOIN articles a ON a.id=c.article_id
       JOIN article_extraction_jobs j ON j.article_id=a.id
     WHERE ${fence} AND ${matches}`).bind(revision, ...fenceValues);
@@ -124,6 +127,9 @@ export async function completeRecapture(
   const finish = db.prepare(`UPDATE article_extraction_jobs AS j SET state='succeeded',error_code=NULL,
       lease_token=NULL,lease_expires_at=NULL,finished_at=?,updated_at=? WHERE ${fence} AND ${written}`)
     .bind(now, now, ...fenceValues, job.articleId, revision);
-  const results = await db.batch([conflict, clearSnapshot, snapshot, copy, metadata, finalSnapshot, finish]);
-  return results[6].meta.changes > 0;
+  const attachPdf = db.prepare(`UPDATE articles SET pdf_asset_id=? WHERE id=? AND ${written}
+    `)
+    .bind(result.originalPdf?.id ?? null, job.articleId, job.articleId, revision);
+  const results = await db.batch([conflict, clearSnapshot, snapshot, copy, metadata, finalSnapshot, attachPdf, finish]);
+  return results[7].meta.changes > 0;
 }

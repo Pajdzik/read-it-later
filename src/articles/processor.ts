@@ -1,3 +1,4 @@
+import { cleanupPdfAssets, getOriginalPdf } from "./pdf";
 import type { Env, ExtractionMessage } from '../contracts';
 import { captureArticle, isBackgroundCapturePaused } from './capture-client';
 import {
@@ -13,7 +14,21 @@ const ACK: ExtractionOutcome = { action: 'ack' };
 /** All result writes retain the existing lease and generation fences. */
 async function runExtractionJob(env: Env, job: ExtractionJob): Promise<void> {
   try {
-    const result = await captureArticle(job.url, env);
+    let existingPdf: Awaited<ReturnType<typeof getOriginalPdf>>;
+    try { existingPdf = job.kind === 'initial' ? await getOriginalPdf(env.DB, job.articleId) : undefined; }
+    catch { throw new SourceFetchError('storage_failed',true); }
+    const result = await captureArticle(job.url, env, existingPdf?.id);
+    if (result.conversionError) {
+      if (result.originalPdf) {
+        try { await env.DB.prepare(`UPDATE articles SET pdf_asset_id=? WHERE id=? AND pdf_asset_id IS NULL
+          AND EXISTS(SELECT 1 FROM pdf_assets WHERE id=? AND deleting=0)
+          AND EXISTS(SELECT 1 FROM article_extraction_jobs WHERE article_id=? AND generation=? AND lease_token=? AND lease_expires_at>? AND state='running')
+          AND NOT EXISTS(SELECT 1 FROM article_copies WHERE article_id=?)`)
+          .bind(result.originalPdf.id, job.articleId, result.originalPdf.id, job.articleId, job.generation, job.leaseToken, new Date().toISOString(), job.articleId).run(); }
+        catch { throw new SourceFetchError('storage_failed',true); }
+      }
+      throw new SourceFetchError(result.conversionError.code, result.conversionError.retryable);
+    }
     let completed: boolean;
     try { completed = await completeExtractionJob(env.DB, job, result, new Date().toISOString()); }
     catch { throw new SourceFetchError('storage_failed', true); }
@@ -88,6 +103,8 @@ export async function consumeExtractionBatch(batch: MessageBatch<unknown>, env: 
 
 /** Hourly repair and delivery only. Extraction always runs through the queue. */
 export async function recoverExtractionJobs(env: Env, now = new Date().toISOString()): Promise<void> {
+  try { await cleanupPdfAssets(env, now); }
+  catch { extractionLog("pdf_cleanup_failed"); }
   if (isBackgroundCapturePaused(env) || !env.EXTRACTION_QUEUE) return;
   let recovered = 0, materialized = 0, published = 0;
   try {

@@ -54,7 +54,7 @@ describe("bounded source fetching", () => {
       expect(call.init?.redirect).toBe("manual");
       expect(call.init?.method).toBe("GET");
       expect(call.init?.headers).toEqual({
-        Accept: "text/html,application/xhtml+xml;q=0.9",
+        Accept: "text/html,application/pdf,application/xhtml+xml;q=0.9",
         "User-Agent": "PotemReader/1.0",
       });
       expect(call.init?.headers).not.toHaveProperty("Cookie");

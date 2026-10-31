@@ -211,6 +211,23 @@ jobs:
       - name: Check Container build engine
         run: docker info
 
+      - name: Ensure private PDF storage exists
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+          CLOUDFLARE_LOAD_DEV_VARS_FROM_DOT_ENV: "false"
+        run: |
+          if ! pnpm exec wrangler r2 bucket info read-it-later-pdfs-production --env production; then
+            pnpm exec wrangler r2 bucket create read-it-later-pdfs-production --env production --update-config=false
+          fi
+
+      - name: Apply production D1 migrations
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+          CLOUDFLARE_LOAD_DEV_VARS_FROM_DOT_ENV: "false"
+        run: pnpm exec wrangler d1 migrations apply read-later-production --remote --env production
+
       # The app's ARTICLE_EXTRACTOR service binding must exist before app deployment.
       # Wrangler builds and pushes the image using the runner's Docker engine.
       - name: Deploy production capture service
@@ -219,13 +236,6 @@ jobs:
           CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
           CLOUDFLARE_LOAD_DEV_VARS_FROM_DOT_ENV: "false"
         run: pnpm exec wrangler deploy --config capture/wrangler.jsonc --env production
-
-      - name: Apply production D1 migrations
-        env:
-          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
-          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
-          CLOUDFLARE_LOAD_DEV_VARS_FROM_DOT_ENV: "false"
-        run: pnpm exec wrangler d1 migrations apply read-later-production --remote --env production
 
       - name: Build website assets
         env:

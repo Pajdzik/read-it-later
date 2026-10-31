@@ -1,9 +1,9 @@
 import assert from "node:assert/strict";
 import { once } from "node:events";
-import { test } from "node:test";
+import { test, mock } from "node:test";
 import type { AddressInfo } from "node:net";
 import { createCaptureServer } from "../server";
-import type { executeCapture } from "../executor";
+import { executeCapture } from "../executor";
 
 async function withServer(run: (origin: string) => Promise<void>, execute?: typeof executeCapture) {
   const server = createCaptureServer("https://read.example.com", execute);
@@ -49,4 +49,39 @@ test("actual HTTP executor limits overlap and serializes only the safe result", 
     entered(); await blocked;
     return { markdown: "# Saved", metadata: { title: "Saved" } };
   });
+});
+
+test('disconnecting a stalled conversion releases the actual HTTP executor', async () => {
+  const realFetch=globalThis.fetch;
+  let enter!:()=>void;
+  const entered=new Promise<void>(resolve=>{enter=resolve;});
+  let convertCalls=0, gatewayAborted=false;
+  const replacement=mock.method(globalThis,'fetch',async(input: RequestInfo | URL,init?: RequestInit)=>{
+    if(String(input).startsWith('http://potem.convert/')) {
+      if(++convertCalls===1) {
+        init?.signal?.addEventListener('abort',()=>{gatewayAborted=true;},{once:true});
+        enter(); return new Promise<Response>(()=>undefined);
+      }
+      return Response.json({version:1,ok:true,article:{markdown:'# Recovered',metadata:{}}});
+    }
+    return realFetch(input,init);
+  });
+  try {
+    await withServer(async origin=>{
+      const controller=new AbortController();
+      const first=fetch(origin+'/capture',{method:'POST',headers:{'Content-Type':'application/json'},
+        body:JSON.stringify({url:'https://news.example.com/paper',originalPdfId:crypto.randomUUID()}),signal:controller.signal});
+      const rejected=assert.rejects(first,{name:'AbortError'});
+      await entered; controller.abort(); await rejected;
+      let result: {ok:boolean;article?:{markdown:string};error?:{code:string}} | undefined;
+      for(let i=0;i<20;i++) {
+        result=await (await post(origin,{url:'https://news.example.com/paper',originalPdfId:crypto.randomUUID()})).json() as typeof result;
+        if(result?.ok)break;
+        assert.equal(result?.error?.code,'capture_busy');
+        await new Promise(resolve=>setTimeout(resolve,5));
+      }
+      assert.equal(gatewayAborted,true);
+      assert.equal(result?.article?.markdown,'# Recovered');
+    });
+  } finally { replacement.mock.restore(); }
 });
