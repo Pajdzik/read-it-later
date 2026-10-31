@@ -2495,12 +2495,6 @@ $("#add-form").addEventListener("submit", async (e) => {
       $("#capture-integration-status").textContent = `Link and Markdown copy are saved in Potem. The integration could not receive the saved copy: ${integrationSaveError} Retry sends that saved revision; it does not write the copy again.`;
     }
     if (!copySaveError && !integrationSaveError) $<HTMLDialogElement>("#add-dialog").close();
-    state.status = "all";
-    document
-      .querySelectorAll<HTMLButtonElement>("[data-status]")
-      .forEach((b) =>
-        b.setAttribute("aria-pressed", String(b.dataset.status === "all")),
-      );
     if (copySaveError) {
       const addNotice = $("#add-notice");
       addNotice.textContent = `Link saved. Markdown copy was not changed: ${copySaveError} No integration was called. Your draft remains here. Uncheck “Save this Markdown copy” to save the link only.`;

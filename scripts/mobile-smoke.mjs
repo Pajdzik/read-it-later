@@ -261,6 +261,8 @@ async function runProfile(name, browserType, device) {
   await page.locator("#notice").getByText(/Link saved\. Capture is paused/).waitFor();
   const titleButton = page.locator("#articles").getByRole("link", { name: shareTitle, exact: true });
   await titleButton.waitFor();
+  assert.equal(await page.locator('[data-status="unread"]').getAttribute("aria-pressed"), "true",
+    `${name}: saving an article should keep the previously selected Unread tab.`);
   const article = page.locator(".article").filter({ hasText: shareTitle });
   await article.locator(".article-meta").getByText("Capture paused").waitFor();
   const shareArticleId = await article.getAttribute("data-id");
@@ -454,6 +456,7 @@ async function runProfile(name, browserType, device) {
 
   // Explicit read state persists after a reload; opening the saved title does
   // not itself mark it read. Search and status filters navigate the real list.
+  await page.locator('[data-status="all"]').tap();
   await article.getByRole("button", { name: "Mark read" }).tap();
   await article.getByRole("button", { name: "Mark unread" }).waitFor();
   const articleId = await article.getAttribute("data-id");
