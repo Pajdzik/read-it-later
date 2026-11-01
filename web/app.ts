@@ -189,6 +189,9 @@ function listHistoryState(): ReaderHistoryState { return { potem: { version: 1, 
 function readerHistoryState(id: string, fromList: boolean): ReaderHistoryState { return { potem: { version: 1, kind: "reader", articleId: id, fromList } }; }
 function setListTitle() { document.title = "potem — your reading list"; }
 function setArticleTitle(article: Article) { document.title = `${article.title} · Potem`; }
+function isShortcutView() {
+  return state.status === "unread" && !state.query.trim() && !state.tag;
+}
 function rememberListView(opener?: HTMLElement) {
   const active = opener ?? (document.activeElement instanceof HTMLElement ? document.activeElement : null);
   const article = active?.closest<HTMLElement>(".article");
@@ -205,6 +208,7 @@ async function restoreListView() {
     state.tag = snapshot.tag;
     $<HTMLInputElement>("#search").value = snapshot.query;
     document.querySelectorAll<HTMLButtonElement>("[data-status]").forEach((button) => button.setAttribute("aria-pressed", String(button.dataset.status === snapshot.status)));
+    renderLastOpened();
   }
   let refreshed = true;
   if (completion || snapshot?.forceRefresh || (snapshot && list.children.length !== snapshot.rowCount)) {
@@ -219,7 +223,17 @@ async function restoreListView() {
   const fallback = snapshot?.focusArticleId
     ? list.querySelector<HTMLElement>(`.article[data-id="${CSS.escape(snapshot.focusArticleId)}"] .${snapshot.focusKind === "lead" ? "article-lead" : "article-title"}`)
     : null;
-  const target = !completion && snapshot?.focus?.isConnected ? snapshot.focus : fallback || (!completion && document.querySelector<HTMLElement>("#last-opened-title")) || document.querySelector<HTMLElement>("[data-status][aria-pressed='true']") || document.querySelector<HTMLElement>("#search");
+  const shortcutTitle = document.querySelector<HTMLElement>("#last-opened-title");
+  const candidates = [
+    !completion ? snapshot?.focus : null,
+    fallback,
+    !completion ? shortcutTitle : null,
+    document.querySelector<HTMLElement>("[data-status][aria-pressed='true']"),
+    document.querySelector<HTMLElement>("#search"),
+  ];
+  const target = candidates.find((candidate): candidate is HTMLElement =>
+    Boolean(candidate?.isConnected && !candidate.closest("[hidden]") && candidate.getClientRects().length),
+  );
   if (completion) {
     showNotice(refreshed ? completion : `${completion} Couldn’t refresh your library.`, !refreshed);
     if (!refreshed) {
@@ -257,7 +271,7 @@ function renderLastOpened() {
   const article = inProgress || (!lastOpenedError ? suggestedArticle : null);
   const error = lastOpenedError || suggestionError;
   const label = inProgress || lastOpenedError ? "Last opened" : "Picked for you";
-  row.hidden = !state.session?.authenticated || (!article && !error && !suggestionLoading);
+  row.hidden = !state.session?.authenticated || !isShortcutView() || (!article && !error && !suggestionLoading);
   row.setAttribute("aria-label", label);
   row.setAttribute("aria-busy", String(suggestionLoading));
   $("#last-opened-label").textContent = label;
@@ -288,7 +302,7 @@ function renderLastOpened() {
   window.scrollTo(scrollX, scrollY);
 }
 async function loadSuggestion(shuffle = false) {
-  if (!state.session?.authenticated || !lastOpenedReady || lastOpenedError ||
+  if (!state.session?.authenticated || !isShortcutView() || !lastOpenedReady || lastOpenedError ||
       (lastOpenedArticle && !lastOpenedArticle.readAt) || suggestionLoading || ((suggestionLoaded || suggestionError) && !shuffle)) return;
   const generation = ++suggestionFetchGeneration;
   suggestionLoading = true;
@@ -886,6 +900,7 @@ async function refreshTagPicker() {
 }
 function selectTag(tag: string) {
   state.tag = tag;
+  renderLastOpened();
   $<HTMLSelectElement>('#tag-filter').value = tag;
   $<HTMLButtonElement>('#tag-clear').hidden = !tag;
   if (parseReaderPath(location.pathname)) {
@@ -1000,6 +1015,7 @@ async function load(reset = true) {
     render(page.items, !reset);
     if (reset) void refreshTagPicker();
     if (reset && !suggestedArticle && !suggestionError) suggestionLoaded = false;
+    renderLastOpened();
     void loadSuggestion();
     return true;
   } catch (e) {
@@ -2719,6 +2735,7 @@ function setStatus(status: string) {
   invalidateLoads();
   stopExtractionPolling();
   state.status = status;
+  renderLastOpened();
   document
     .querySelectorAll("[data-status]")
     .forEach((button) => button.setAttribute("aria-pressed", String((button as HTMLElement).dataset.status === status)));
@@ -2783,6 +2800,7 @@ searchInput.addEventListener("input", (e) => {
   invalidateLoads();
   state.query = (e.target as HTMLInputElement).value.trim();
   updateSearchState();
+  renderLastOpened();
   searchTimer = window.setTimeout(() => void load(), 250);
 });
 $("#more").addEventListener("click", () => load(false));

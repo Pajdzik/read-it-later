@@ -9,10 +9,10 @@ export async function checkReadingSuggestion(browser, base) {
   const errors = [];
   page.on("pageerror", (error) => errors.push(error.message));
   const articles = [
-    { id: "suggest1", title: "The quiet pleasure of reading something unexpected", url: "https://example.com/reading", author: "Alex Morgan" },
-    { id: "suggest2", title: "Making room for curiosity", url: "https://journal.example.com/curiosity", author: null },
+    { id: "suggest1", title: "The quiet pleasure of reading something unexpected", url: "https://example.com/reading", author: "Alex Morgan", tags: ["Reading"] },
+    { id: "suggest2", title: "Making room for curiosity", url: "https://journal.example.com/curiosity", author: null, tags: ["Ideas"] },
   ].map((article) => ({ ...article, description: "A little space for a new idea.", readAt: null, createdAt: "2026-10-01T00:00:00.000Z", updatedAt: "2026-10-01T00:00:00.000Z", hasCopy: true }));
-  let authenticated = true, failSuggestion = false, suggestionRequests = 0, releaseSuggestion;
+  let authenticated = true, failSuggestion = false, failList = false, suggestionRequests = 0, releaseSuggestion;
   const json = (route, body, status = 200) => route.fulfill({ status, contentType: "application/json", body: JSON.stringify(body) });
   await page.route("**/api/**", async (route) => {
     const request = route.request(), url = new URL(request.url());
@@ -24,9 +24,11 @@ export async function checkReadingSuggestion(browser, base) {
       const unread = articles.filter((article) => !article.readAt);
       return json(route, { article: unread.find((article) => article.id !== url.searchParams.get("exclude")) || unread[0] || null, hasAlternative: unread.length > 1 });
     }
+    if (url.pathname === "/api/tags") return json(route, { tags: [{ tag: "Reading", count: 1 }, { tag: "Ideas", count: 1 }] });
     if (url.pathname === "/api/articles") {
-      const status = url.searchParams.get("status"), query = url.searchParams.get("q") || "";
-      return json(route, { items: articles.filter((article) => (status === "all" || Boolean(article.readAt) === (status === "read")) && article.title.includes(query)), nextCursor: null });
+      const status = url.searchParams.get("status"), query = url.searchParams.get("q") || "", tag = url.searchParams.get("tag");
+      if (failList && query) return json(route, { error: { message: "List unavailable" } }, 503);
+      return json(route, { items: articles.filter((article) => (status === "all" || Boolean(article.readAt) === (status === "read")) && article.title.includes(query) && (!tag || article.tags.includes(tag))), nextCursor: null });
     }
     const article = articles.find((item) => url.pathname === `/api/articles/${item.id}` || url.pathname === `/api/articles/${item.id}/copy`);
     if (article) {
@@ -56,16 +58,32 @@ export async function checkReadingSuggestion(browser, base) {
     const requestsBeforeBrowsing = suggestionRequests;
     await page.getByRole("button", { name: "Read", exact: true }).click();
     await expect(page.locator("#empty")).toBeVisible();
-    await expect(title).toHaveText(articles[1].title);
+    await expect(card).toBeHidden();
     await page.getByRole("button", { name: "All", exact: true }).click();
+    await expect(card).toBeHidden();
     await page.locator("#search-toggle").click();
     await page.locator("#search").fill("no matches");
     await expect(page.locator("#empty")).toBeVisible();
-    await expect(title).toHaveText(articles[1].title);
+    await expect(card).toBeHidden();
     assert.equal(suggestionRequests, requestsBeforeBrowsing, "List filters must not shuffle the suggestion.");
     await page.locator("#search").fill("");
     await page.locator("#search").press("Escape");
     await expect(page.locator(".article")).toHaveCount(2);
+    await expect(card).toBeHidden();
+    await page.getByRole("button", { name: "Unread", exact: true }).click();
+    await expect(title).toHaveText(articles[1].title);
+    await page.locator("#tag-filter").selectOption("Reading");
+    await expect(card).toBeHidden();
+    await page.locator("#tag-clear").click();
+    await expect(title).toHaveText(articles[1].title);
+    failList = true;
+    await page.locator("#search-toggle").click();
+    await page.locator("#search").fill("request failure");
+    await expect(card).toBeHidden();
+    await expect(page.locator("#notice")).toContainText("List unavailable");
+    failList = false;
+    await page.locator("#search").fill("");
+    await expect(title).toHaveText(articles[1].title);
     await page.screenshot({ path: path.join(os.tmpdir(), "potem-reading-suggestion-desktop.png") });
     await page.setViewportSize({ width: 390, height: 844 });
     assert.equal(await page.evaluate(() => document.documentElement.scrollWidth > innerWidth), false);
