@@ -14,7 +14,7 @@ export async function readerTitleSmoke(browser, base) {
   const cases = [
     {
       title,
-      markdown: `## ${capturedHeading}\n\n![Hero image](https://example.com/hero.jpg)\n\nA few milliseconds is all it takes.\n\n## What I'll cover\n\nArticle sections.`,
+      markdown: `## ${capturedHeading}\n\n![Hero image](https://example.com/hero.jpg)\n\nA few milliseconds is all it takes.\n\n- First item\n- Second item\n\n> A quoted sentence.\n\n## What I'll cover\n\nArticle sections.`,
       headings: ["What I'll cover"],
     },
     { title, markdown: `# **How’s Linear so fast?** A technical breakdown\n\nIntroduction.`, headings: [] },
@@ -62,10 +62,26 @@ export async function readerTitleSmoke(browser, base) {
       if (index === 0) {
         await expect(body).toContainText("A few milliseconds is all it takes.");
         assert.equal(await body.locator("img[alt='Hero image']").count(), 1);
+        const assertProseStyles = async (fontSize) => {
+          const styles = await body.evaluate((element) => ({
+            body: getComputedStyle(element),
+            proseAlignments: [...element.querySelectorAll("p, ul, li, blockquote")]
+              .map((node) => getComputedStyle(node).textAlign),
+          }));
+          const bodyFontSize = Number.parseFloat(styles.body.fontSize);
+          const lineHeight = Number.parseFloat(styles.body.lineHeight);
+          assert.equal(bodyFontSize, fontSize);
+          assert.ok(Math.abs(lineHeight - fontSize * 1.6) < 1, `Expected a 1.6 line height at ${fontSize}px`);
+          assert.match(styles.body.fontFamily, /Georgia/);
+          assert.ok(styles.proseAlignments.length > 0, "Sample should include paragraphs, lists, and quotations");
+          assert.ok(styles.proseAlignments.every((alignment) => alignment === "start"), "Prose blocks should align to the reading column start");
+        };
+        await assertProseStyles(20);
         await page.screenshot({ path: "/tmp/potem-reader-title-desktop.png" });
         await page.setViewportSize({ width: 390, height: 844 });
         await expect(page.locator("#reader-title")).toHaveText(title);
         await expect(body.getByRole("heading")).toHaveText(sample.headings);
+        await assertProseStyles(18);
         await page.screenshot({ path: "/tmp/potem-reader-title-mobile.png" });
         await page.setViewportSize({ width: 1440, height: 1000 });
         await page.getByRole("button", { name: "Close saved copy" }).click();

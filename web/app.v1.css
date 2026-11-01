@@ -987,7 +987,8 @@ button {
 .reader-pending[hidden] { display: none; }
 .reader-body {
   margin: 0;
-  font: 18px/1.7 Georgia, "Times New Roman", serif;
+  font: 1.25rem/1.6 Georgia, "Times New Roman", serif;
+  text-align: start;
   overflow-wrap: anywhere;
 }
 .reader-body img {
@@ -1039,11 +1040,6 @@ button {
 .reader-body ol,
 .reader-body blockquote {
   margin: 0 0 1.15em;
-}
-.reader-body p,
-.reader-body li,
-.reader-body blockquote {
-  text-align: justify;
 }
 .reader-body blockquote {
   margin-inline: 0;
@@ -1140,8 +1136,8 @@ body:has(#reader-dialog[open]) {
   .reader-header h2 { font-size: clamp(26px, 8vw, 32px); }
   .reader-completion .button { width: 100%; }
   .reader-body {
-    font-size: 17px;
-    line-height: 1.68;
+    font-size: 1.125rem;
+    line-height: 1.6;
   }
   .reader-body pre,
   .reader-body table {
