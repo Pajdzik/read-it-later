@@ -474,8 +474,9 @@ async function runProfile(name, browserType, device) {
   await page.locator("#search").fill(shareTitle);
   await page.locator("#articles").getByRole("link", { name: shareTitle, exact: true }).waitFor();
   await page.locator("#search").fill("missing mobile result");
-  await page.getByText("Nothing here yet").waitFor();
-  await page.locator("#search").fill("");
+  await page.getByText("No matches for ‘missing mobile result’").waitFor();
+  await page.getByRole("button", { name: "Clear search", exact: true }).tap();
+  await page.locator("#articles").getByRole("link", { name: shareTitle, exact: true }).waitFor();
   await page.locator('[data-status="unread"]').tap();
   await page.locator("#search-toggle").tap();
   await page.locator("#search").waitFor({ state: "visible" });
