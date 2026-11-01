@@ -42,7 +42,7 @@ Both the authenticated Add form and token capture API use the same save path. UR
 
 Saving commits the URL immediately with a supplied title or hostname/path fallback. The website Add form enables **Save a reading copy (and the original for PDFs)** by default and records durable extraction intent through `captureMarkdown: true`. The Worker publishes a Queue notification after the durable save. Its consumer claims that article and generation and calls a private Cloudflare Container service to fetch bounded HTML or PDF. HTML metadata is parsed in a bounded thread, and Cloudflare `toMarkdown` converts either format. PDFs retain a private original in R2, including when text conversion fails. The Worker creates the private copy in D1. Closing the browser or phone after the link-save acknowledgment does not cancel that intent. An hourly recovery sweep repairs missed jobs and republishes unfinished work after notification failures. Uncheck the option for a link-only save; link-only saves do not fetch metadata.
 
-Mobile capture tokens request background extraction by default, including existing iOS Shortcut `{url, title?}` payloads. `captureMarkdown: false` opts out. Tokens remain save-only: they cannot read copies or job history, submit Markdown, retry failed jobs, or publish to GitHub. Website details show queued, running, retrying, ready, failed, or paused status and provide an owner-only retry. Duplicate saves preserve existing copies and do not restart exhausted jobs. Reviewed browser clips take priority and continue using their existing explicit copy-save path.
+Mobile capture tokens request background extraction by default, including existing iOS Shortcut `{url, title?}` payloads. `captureMarkdown: false` opts out. Tokens remain save-only: they cannot read copies or job history, submit Markdown, retry failed jobs, or publish to GitHub. Articles show their own queued, running, retrying, ready, or failed state and provide an owner-only retry. A global pause appears once above the library; saved-copy checkmarks remain visible while processing is paused. Duplicate saves preserve existing copies and do not restart exhausted jobs. Reviewed browser clips take priority and continue using their existing explicit copy-save path.
 
 The checked-in Wrangler configuration enables background processing in production and keeps it disabled for local defaults and staging. Production binds the private `ARTICLE_EXTRACTOR` Cloudflare Container service. The `MANAGED_CONVERSION_ENABLED` flag is enabled in production and disabled for local defaults and staging. This describes repository configuration, not a verification of the live deployment. The executor uses native Node connections pinned to validated public IPs and parses metadata in a bounded thread and converts HTML/PDF through Workers AI. It requires Workers Paid; see [background extraction](docs/background-markdown-extraction.md), [URL Markdown capture](docs/url-markdown-capture.md), and the [deployment guide](docs/deployment.md#background-markdown-extraction) for configuration and validation requirements.
 
@@ -105,7 +105,7 @@ All API payloads are JSON with camelCase fields. Errors use `{error: {code, mess
 | `GET /api/session` | Authentication state and CSRF token for the signed-in client |
 | `GET /auth/github`, `GET /auth/github/callback` | Start and complete owner login |
 | `POST /auth/logout` | Revoke the current session |
-| `GET /api/articles` | Filter/search/page with `status`, `q`, `limit`, `cursor` |
+| `GET /api/articles` | Filter/search/page with `status`, `q`, `limit`, `cursor`; includes library-wide `capture.paused` |
 | `POST /api/articles` | Owner save `{url, title?}`; returns the saved article and duplicate/metadata-update flags |
 | `POST /api/capture` | Bearer-token save `{url, title?}`; returns only `{ok:true, extractionRequested}` with HTTP 200 for both new and duplicate saves |
 | `GET /api/articles/:id` | Retrieve an article |
@@ -187,7 +187,7 @@ One Worker deployment contains API code and static assets. Production is served 
 
 Store `GITHUB_CLIENT_ID` and `GITHUB_CLIENT_SECRET` as **Production secrets** in Cloudflare under **Workers & Pages → read-it-later-production → Settings → Variables and Secrets**. Never put OAuth credentials in `wrangler.jsonc`, source code, or logs. Local, staging, and production data are separate; staging configuration still has placeholders.
 
-For a manual production release, build assets, apply migrations to the production D1 database, and deploy the production Worker:
+For an app-only manual production release, build assets, apply migrations to the production D1 database, and deploy the production Worker. Changes to capture code or flags also require deploying the private capture service; use the [managed-ingestion release sequence](docs/unified-ingestion.md#rollout-and-validation).
 
 ```sh
 pnpm build:web
@@ -197,7 +197,7 @@ pnpm exec wrangler deploy --env production
 
 Production CI embeds the commit SHA and the UTC time the website assets were built; that timestamp records the build, not the later deployment time. The footer opens build details with the full commit, the build time in your timezone, and a copy action. Local and manual builds with neither `BUILD_COMMIT_SHA` nor `BUILD_TIMESTAMP` are labeled as local builds; supplying incomplete or invalid metadata fails the build.
 
-GitHub Actions runs strict TypeScript checks, Worker/D1 tests, dry-run builds, and browser smoke on pushes and PRs. A push to `main` additionally deploys the private capture service, applies production migrations, and deploys the app after verification passes. The `production` Actions environment needs `CLOUDFLARE_API_TOKEN` and `CLOUDFLARE_ACCOUNT_ID`; OAuth secrets are configured on the Worker separately. PR checks do not deploy production. See [CI](docs/ci.md) and [deployment instructions](docs/deployment.md).
+GitHub Actions runs strict TypeScript checks, Worker/D1 tests, dry-run builds, and browser smoke on pushes and PRs. After verification passes, a push to `main` provisions private PDF storage, applies production migrations, deploys the private capture service, ensures the extraction Queue exists, and deploys the app. The `production` Actions environment needs `CLOUDFLARE_API_TOKEN` and `CLOUDFLARE_ACCOUNT_ID`; OAuth secrets are configured on the Worker separately. PR checks do not deploy production. See [CI](docs/ci.md) and [deployment instructions](docs/deployment.md).
 
 Back up before destructive schema changes. Prefer additive migrations and roll back only to code compatible with the current database; deployment does not automatically reverse migrations. Monitor request errors, CPU, D1 storage, and row usage without logging private URLs, content, tokens, or OAuth codes. Free quota exhaustion must produce recoverable errors rather than silently enabling paid services. Confirm live OAuth, anonymous-access restrictions, device capture, and backup restoration on the deployed origin; local tests cannot replace those checks.
 

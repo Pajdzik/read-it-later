@@ -34,6 +34,28 @@ are reduced to stable codes; dependency diagnostics and document content are not
 logged. Managed output quality requires live review; fixture adapters do
 not establish Cloudflare conversion fidelity.
 
+## Capture status in the library
+
+A pause is a service-wide condition, separate from an article's saved copy or
+extraction job. The authenticated `GET /api/articles` response includes
+`capture: {paused: boolean}` alongside `items` and `nextCursor`, including when
+`items` is empty. It uses the same configuration/binding checks as the processor.
+
+The library displays one notice above the list when paused: **Automatic capture
+is paused. Saved copies are still available.** Article metadata contains no global
+pause label. A saved copy keeps its **Markdown ready** checkmark; queued work says
+**Capture queued**; a link-only article has no capture badge. Running/retrying
+jobs, article failures and recapture outcomes retain their own indicators.
+While paused, save acknowledgments and pending readers describe queued work
+without claiming conversion has started. The notice disappears after a successful list refresh
+reports processing enabled, and is cleared when private content is discarded.
+
+Per-article `extraction.paused` remains in the API for existing clients and pending
+reader guidance. It does not change `extraction.state` or invalidate an existing
+copy. Capture tokens retain their save-only permissions and cannot read the
+library-wide status. Pausing does not change read state, manual-copy saving,
+PDF access, archives or object cleanup.
+
 ## Original PDFs and recovery
 
 The private capture Worker and app bind the same environment-specific D1 and R2
@@ -128,7 +150,10 @@ The sequence below remains the recommended staging path for future releases.
    current staging values are placeholders. Keep staging resources separate from
    production. Configure OAuth secrets and an account token with Workers/Containers,
    D1, R2 and Workers AI deployment permissions through the normal secret workflow.
-2. Provision private Standard R2 buckets `read-it-later-pdfs-staging` and, when
+2. Complete [R2 subscription activation](https://developers.cloudflare.com/r2/get-started/)
+   in the intended Cloudflare account before provisioning buckets. API error
+   `10042` means this account setup is still required; a deployment retry cannot
+   enable the subscription. Provision private Standard R2 buckets `read-it-later-pdfs-staging` and, when
    releasing production, `read-it-later-pdfs-production`. CI checks/provisions the
    production bucket before deployment. Do not apply bucket-wide expiry rules:
    cleanup must honor D1 references.
@@ -189,3 +214,24 @@ interleaves session finalization and stale commits to verify publication fences.
 Native HTTP tests verify deadline cancellation, stalled-response cancellation and
 recovery after a disconnected caller. Storage fault tests cover original lookup,
 attachment, R2 downloads and interrupted stored-file streams.
+
+## Production activation evidence (October 31, 2026)
+
+Production activation commit `29a85af` deployed successfully with managed
+conversion enabled in both Workers. An isolated local probe used a remote
+service binding to the deployed private capture Worker; it did not expose a
+public capture route or insert articles into the owner's library.
+
+- HTML: `https://example.com/` returned its expected metadata title and 156 bytes
+  of Markdown body text through the deployed Container and Workers AI.
+- PDF: the public W3C `dummy.pdf` fixture returned 54 bytes of Markdown and a
+  private original of 13,264 bytes.
+- Stored-file retry: converting that original again returned the same asset
+  summary, checksum and Markdown, exercising production D1/R2 retrieval.
+
+The staged smoke-test original is unreferenced and uses the normal 24-hour
+cleanup schedule. These fixtures establish live fetch/conversion/storage access,
+not complete article fidelity or a production archive-restoration rehearsal.
+Archive export/restore and private download flows passed the local Worker/R2
+and desktop/mobile browser suites. Authenticated production archive restoration
+and physical-device PDF viewing remain unverified.
