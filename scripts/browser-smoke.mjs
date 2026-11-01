@@ -683,7 +683,22 @@ try {
   await page.setViewportSize({ width: 1440, height: 1000 });
   await reader.evaluate((dialog) => { dialog.scrollTop = dialog.scrollHeight; });
   await expect.poll(() => reader.evaluate((dialog) => dialog.scrollTop), { message: "Long reader content should scroll inside the dialog." }).toBeGreaterThan(0);
-  await reader.evaluate((dialog) => { dialog.dispatchEvent(new Event("scroll")); window.dispatchEvent(new Event("pagehide")); });
+  const toolbar = reader.locator(".reader-toolbar");
+  await expect(toolbar).toHaveClass(/is-hidden/);
+  await reader.evaluate((dialog) => { dialog.scrollTop -= 23; });
+  await expect(toolbar).toHaveClass(/is-hidden/);
+  await reader.evaluate((dialog) => { dialog.scrollTop -= 1; });
+  await expect(toolbar).not.toHaveClass(/is-hidden/);
+  await reader.evaluate((dialog) => { dialog.scrollTop += 30; });
+  await expect(toolbar).toHaveClass(/is-hidden/);
+  await reader.locator(".reader-close button").focus();
+  await expect.poll(() => toolbar.boundingBox()).toMatchObject({ y: 0 });
+  await reader.locator("#reader-title").focus();
+  await reader.evaluate((dialog) => { dialog.scrollTop = dialog.scrollHeight; });
+  await expect(toolbar).toHaveClass(/is-hidden/);
+  await reader.evaluate((dialog) => { dialog.scrollTop = 0; });
+  await expect(toolbar).not.toHaveClass(/is-hidden/);
+  await reader.evaluate((dialog) => { dialog.scrollTop = 600; dialog.dispatchEvent(new Event("scroll")); window.dispatchEvent(new Event("pagehide")); });
   const pagehidePosition = await page.evaluate((id) => JSON.parse(localStorage.getItem(`later-reading-position:${encodeURIComponent(id)}`)), articleId);
   assert.ok(pagehidePosition?.scrollTop > 0, "pagehide should flush a pending reader position synchronously.");
   await page.mouse.move(700, 500);
@@ -691,6 +706,9 @@ try {
   await page.waitForTimeout(100);
   assert.equal(await page.evaluate(() => window.scrollY), backgroundScroll,
     "Wheel input at the bottom of the reader must not chain to the background page.");
+  await reader.evaluate((dialog) => { dialog.scrollTop -= 24; });
+  await expect(toolbar).not.toHaveClass(/is-hidden/);
+  await expect.poll(async () => (await toolbar.boundingBox())?.y).toBeGreaterThanOrEqual(0);
   const backBounds = await reader.locator(".reader-close button").boundingBox();
   assert.ok(backBounds && backBounds.width >= 44 && backBounds.height >= 44 && backBounds.y >= 0 && backBounds.y + backBounds.height <= 1000,
     `Reader Back control should remain reachable after a long scroll: ${JSON.stringify(backBounds)}.`);

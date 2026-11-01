@@ -340,12 +340,17 @@ async function runProfile(name, browserType, device) {
     Math.max(...sharedEdges.map((bounds) => bounds.x + bounds.width)) - Math.min(...sharedEdges.map((bounds) => bounds.x + bounds.width)) <= 2,
     `${name}: reader blocks should share a column: ${JSON.stringify(sharedEdges)}.`);
   await readyReader.evaluate((dialog) => { dialog.scrollTop = dialog.scrollHeight; });
+  await readyReader.evaluate((dialog) => { dialog.scrollTop -= 24; });
+  await expect(readyReader.locator(".reader-toolbar")).not.toHaveClass(/is-hidden/);
+  await expect.poll(async () => (await readyReader.locator(".reader-toolbar").boundingBox())?.y).toBeGreaterThanOrEqual(0);
   const readerBack = readyReader.locator(".reader-close button");
   const readerBackBounds = await readerBack.boundingBox();
   assert.ok(readerBackBounds && readerBackBounds.width >= 44 && readerBackBounds.height >= 44 &&
     readerBackBounds.y >= 0 && readerBackBounds.y + readerBackBounds.height <= page.viewportSize().height,
     `${name}: Back control should remain reachable after long scrolling: ${JSON.stringify(readerBackBounds)}.`);
   assert.ok(await readyReader.evaluate((dialog) => dialog.scrollTop > 0), `${name}: long copy should scroll within the reader.`);
+  assert.equal(await page.evaluate(() => document.activeElement?.closest(".reader-toolbar") === null), true,
+    `${name}: scrolling to reveal the toolbar should not move touch focus into it.`);
   await page.locator("#reader-dialog .reader-close button").tap();
   await page.waitForFunction(() => document.activeElement?.textContent?.trim() === "Read saved copy" &&
     document.activeElement.closest("#detail-content") !== null, null, { timeout: 3000 });
