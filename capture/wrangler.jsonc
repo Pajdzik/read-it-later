@@ -87,7 +87,7 @@
       "name": "read-it-later-capture-production",
       "vars": {
         "APP_ORIGIN": "https://read.pajdzik.pl",
-        "MANAGED_CONVERSION_ENABLED": "false"
+        "MANAGED_CONVERSION_ENABLED": "true"
       },
       "containers": [
         {

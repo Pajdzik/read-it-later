@@ -31,7 +31,7 @@ traffic and can invalidate the native socket pinning boundary.
 Managed conversion has a 45-second local deadline. Its returned Markdown must be
 nonempty and at most 256 KiB UTF-8. Generated document/Contents/Page headings alone do not count as extracted PDF text. The executor has a separate 75-second deadline covering source fetch, metadata, D1/R2 staging, virtual transport and response reads; caller disconnects cancel it. The application still enforces the 90-second capture deadline and two-minute D1 job lease. Conversion, storage and source errors
 are reduced to stable codes; dependency diagnostics and document content are not
-logged. Managed output quality requires live staging review; fixture adapters do
+logged. Managed output quality requires live review; fixture adapters do
 not establish Cloudflare conversion fidelity.
 
 ## Original PDFs and recovery
@@ -116,9 +116,13 @@ the session expires. An empty archive is supported.
 
 ## Rollout and validation
 
-Migrations `0010_pdf_assets.sql` and `0011_archive_commit_guard.sql` are additive and must be applied before deploying the capture service and app. Both app and capture configs set
-`MANAGED_CONVERSION_ENABLED=false`, including production. Existing background
-intent remains durable while paused. Enable only after staging validation.
+Migrations `0010_pdf_assets.sql` and `0011_archive_commit_guard.sql` are additive and must be applied before deploying the capture service and app. Both app and capture production configs set
+`MANAGED_CONVERSION_ENABLED=true`; local defaults and staging remain disabled.
+The owner chose to skip staging for the initial activation on October 31, 2026.
+Validate representative captures and archive restoration in production using
+synthetic records. Existing queued capture intent resumes when enabled.
+
+The sequence below remains the recommended staging path for future releases.
 
 1. Configure the staging owner, exact origin and real D1 ID in both configs;
    current staging values are placeholders. Keep staging resources separate from
@@ -170,10 +174,11 @@ No production library or settings were changed. See the [sanitized fixture repor
 
 Type checks, Worker/D1/R2 tests, native capture/fetch tests, app and capture-Worker
 packaging, desktop/mobile browser smoke, and the existing archive rehearsal pass.
-The full Docker image build could not run because Docker Desktop did not expose
-an engine; capture-Worker packaging was checked with `--containers-rollout=none`.
-Deployed Container routing, remote staging R2/D1, real-world article fidelity,
-physical-device PDF viewing and production rollout remain explicit release gates.
+The full Docker image build and initial production deployment passed in GitHub
+Actions after R2 activation. Local Docker Desktop did not expose an engine; local
+capture-Worker packaging used `--containers-rollout=none`. Real-world article
+fidelity and physical-device PDF viewing remain checks to complete during
+production validation. An isolated remote staging rehearsal was waived by the owner.
 
 ## Review regressions
 

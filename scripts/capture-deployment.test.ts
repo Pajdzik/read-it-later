@@ -28,7 +28,7 @@ test("plans the selected environment with a private gateway binding and capture 
     { binding: "ARTICLE_EXTRACTOR", service: "read-it-later-capture-production" },
     { binding: "ARTICLE_FETCHER", service: "read-it-later-safe-fetch-production" },
   ]);
-  assert.equal(productionVars.MANAGED_CONVERSION_ENABLED, "false");
+  assert.equal(productionVars.MANAGED_CONVERSION_ENABLED, "true");
   assert.deepEqual(plan.generatedConfig.env.staging.services, [{ binding: "ARTICLE_EXTRACTOR", service: "read-it-later-capture-staging" }]);
 });
 
