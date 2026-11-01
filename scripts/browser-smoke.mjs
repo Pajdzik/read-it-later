@@ -320,6 +320,7 @@ try {
     "",
     "```js",
     "const value = '<script>alert(3)</script>';",
+    `const wideValue = '${"wide-code-".repeat(30)}';`,
     "```",
     "",
     "| Column | Wide value |",
@@ -625,8 +626,39 @@ try {
   assert.equal(new URL(relativeUrl).href, "https://example.com/chapter?q=1#part");
   assert.equal(await readerBody.getByRole("link", { name: "Root" }).getAttribute("href"), "https://example.com/reference");
   assert.equal(await readerBody.getByRole("link", { name: "Fragment" }).getAttribute("href"), "https://example.com/browser-smoke?utm_source=smoke#inside");
-  assert.equal(await readerBody.locator("pre code").textContent(), "const value = '<script>alert(3)</script>';\n");
+  assert.equal(await readerBody.locator("pre code").textContent(),
+    `const value = '<script>alert(3)</script>';\nconst wideValue = '${"wide-code-".repeat(30)}';\n`);
   assert.equal(await readerBody.locator("table tbody tr").count(), 1, "Markdown tables should render as tables.");
+  const readerLayout = await readerBody.evaluate((body) => {
+    const pre = body.querySelector("pre");
+    const code = pre.querySelector("code");
+    const cell = body.querySelector("table td");
+    const style = (element) => getComputedStyle(element);
+    return {
+      bodySize: parseFloat(style(body).fontSize),
+      preSize: parseFloat(style(pre).fontSize),
+      codeSize: parseFloat(style(code).fontSize),
+      codeFamily: style(code).fontFamily,
+      tableSize: parseFloat(style(body.querySelector("table")).fontSize),
+      cellFamily: style(cell).fontFamily,
+      preScrolls: pre.scrollWidth > pre.clientWidth,
+      tableScrolls: body.querySelector("table").scrollWidth > body.querySelector("table").clientWidth,
+      bodyFits: body.scrollWidth <= body.clientWidth + 1,
+      tableGap: parseFloat(style(body.querySelector("table")).marginBottom),
+    };
+  });
+  const near = (actual, expected, tolerance = 0.1) => Math.abs(actual - expected) <= tolerance;
+  assert.ok(near(readerLayout.preSize, readerLayout.bodySize * 0.85),
+    `Code blocks should scale to 0.85 of the reader text: ${JSON.stringify(readerLayout)}.`);
+  assert.ok(near(readerLayout.codeSize, readerLayout.preSize),
+    "Fenced code should not shrink again inside its pre block.");
+  assert.match(readerLayout.codeFamily, /ui-monospace|monospace/i, "Code should retain a monospace font.");
+  assert.ok(near(readerLayout.tableSize, readerLayout.bodySize * 0.85),
+    "Tables should scale with the reader text.");
+  assert.match(readerLayout.cellFamily, /system-ui|sans-serif/i, "Table cells should use the interface font.");
+  assert.ok(readerLayout.preScrolls && readerLayout.tableScrolls && readerLayout.bodyFits,
+    `Wide code and tables should scroll inside the reader column: ${JSON.stringify(readerLayout)}.`);
+  assert.ok(readerLayout.tableGap > 0, "Tables should leave space before following paragraphs.");
   assert.match(await readerBody.textContent(), /Unsafe.*Encoded.*Credentials/, "Dangerous destinations should remain readable text.");
   assert.equal(await readerBody.locator("iframe, video, audio, source, svg, math, form, style, script").count(), 0, "Reader must contain no active or unapproved resource-loading nodes.");
   const renderedImage = readerBody.locator("img");

@@ -1058,17 +1058,15 @@ button {
 .reader-body pre,
 .reader-body table {
   max-width: 100%;
-  overflow-x: auto;
-  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
-  font-size: 13px;
   line-height: 1.55;
 }
 .reader-body pre {
-  max-width: 100%;
   overflow-x: auto;
   padding: 15px;
   border-radius: 8px;
   background: var(--mint);
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-size: 0.85em;
   white-space: pre;
 }
 .reader-body code {
@@ -1081,6 +1079,7 @@ button {
 .reader-body pre code {
   padding: 0;
   background: transparent;
+  font-size: inherit;
 }
 .reader-body table {
   display: block;
@@ -1088,7 +1087,10 @@ button {
   min-width: 100%;
   max-width: 100%;
   overflow-x: auto;
+  margin-bottom: 1.15em;
   border-collapse: collapse;
+  font-family: system-ui, sans-serif;
+  font-size: 0.85em;
 }
 .reader-body th,
 .reader-body td {
