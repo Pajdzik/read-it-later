@@ -960,14 +960,17 @@ function renderArticle(article: Article) {
   link.addEventListener("click", (e) => { e.stopPropagation(); menu.hidePopover(); });
   menu.append(edit, link);
   more.append(moreButton, menu);
-  menu.addEventListener("toggle", (event) => {
-    if ((event as ToggleEvent).newState === "open") {
+  menu.addEventListener("beforetoggle", (event) => {
+    if ((event as ToggleEvent).newState !== "open") return;
+    // The popover has dimensions after it opens. Position it before the first paint.
+    requestAnimationFrame(() => {
+      if (!menu.matches(":popover-open")) return;
       const bounds = moreButton.getBoundingClientRect();
-      const menuHeight = menu.getBoundingClientRect().height;
+      const menuHeight = menu.offsetHeight;
       const below = bounds.bottom + menuHeight + 5 <= window.innerHeight;
       menu.style.top = `${below ? bounds.bottom + 5 : Math.max(8, bounds.top - menuHeight - 5)}px`;
       menu.style.right = `${Math.max(8, window.innerWidth - bounds.right)}px`;
-    }
+    });
   });
   actions.append(read, more);
   main.append(title, metaRow);
