@@ -504,6 +504,7 @@ const list = $("#articles"),
 let loadGeneration = 0;
 function invalidateLoads() {
   loadGeneration++;
+  $<HTMLButtonElement>("#clear-search").hidden = true;
   setBusy(false);
   $<HTMLButtonElement>("#more").disabled = false;
 }
@@ -988,9 +989,27 @@ function render(items: Article[], append = false) {
   $("#result-count").textContent = count ? `${count} shown` : "";
   empty.hidden = count !== 0;
   if (!count) {
-    $("#empty h3").textContent = "Nothing here yet";
-    $("#empty p").textContent =
-      state.tag || state.query ? "Try another filter or clear your search." : "When you save an article, it’ll be waiting here.";
+    const heading = $("#empty h3");
+    const message = $("#empty p");
+    const clearSearch = $<HTMLButtonElement>("#clear-search");
+    const authenticated = state.session?.authenticated === true;
+    clearSearch.hidden = !authenticated || !state.query;
+    if (state.query) {
+      heading.textContent = `No matches for ‘${state.query}’`;
+      message.textContent = state.tag ? `No matches in this tag.` : "Try a different search.";
+    } else if (state.tag) {
+      heading.textContent = `No ${state.status === "all" ? "" : state.status + " "}articles tagged ‘${state.tag}’`;
+      message.textContent = "Try another tag or change the list filter.";
+    } else if (state.status === "unread") {
+      heading.textContent = "No unread articles";
+      message.textContent = "You’re all caught up.";
+    } else if (state.status === "read") {
+      heading.textContent = "No articles marked as read";
+      message.textContent = "Articles you mark as read will appear here.";
+    } else {
+      heading.textContent = "Nothing here yet";
+      message.textContent = "When you save an article, it’ll be waiting here.";
+    }
   }
   $("#more").hidden = !state.cursor;
 }
@@ -1000,6 +1019,8 @@ async function load(reset = true) {
   if (reset) {
     state.cursor = null;
     list.replaceChildren();
+    empty.hidden = true;
+    $("#clear-search").hidden = true;
   }
   setBusy(true);
   $<HTMLButtonElement>("#more").disabled = true;
@@ -2835,6 +2856,12 @@ searchInput.addEventListener("input", (e) => {
   updateSearchState();
   renderLastOpened();
   searchTimer = window.setTimeout(() => void load(), 250);
+});
+$("#clear-search").addEventListener("click", () => {
+  if (!state.session?.authenticated || !state.query) return;
+  searchInput.value = "";
+  searchInput.dispatchEvent(new Event("input", { bubbles: true }));
+  searchToggle.focus({ preventScroll: true });
 });
 $("#more").addEventListener("click", () => load(false));
 $("#logout").addEventListener("click", async () => {

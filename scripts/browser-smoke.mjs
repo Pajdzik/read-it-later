@@ -966,8 +966,11 @@ try {
   await page.getByText("Simulated list outage").waitFor();
   await page.unroute("**/api/articles?*");
   await page.locator("#search").fill("no-match-again");
-  await page.locator("#empty h3").getByText("Nothing here yet").waitFor();
-  await page.locator("#search").fill("");
+  await page.locator("#empty h3").getByText("No matches for ‘no-match-again’").waitFor();
+  await page.getByRole("button", { name: "Clear search", exact: true }).click();
+  await expect(title).toBeVisible();
+  await expect(page.locator("[data-status=unread]")).toHaveAttribute("aria-pressed", "true");
+  assert.equal(await page.locator("#search").inputValue(), "", "Clear search must reset only the query input.");
   for (const route of ["/api", "/api/unknown", "/auth/unknown"]) {
     const response = await context.request.get(base + route, {
       headers: { Accept: "text/html" },
