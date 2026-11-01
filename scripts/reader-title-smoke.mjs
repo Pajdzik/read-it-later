@@ -85,6 +85,7 @@ export async function readerTitleSmoke(browser, base) {
         await page.screenshot({ path: "/tmp/potem-reader-title-mobile.png" });
         await page.setViewportSize({ width: 1440, height: 1000 });
         await page.getByRole("button", { name: "Close saved copy" }).click();
+        await page.locator('.article[data-id="e0lgk5dz"]').getByRole("button", { name: "More actions", exact: true }).click();
         await page.locator('.article[data-id="e0lgk5dz"]').getByRole("button", { name: "Edit", exact: true }).click();
         await expect(page.getByRole("textbox", { name: "Markdown copy" })).toHaveValue(sample.markdown);
       }

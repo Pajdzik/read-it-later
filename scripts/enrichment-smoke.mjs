@@ -70,6 +70,7 @@ export async function enrichmentSmoke(browser, base) {
       await expect(page.locator('#reader-dialog')).toBeVisible();
       await page.goBack(); await expect(page.locator('#reader-dialog')).toBeHidden();
       await expect(page.getByLabel('Filter by tag')).toHaveValue('databases');
+      await page.locator('.article[data-id=enrich01]').getByRole('button', { name: 'More actions', exact: true }).click();
       await page.locator('.article[data-id=enrich01]').getByRole('button', { name: 'Edit', exact: true }).click();
       const detail = page.locator('#detail-content');
       const tags = detail.getByRole('textbox', { name: 'Tags (comma separated)', exact: true });
@@ -158,6 +159,7 @@ export async function enrichmentSmoke(browser, base) {
       assert.equal(listingRequests.at(-1).get('tag'), 'databases');
       assert.equal(listingRequests.at(-1).has('cursor'), false);
       // A tag edit while source capture is pending must not submit the fallback title.
+      await page.locator('.article[data-id=enrich03]').getByRole('button', { name: 'More actions', exact: true }).click();
       await page.locator('.article[data-id=enrich03]').getByRole('button', { name: 'Edit', exact: true }).click();
       await tags.fill('databases, security, web');
       await detail.getByRole('button', { name: 'Save details', exact: true }).click();

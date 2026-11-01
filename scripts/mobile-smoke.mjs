@@ -567,10 +567,17 @@ async function runProfile(name, browserType, device) {
 
   // Long content checks control reachability and no page-level horizontal
   // overflow. Paste the copy through article details, then open the title.
+  await article.getByRole("button", { name: "More actions", exact: true }).tap();
   await article.getByRole("button", { name: "Edit", exact: true }).tap();
   const detail = page.locator("#detail-content");
   assert.equal(await page.evaluate(() => document.activeElement?.matches("#detail-content input")), true,
     `${name}: detail dialog opened with its close button focused.`);
+  await page.locator("#detail-dialog .dialog-close button").tap();
+  await page.waitForFunction(() => !document.querySelector("#detail-dialog")?.open);
+  assert.equal(await page.evaluate(() => document.activeElement?.matches(".article[data-id] .more-action")), true,
+    `${name}: closing Edit should return touch focus to More actions.`);
+  await article.getByRole("button", { name: "More actions", exact: true }).tap();
+  await article.getByRole("button", { name: "Edit", exact: true }).tap();
   await detail.locator(".copy-editor > .copy-status")
     .filter({ hasText: /^Saved .*captured or pasted Markdown/ }).waitFor();
   const wideMarkdown = `# Wide reader check\n\n${"word-without-breaks-".repeat(24)}\n\n| left | ${"column-header-".repeat(8)} |\n| --- | --- |\n| text | ${"wide-cell-".repeat(24)} |`;
