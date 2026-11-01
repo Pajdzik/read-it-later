@@ -258,13 +258,15 @@ async function runProfile(name, browserType, device) {
   assert.equal(captureSave.extraction?.state, "queued", `${name}: requested capture must persist a queued extraction intent.`);
   assert.equal(captureSave.extraction?.paused, true, `${name}: local runtime should report its disabled capture processor.`);
   assert.equal(Object.hasOwn(captureSave, "copy"), false, `${name}: save response must not include synchronous Markdown.`);
-  await page.locator("#notice").getByText(/Link saved\. Capture is paused/).waitFor();
+  await page.locator("#notice").getByText(/Link saved\. Markdown capture queued/).waitFor();
   const titleButton = page.locator("#articles").getByRole("link", { name: shareTitle, exact: true });
   await titleButton.waitFor();
   assert.equal(await page.locator('[data-status="unread"]').getAttribute("aria-pressed"), "true",
     `${name}: saving an article should keep the previously selected Unread tab.`);
   const article = page.locator(".article").filter({ hasText: shareTitle });
-  await article.locator(".article-meta").getByText("Capture paused").waitFor();
+  await expect(page.locator("#capture-status")).toBeVisible();
+  await expect(article.locator(".article-meta")).not.toContainText("paused");
+  await expect(article.getByRole("img", { name: "Capture queued", exact: true })).toBeVisible();
   const shareArticleId = await article.getAttribute("data-id");
   assert.match(shareArticleId || "", /^[a-z0-9]{8}$/, `${name}: newly saved article IDs should be short and URL-safe.`);
   assert.equal(await titleButton.getAttribute("href"), `/read/${shareArticleId}/${shareTitle.toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-|-$/g, "")}`,
@@ -286,7 +288,7 @@ async function runProfile(name, browserType, device) {
     Math.abs(pendingReaderBounds.width - page.viewportSize().width) <= 1 &&
     Math.abs(pendingReaderBounds.height - page.viewportSize().height) <= 1,
     `${name}: pending reader should cover the phone viewport: ${JSON.stringify(pendingReaderBounds)}.`);
-  await pendingReader.getByText(/Capture is paused/).waitFor();
+  await pendingReader.getByText(/Your link is saved and its Markdown copy is queued/).waitFor();
   assert.equal(await pendingReader.locator("#reader-original").getAttribute("href"), shareUrl,
     `${name}: pending reader should preserve the source link.`);
   await pendingReader.getByRole("button", { name: "Paste or upload Markdown" }).tap();

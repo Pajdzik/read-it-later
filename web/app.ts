@@ -57,7 +57,7 @@ type ExtractionStatus = {
   recovery?: { generation: number; state: 'queued' | 'running' | 'retry_wait' | 'succeeded' | 'failed'; attempts: number; errorCode: string | null; nextAttemptAt: string | null };
 };
 type Session = { authenticated: boolean; csrfToken?: string };
-type Page = { items: Article[]; nextCursor: string | null };
+type Page = { items: Article[]; nextCursor: string | null; capture?: { paused: boolean } };
 type ArticleCopy = { markdown: string; capturedAt: string; source: "paste" | "upload"; revision: string };
 type BrowserCaptureDraft = {
   sourceUrl: string; title: string; markdown: string; author?: string; description?: string;
@@ -594,13 +594,12 @@ function extractionLabel(extraction?: ExtractionStatus) {
     const recovery = extraction.recovery;
     if (recovery.state === 'failed') return `Recapture failed. ${extractionFailureMessage(recovery.errorCode)}`;
     if (recovery.state === 'succeeded') return 'Recapture completed';
-    if (extraction.paused) return 'Recapture queued · Capture paused';
     return recovery.state === 'queued' ? 'Recapture queued' : recovery.state === 'retry_wait' ? 'Recapture retrying' : 'Recapturing article';
   }
   if (!extraction || extraction.state === "none") return "";
   if (extraction.state === "ready") return "Markdown ready";
   if (extraction.state === "failed") return "Capture failed";
-  if (extraction.paused) return "Capture paused";
+  if (extraction.state === "queued") return "Capture queued";
   return extraction.state === "retry_wait" ? "Capture retrying" : "Capturing Markdown";
 }
 function renderArticleMeta(article: Article) {
@@ -612,14 +611,13 @@ function renderArticleMeta(article: Article) {
   }
   meta.append(document.createTextNode(" · "));
   meta.append(el("span", `Saved ${dateLabel(article.createdAt)}`, "article-meta-date"));
-  if (article.extraction?.paused) meta.append(document.createTextNode(" · Capture paused"));
   return meta;
 }
 function updateExtractionBadge(badge: HTMLElement, extraction?: ExtractionStatus) {
   badge.classList.toggle("extraction-badge-pending", extractionIsPending(extraction));
   const failed = extraction?.recovery?.state === 'failed' || extraction?.state === "failed";
   const ready = extraction?.state === "ready" && !failed && !extractionIsPending(extraction);
-  const label = extraction?.paused && !extraction?.recovery ? "" : extractionLabel(extraction);
+  const label = extractionLabel(extraction);
   badge.classList.toggle("extraction-badge-ready", ready);
   badge.classList.toggle("extraction-badge-failed", failed);
   badge.hidden = !label;
@@ -893,6 +891,7 @@ async function load(reset = true) {
     if (state.cursor && !reset) p.set("cursor", state.cursor);
     const page = await request<Page>(`/api/articles?${p}`);
     if (generation !== loadGeneration) return;
+    $("#capture-status").hidden = page.capture?.paused !== true;
     state.cursor = page.nextCursor;
     render(page.items, !reset);
     if (reset && !suggestedArticle && !suggestionError) suggestionLoaded = false;
@@ -1558,7 +1557,7 @@ function renderPendingReader(article: Article) {
   original.href = safeHttpUrl(article.url) || "#";
   $("#reader-pending-status").textContent = article.extraction?.state === "failed"
     ? `${extractionFailureMessage(article.extraction.errorCode)} You can paste or upload a browser copy in article details.`
-    : article.extraction?.paused ? "Capture is paused. Your link is saved; you can add Markdown manually in article details."
+    : article.extraction?.paused ? "Your link is saved and its Markdown copy is queued. You can add Markdown manually in article details."
       : "Markdown is being prepared in the background. You can close this view; the link is already saved.";
   $("#reader-pending").hidden = false;
   const retry = $<HTMLButtonElement>("#reader-retry");
@@ -1632,6 +1631,7 @@ function restoreReaderFocus(opener = readerReturnFocus) {
   opener.focus({ preventScroll: true });
 }
 function discardPrivateContent() {
+  $("#capture-status").hidden = true;
   pendingReadCompletion = null;
   lastOpenedFetchGeneration++;
   lastOpenedArticle = null;
@@ -2549,7 +2549,7 @@ $("#add-form").addEventListener("submit", async (e) => {
                 ? "Link saved. Markdown copy was left out by your choice."
       : captureFromUrl && extractionIsPending(result.extraction || result.article.extraction)
         ? (result.extraction || result.article.extraction)?.paused
-          ? "Link saved. Capture is paused; Markdown can be added from article details."
+          ? "Link saved. Markdown capture queued."
           : "Link saved. Capturing Markdown in the background."
         : result.duplicate
           ? result.metadataUpdated ? "Preview details updated." : "That link is already in your list."
