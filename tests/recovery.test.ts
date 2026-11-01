@@ -268,6 +268,13 @@ describe('per-article capture recovery', () => {
 });
 
 describe('recovery HTTP boundaries', () => {
+  beforeEach(() => {
+    // HTTP handlers and direct job helpers must share the fixture clock.
+    vi.useFakeTimers({ toFake: ['Date'] });
+    vi.setSystemTime(new Date(time()));
+  });
+  afterEach(() => vi.useRealTimers());
+
   const origin = 'http://localhost:8787';
   const localEnv: Env = { ...env, APP_ORIGIN: origin, DEV_AUTH_BYPASS: 'true' };
   const route = async (id: string, action: string, body: unknown, headers = {}) => (await handleArticles(new Request(`${origin}/api/articles/${id}/extraction/${action}`, {
@@ -287,10 +294,10 @@ describe('recovery HTTP boundaries', () => {
     expect(await accepted.json()).toMatchObject({ extraction: { state: 'ready', recovery: { state: 'queued' } } });
     expect((await route(id, 'recapture', { expectedRevision: oldCopy.revision })).status).toBe(200);
     expect((await route(id, 'recapture', { expectedRevision: oldCopy.revision, refreshMetadata: true })).status).toBe(409);
-    const job = (await claimExtractionJob(env.DB, time()))!;
-    await completeExtractionJob(env.DB, job, result, time(10));
-    // Bring the job back to real time to check the HTTP cooldown.
-    await env.DB.prepare('UPDATE article_extraction_jobs SET updated_at=? WHERE article_id=?').bind(new Date().toISOString(), id).run();
+    const job = await claimExtractionJob(env.DB, time());
+    expect(job).toMatchObject({ articleId: id, kind: 'recapture' });
+    expect(await completeExtractionJob(env.DB, job!, result, time(10))).toBe(true);
+    vi.setSystemTime(new Date(time(10)));
     const copy = (await getArticleCopy(env.DB, id))!;
     const cooldown = await route(id, 'recapture', { expectedRevision: copy.revision });
     expect(cooldown.status).toBe(429);
