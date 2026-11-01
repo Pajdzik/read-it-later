@@ -1,6 +1,6 @@
 # Cloudflare deployment and operations
 
-For the managed HTML/PDF rollout, private R2 provisioning, new bindings and staging gates, follow [unified ingestion](unified-ingestion.md#rollout-and-validation). The managed-conversion flag defaults off in every environment. Older Defuddle/gateway instructions below describe the preceding pipeline.
+For the managed HTML/PDF rollout, private R2 provisioning, new bindings and staging gates, follow [unified ingestion](unified-ingestion.md#rollout-and-validation). Managed conversion is enabled in production; local defaults and staging remain disabled. Older Defuddle/gateway instructions below describe the preceding pipeline.
 
 The base app runs on Workers with Workers Static Assets and D1. Optional automatic capture uses a private Cloudflare Container and requires Workers Paid. Deployment requires your own Cloudflare account and a GitHub OAuth app. No deployment or paid service is provisioned by the implementation PRs.
 

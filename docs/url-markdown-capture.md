@@ -1,6 +1,6 @@
 # Markdown capture when pasting or sharing a URL
 
-Current HTML/PDF conversion, original storage and complete archive behavior are documented in [unified ingestion](unified-ingestion.md). Server-side Defuddle architecture and manual-only/R2-deferred statements below are historical. Managed conversion is disabled in checked-in configs pending staging validation.
+Current HTML/PDF conversion, original storage and complete archive behavior are documented in [unified ingestion](unified-ingestion.md). Server-side Defuddle architecture and manual-only/R2-deferred statements below are historical. Managed conversion is enabled in production; local defaults and staging remain disabled.
 
 Add requests a background Markdown copy by default using `captureMarkdown: true` on the owner-authenticated `POST /api/articles` route. The response confirms a saved link and durable extraction intent, not a completed copy. It returns `extraction` status instead of the former synchronous `copy`/`copyCaptureError` fields. The original URL, identity, saved date, and read state remain independent of extraction.
 

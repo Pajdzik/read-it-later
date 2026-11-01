@@ -100,7 +100,7 @@
         "GITHUB_BACKUP_BRANCH": "main",
         "GITHUB_BACKUP_PATH": "Articles",
         "BACKGROUND_CAPTURE_ENABLED": "true",
-        "MANAGED_CONVERSION_ENABLED": "false"
+        "MANAGED_CONVERSION_ENABLED": "true"
       },
       "d1_databases": [
         {
