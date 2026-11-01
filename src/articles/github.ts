@@ -79,10 +79,11 @@ export function articleMarkdown(article: Article, copy: ArticleCopy): string {
   // quotes and Unicode. Keep the body byte-for-byte, even existing frontmatter.
   const metadata = {
     id: article.id, title: article.title, url: article.url,
-    author: article.author, description: article.description, savedAt: article.createdAt,
+    author: article.author, description: article.description, tags: article.tags ?? [],
+    descriptionOrigin: article.descriptionOrigin ?? (article.description ? 'manual' : null), tagsManuallyEdited: article.tagsManuallyEdited ?? false, savedAt: article.createdAt,
     capturedAt: copy.capturedAt, source: copy.source, revision: copy.revision,
   };
-  return `---\npotem_backup_version: 1\n${Object.entries(metadata).map(([key, value]) => `${key}: ${JSON.stringify(value)}`).join('\n')}\n---\n${copy.markdown}`;
+  return `---\npotem_backup_version: 2\n${Object.entries(metadata).map(([key, value]) => `${key}: ${JSON.stringify(value)}`).join('\n')}\n---\n${copy.markdown}`;
 }
 
 export async function getGitHubBackupStatus(env: Env, article: Article, copy: ArticleCopy | null): Promise<GitHubBackupStatus> {
@@ -206,7 +207,7 @@ function backupHeader(markdown: string): { id: string | null; url: string | null
   try {
     const withoutBom = markdown.charCodeAt(0) === 0xfeff ? markdown.slice(1) : markdown;
     const lines = withoutBom.split(/\r?\n/);
-    if (lines[0] !== '---' || lines[1] !== 'potem_backup_version: 1') return null;
+    if (lines[0] !== '---' || !['potem_backup_version: 1', 'potem_backup_version: 2'].includes(lines[1])) return null;
     const fields = new Map<string, unknown>();
     let closed = false;
     for (const line of lines.slice(2)) {

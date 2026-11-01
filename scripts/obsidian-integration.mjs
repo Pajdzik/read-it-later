@@ -90,6 +90,9 @@ async function exportLibrary(base) {
   const value = JSON.parse(new TextDecoder("utf-8", { fatal: true }).decode(await response.arrayBuffer()));
   return validateBackupEnvelope(value);
 }
+function restoredDefaults(item) {
+  return { ...item, tags: item.tags ?? [], descriptionOrigin: item.descriptionOrigin ?? (item.description ? 'manual' : null), tagsManuallyEdited: item.tagsManuallyEdited ?? false };
+}
 function sorted(value) { return value.articles.slice().sort((a, b) => a.id.localeCompare(b.id)); }
 async function write(vault, name, value) {
   const file = path.join(vault, name);
@@ -145,7 +148,7 @@ async function main() {
     const expected = new Map();
     for (const item of preexisting.articles) expected.set(item.id, item);
     for (const batch of batches) for (const item of batch.articles) if (item.url.includes("/read") || item.url.includes("/empty")) expected.set(item.id, item);
-    assert.deepEqual(sorted(afterFirst), [...expected.values()].sort((a, b) => a.id.localeCompare(b.id)));
+    assert.deepEqual(sorted(afterFirst), [...expected.values()].map(restoredDefaults).sort((a, b) => a.id.localeCompare(b.id)));
     assert.deepEqual(sorted(afterFirst).find(item => item.id === "exist001"), before.articles[0]);
     const repeatCounts = await importBatches(base, batches);
     assert.ok(repeatCounts.every(count => count.imported === 0));

@@ -12,6 +12,7 @@ import { createServer } from "node:http";
 import { readerCompletionSmoke } from "./reader-completion-smoke.mjs";
 import { checkReadingSuggestion } from "./reading-suggestion-smoke.mjs";
 import { captureRecoverySmoke } from "./capture-recovery-smoke.mjs";
+import { enrichmentSmoke } from "./enrichment-smoke.mjs";
 import { readerTitleSmoke } from "./reader-title-smoke.mjs";
 
 const storage = await mkdtemp(path.join(os.tmpdir(), "read-later-smoke-"));
@@ -112,6 +113,7 @@ try {
   });
   await checkReadingSuggestion(browser, base);
   await captureRecoverySmoke(browser, base);
+  await enrichmentSmoke(browser, base);
   await captureStatusSmoke(browser, base);
   await readerTitleSmoke(browser, base);
   const context = await browser.newContext({
@@ -851,10 +853,10 @@ try {
       });
     else await route.continue();
   });
-  await page.locator("#detail-content .edit-form input").fill("Failed edit");
+  await page.locator("#detail-content .edit-form input[data-field=title]").fill("Failed edit");
   await page
     .locator("#detail-content")
-    .getByRole("button", { name: "Save title" })
+    .getByRole("button", { name: "Save details" })
     .click();
   await page
     .locator("#detail-error")
@@ -1254,6 +1256,7 @@ try {
   }, { url: `${sourceBase}/failed-smoke` });
   let asyncState = "queued";
   let extractionReads = 0;
+  let asyncCompleteOnRead = false;
   const asyncCopy = { markdown: "# Background copy\n\nReady without replacing the editor draft.", capturedAt: "2026-10-06T00:00:00.000Z", source: "paste", revision: "smoke-background-revision" };
   await urlPage.route("**/api/articles?*", async (route) => {
     const response = await route.fetch();
@@ -1269,6 +1272,7 @@ try {
       if (route.request().method() !== "GET") return route.continue();
       const response = await route.fetch();
       const data = await response.json();
+      if (fixture.id === asyncFixture.id && asyncCompleteOnRead) asyncState = "ready";
       data.article.extraction = fixture.id === asyncFixture.id
         ? { state: asyncState, attempts: 0, errorCode: null, nextAttemptAt: null, paused: false }
         : { state: "failed", attempts: 3, errorCode: "source_unavailable", nextAttemptAt: null, paused: false };
@@ -1322,6 +1326,7 @@ try {
   await draftBox.fill("# My manual draft\n\nKeep this while background capture finishes.");
   await asyncDetail.locator("#detail-extraction-status").getByText("Capture queued").waitFor();
   await asyncDetail.locator(".copy-status").getByText(/Unsaved draft/).waitFor();
+  asyncCompleteOnRead = true;
   await urlPage.waitForFunction(() => document.querySelector("#detail-extraction-status")?.textContent === "Markdown ready", null, { timeout: 10000 });
   assert.equal(await draftBox.inputValue(), "# My manual draft\n\nKeep this while background capture finishes.", "Polling must preserve the user's unsaved Markdown draft.");
   await asyncDetail.getByRole("button", { name: "Read saved copy" }).click();
@@ -1378,10 +1383,10 @@ try {
   assert.equal(await urlPage.locator("#detail-content h2").textContent(), "Background capture smoke", "A late retry must not replace another article's details.");
   await urlPage.locator("#detail-dialog .dialog-close button").click();
   await failedArticle.getByRole("button", { name: "Edit", exact: true }).click();
-  await urlPage.locator("#detail-content .edit-form input").fill("Keep my unsaved title");
+  await urlPage.locator("#detail-content .edit-form input[data-field=title]").fill("Keep my unsaved title");
   await urlPage.locator("#detail-content").getByRole("button", { name: "Retry capture" }).click();
   await urlPage.locator("#detail-extraction-status").getByText("Capture queued").waitFor();
-  assert.equal(await urlPage.locator("#detail-content .edit-form input").inputValue(), "Keep my unsaved title", "Retry acknowledgment must preserve an unsaved title draft.");
+  assert.equal(await urlPage.locator("#detail-content .edit-form input[data-field=title]").inputValue(), "Keep my unsaved title", "Retry acknowledgment must preserve an unsaved title draft.");
   await urlPage.locator("#detail-dialog .dialog-close button").click();
   await urlPage.unroute("**/api/articles");
   await urlPage.unroute(`**/api/articles/${asyncFixture.id}/extraction`);

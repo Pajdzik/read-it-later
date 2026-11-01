@@ -42,7 +42,7 @@ test("migrates JSON and matching GitHub files with one reserved mapping and read
   assert.equal(result.idMappings.find(item => item.oldId === legacyId).sourcePaths.length, 2);
   assert.deepEqual(result.markdownPaths, [{ oldPath: "old-name.md", newPath: "Articles/why-we-read.md", id: mapped }]);
   const migratedEnvelope = validateBackupEnvelope(JSON.parse(await readFile(path.join(output, "import-001.json"), "utf8")));
-  assert.equal(migratedEnvelope.version, 2);
+  assert.equal(migratedEnvelope.version, 3);
   assert.equal(migratedEnvelope.articles[0].id, mapped);
   assert.equal(migratedEnvelope.articles[0].copy.markdown, body);
   const migratedMd = await readFile(path.join(output, "Articles", "why-we-read.md"));
@@ -93,6 +93,23 @@ test("rejects duplicate Markdown frontmatter IDs even when their URLs match", as
   await writeFile(path.join(source, "one.md"), markdown(legacyId, "https://example.com/same", "One"));
   await writeFile(path.join(source, "two.md"), markdown(legacyId, "https://example.com/same", "Two"));
   await assert.rejects(migrateBackups({ githubDirectory: source, outputPath: path.join(root, "converted") }), /duplicate_markdown_article_id/);
+});
+
+test('discovers v2 GitHub frontmatter and preserves tags and protection in v3 batches', async t => {
+  const { root, source } = await fixture(t);
+  const md = markdown(validId, 'https://example.com/tagged', 'Tagged article')
+    .replace('potem_backup_version: 1', 'potem_backup_version: 2')
+    .replace('savedAt: ', 'tags: ["databases"]\r\ndescriptionOrigin: null\r\ntagsManuallyEdited: true\r\nsavedAt: ');
+  await writeFile(path.join(source, 'tagged.md'), md);
+  const output = path.join(root, 'tagged-output');
+  const result = await migrateBackups({ githubDirectory: source, outputPath: output });
+  assert.equal(result.articleCount, 1);
+  const envelope = validateBackupEnvelope(JSON.parse(await readFile(path.join(output, 'import-001.json'), 'utf8')));
+  assert.equal(envelope.version, 3);
+  assert.deepEqual(envelope.articles[0].tags, ['databases']);
+  assert.equal(envelope.articles[0].tagsManuallyEdited, true);
+  assert.equal(envelope.articles[0].descriptionOrigin, null);
+  assert.equal(envelope.articles[0].copy.markdown, body);
 });
 
 test("resolves the output parent before rejecting a symlink that points into the source", async t => {

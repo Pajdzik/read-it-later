@@ -3,6 +3,7 @@ import { cloudflareTest, readD1Migrations } from "@cloudflare/vitest-plugin";
 
 export default defineConfig({
   plugins: [cloudflareTest(async () => ({
+    remoteBindings: false,
     wrangler: { configPath: "./wrangler.jsonc" },
     miniflare: {
       queueConsumers: [],

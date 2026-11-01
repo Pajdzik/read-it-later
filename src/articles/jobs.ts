@@ -232,13 +232,15 @@ export async function completeExtractionJob(
   const metadataUpdate = db.prepare(`UPDATE articles SET
       title = CASE WHEN title_origin = 'fallback' AND ? IS NOT NULL THEN ? ELSE title END,
       title_origin = CASE WHEN title_origin = 'fallback' AND ? IS NOT NULL THEN 'extracted' ELSE title_origin END,
-      author = COALESCE(author, ?), description = COALESCE(description, ?),
+      author = COALESCE(author, ?),
+      description = CASE WHEN description_origin IS NOT 'manual' THEN COALESCE(description, ?) ELSE description END,
+      description_origin = CASE WHEN description IS NULL AND description_origin IS NOT 'manual' AND ? IS NOT NULL THEN 'extracted' ELSE description_origin END,
       updated_at = CASE WHEN
         (title_origin = 'fallback' AND ? IS NOT NULL AND title != ?) OR
         (author IS NULL AND ? IS NOT NULL) OR (description IS NULL AND ? IS NOT NULL)
         THEN ? ELSE updated_at END
     WHERE id = ? AND ${fence} AND EXISTS (SELECT 1 FROM article_copies WHERE article_id = ? AND revision = ?)`)
-    .bind(title, title, title, author, description, title, title, author, description, now, job.articleId,
+    .bind(title, title, title, author, description, description, title, title, author, description, now, job.articleId,
       job.articleId, job.generation, job.leaseToken, now, job.articleId, copy.revision);
   const finish = db.prepare(`UPDATE article_extraction_jobs SET state = 'succeeded',
       lease_token = NULL, lease_expires_at = NULL, error_code = NULL, finished_at = ?, updated_at = ?

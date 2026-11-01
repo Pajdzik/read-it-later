@@ -1,3 +1,4 @@
+import { isEnrichmentMessage, processEnrichmentMessage, publishEnrichment } from './enrichment';
 import { cleanupPdfAssets, getOriginalPdf } from "./pdf";
 import type { Env, ExtractionMessage } from '../contracts';
 import { captureArticle, isBackgroundCapturePaused } from './capture-client';
@@ -71,12 +72,23 @@ export async function processExtractionMessage(
   if (before.action !== 'ready') return before;
   const job = await claimExtractionJob(env.DB, now, message);
   if (job) await runExtractionJob(env, job);
+  await publishEnrichment(env, message.articleId);
   const after = await inspectDelivery(env, message, new Date().toISOString());
   return after.action === 'ready' ? { action: 'retry', delaySeconds: 1 } : after;
 }
 
 export async function consumeExtractionBatch(batch: MessageBatch<unknown>, env: Env): Promise<void> {
   for (const message of batch.messages) {
+    if (isEnrichmentMessage(message.body)) {
+      try {
+        await processEnrichmentMessage(env, message.body);
+        const pending = await env.DB.prepare("SELECT state,next_attempt_at FROM article_enrichment_jobs WHERE article_id=?")
+          .bind(message.body.articleId).first<{ state: string; next_attempt_at: string }>();
+        if (pending?.state === 'retry_wait') message.retry({ delaySeconds: deliveryDelay(pending.next_attempt_at) });
+        else message.ack();
+      } catch { extractionLog('enrichment_delivery_failed', { articleId: message.body.articleId }); message.retry({ delaySeconds: 60 }); }
+      continue;
+    }
     if (!isExtractionMessage(message.body)) {
       extractionLog('extraction_message_invalid');
       message.ack();

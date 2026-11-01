@@ -179,7 +179,7 @@ test("round trips the actual articleMarkdown writer through the converter parser
   assert.equal(parsed.item.description, null); assert.equal(parsed.item.createdAt, article.createdAt); assert.equal(parsed.item.copy.markdown, copy.markdown);
   assert.equal(parsed.item.copy.capturedAt, copy.capturedAt); assert.equal(parsed.item.copy.source, copy.source); assert.equal(parsed.item.copy.revision, copy.revision);
   assert.equal(parsed.item.readAt, null);
-  const batch = { version: 2, exportedAt: "2026-10-02T00:00:00.000Z", articles: [parsed.item] };
+  const batch = { version: 3, exportedAt: "2026-10-02T00:00:00.000Z", articles: [parsed.item] };
   validateBackupEnvelope(batch); assert.equal(splitImportBatches(batch).length, 1);
 });
 

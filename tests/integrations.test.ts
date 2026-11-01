@@ -6,7 +6,7 @@ import { getArticle, getArticleCopy, saveArticleCopy } from '../src/articles/rep
 import { integrationConfigurations } from '../src/integrations/registry';
 
 const origin = 'http://localhost:8787';
-const article: Article = { id: 'k7m2q9x4', url: 'https://example.com/article', title: 'A saved article', author: 'Ada', description: null,
+const article: Article = { tags: [], descriptionOrigin: null, tagsManuallyEdited: false, id: 'k7m2q9x4', url: 'https://example.com/article', title: 'A saved article', author: 'Ada', description: null,
   createdAt: '2026-01-01T00:00:00.000Z', updatedAt: '2026-01-01T00:00:00.000Z', readAt: null };
 const copy: ArticleCopy = { markdown: '# 日本語 📰\n\nAn exact saved body.\n', source: 'paste', capturedAt: '2026-10-01T00:00:00.000Z', revision: 'copy-one' };
 const hooks = [{ id: 'kindle', name: 'Kindle', destination: 'My reading device', description: 'Send the saved article to my Kindle delivery service.' },

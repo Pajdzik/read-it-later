@@ -42,7 +42,7 @@ async function remainingImportRecords(db: D1Database, id: string): Promise<{n:nu
 async function exportArchive(env: Env): Promise<Response> {
   if (!env.PDF_BUCKET) return errorResponse(503, 'archive_unavailable', 'PDF archive storage is not configured.');
   const id = crypto.randomUUID(), now = iso(), expiry = new Date(Date.now() + ASSET_TTL_MS).toISOString();
-  const article = `json_object('id',a.id,'url',a.url,'title',a.title,'author',a.author,'description',a.description,'createdAt',a.created_at,'updatedAt',a.updated_at,'readAt',a.read_at)`;
+  const article = `json_object('id',a.id,'url',a.url,'title',a.title,'author',a.author,'description',a.description,'descriptionOrigin',a.description_origin,'tagsManuallyEdited',json(CASE WHEN a.tags_manual=1 THEN 'true' ELSE 'false' END),'tags',json((SELECT json_group_array(tag) FROM (SELECT tag FROM article_tags WHERE article_id=a.id ORDER BY tag))),'createdAt',a.created_at,'updatedAt',a.updated_at,'readAt',a.read_at)`;
   const copy = `CASE WHEN c.article_id IS NULL THEN '{}' ELSE json_object('copy',json_object('markdown',c.markdown,'capturedAt',c.captured_at,'source',c.source,'revision',c.revision)) END`;
   const pdf = `CASE WHEN p.id IS NULL THEN NULL ELSE json_object('articleId',a.id,'id',p.id,'checksum',p.checksum,'bytes',p.bytes,'capturedAt',p.captured_at,'sourceUrl',p.source_url) END`;
   await env.DB.batch([
@@ -51,7 +51,7 @@ async function exportArchive(env: Env): Promise<Response> {
       SELECT ?,a.id,json_patch(${article},${copy}),p.id,${pdf},a.normalized_url
       FROM articles a LEFT JOIN article_copies c ON c.article_id=a.id LEFT JOIN pdf_assets p ON p.id=a.pdf_asset_id AND p.deleting=0`).bind(id),
   ]);
-  const prefix = `{"version":2,"exportedAt":${JSON.stringify(now)},"articles":[`;
+  const prefix = `{"version":3,"exportedAt":${JSON.stringify(now)},"articles":[`;
   const mprefix = `{"version":1,"exportedAt":${JSON.stringify(now)},"pdfs":[`;
   const sizes = await env.DB.prepare(`SELECT COUNT(*) AS n,COALESCE(SUM(length(CAST(record AS BLOB))),0) AS bytes,
     COUNT(pdf_info) AS pn,COALESCE(SUM(length(CAST(pdf_info AS BLOB))),0) AS pbytes FROM archive_records WHERE session_id=?`).bind(id).first<{ n: number; bytes: number; pn: number; pbytes: number }>();
@@ -168,7 +168,7 @@ export async function handleArchive(request: Request, env: Env): Promise<Respons
       if (remaining.n) return errorResponse(413,'archive_record_too_large','An archive record exceeds the restore request limit.');
       return jsonResponse({ imported: 0, skipped: 0, done: true });
     }
-    const library = { version: 2, exportedAt: iso(), articles: batch.map(r => JSON.parse(r.record)) };
+    const library = { version: 3, exportedAt: iso(), articles: batch.map(r => JSON.parse(r.record)) };
     const assets = new Map(batch.filter(r => r.asset_id).map(r => [r.article_id,r.asset_id!]));
     const response = await importArticles(new Request(request.url, { method: 'POST', body: JSON.stringify(library) }),env,
       { assets, maxBytes: MAX_ARCHIVE_METADATA_BYTES, archiveSessionId: id });

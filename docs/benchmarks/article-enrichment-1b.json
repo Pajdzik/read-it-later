@@ -1,0 +1,593 @@
+{
+  "date": "2026-11-01T03:28:35.264Z",
+  "model": "@cf/meta/llama-3.2-1b-instruct",
+  "dataset": "30 synthetic topic fixtures: 15 English, 15 Polish; no owner library data",
+  "attempts": 30,
+  "valid": 0,
+  "relevantTagSets": 0,
+  "latencyMedianMs": 1189,
+  "latencyP95Ms": 1795,
+  "inputTokens": 9659,
+  "outputTokens": 4854,
+  "inferenceCostBeforeAllowanceUsd": 0.0012364470000000001,
+  "humanGroundingReview": "not applicable: no schema-valid outputs; gate failed",
+  "activation": "disabled",
+  "results": [
+    {
+      "id": "01-en",
+      "language": "en",
+      "title": "Database indexes",
+      "needsGeneratedDescription": true,
+      "error": "invalid_output",
+      "usage": {
+        "prompt_tokens": 276,
+        "completion_tokens": 192,
+        "total_tokens": 468,
+        "prompt_tokens_details": {
+          "cached_tokens": 0
+        },
+        "neurons": 4.182536657899618
+      },
+      "latencyMs": 1431,
+      "promptBytes": 1109,
+      "relevant": false
+    },
+    {
+      "id": "01-pl",
+      "language": "pl",
+      "title": "Indeksy w bazach danych",
+      "needsGeneratedDescription": true,
+      "error": "invalid_output",
+      "usage": {
+        "prompt_tokens": 326,
+        "completion_tokens": 192,
+        "total_tokens": 518,
+        "prompt_tokens_details": {
+          "cached_tokens": 0
+        },
+        "neurons": 4.305398361757398
+      },
+      "latencyMs": 1107,
+      "promptBytes": 1136,
+      "relevant": false
+    },
+    {
+      "id": "02-en",
+      "language": "en",
+      "title": "HTTP caching",
+      "needsGeneratedDescription": false,
+      "error": "invalid_output",
+      "usage": {
+        "prompt_tokens": 289,
+        "completion_tokens": 24,
+        "total_tokens": 313,
+        "prompt_tokens_details": {
+          "cached_tokens": 0
+        },
+        "neurons": 1.14818315487355
+      },
+      "latencyMs": 343,
+      "promptBytes": 1233,
+      "relevant": false
+    },
+    {
+      "id": "02-pl",
+      "language": "pl",
+      "title": "Pamięć podręczna HTTP",
+      "needsGeneratedDescription": false,
+      "error": "invalid_output",
+      "usage": {
+        "prompt_tokens": 389,
+        "completion_tokens": 53,
+        "total_tokens": 442,
+        "prompt_tokens_details": {
+          "cached_tokens": 0
+        },
+        "neurons": 1.9232079247012734
+      },
+      "latencyMs": 539,
+      "promptBytes": 1299,
+      "relevant": false
+    },
+    {
+      "id": "03-en",
+      "language": "en",
+      "title": "How attention works",
+      "needsGeneratedDescription": true,
+      "error": "invalid_output",
+      "usage": {
+        "prompt_tokens": 269,
+        "completion_tokens": 192,
+        "total_tokens": 461,
+        "prompt_tokens_details": {
+          "cached_tokens": 0
+        },
+        "neurons": 4.165336019359529
+      },
+      "latencyMs": 1270,
+      "promptBytes": 1098,
+      "relevant": false
+    },
+    {
+      "id": "03-pl",
+      "language": "pl",
+      "title": "Jak działa mechanizm uwagi",
+      "needsGeneratedDescription": true,
+      "error": "invalid_output",
+      "usage": {
+        "prompt_tokens": 318,
+        "completion_tokens": 192,
+        "total_tokens": 510,
+        "prompt_tokens_details": {
+          "cached_tokens": 0
+        },
+        "neurons": 4.285740489140153
+      },
+      "latencyMs": 1254,
+      "promptBytes": 1137,
+      "relevant": false
+    },
+    {
+      "id": "04-en",
+      "language": "en",
+      "title": "Passkeys and phishing",
+      "needsGeneratedDescription": false,
+      "error": "invalid_output",
+      "usage": {
+        "prompt_tokens": 297,
+        "completion_tokens": 18,
+        "total_tokens": 315,
+        "prompt_tokens_details": {
+          "cached_tokens": 0
+        },
+        "neurons": 1.0583304008468986
+      },
+      "latencyMs": 318,
+      "promptBytes": 1223,
+      "relevant": false
+    },
+    {
+      "id": "04-pl",
+      "language": "pl",
+      "title": "Passkeys a phishing",
+      "needsGeneratedDescription": false,
+      "error": "invalid_output",
+      "usage": {
+        "prompt_tokens": 389,
+        "completion_tokens": 24,
+        "total_tokens": 413,
+        "prompt_tokens_details": {
+          "cached_tokens": 0
+        },
+        "neurons": 1.393906562589109
+      },
+      "latencyMs": 399,
+      "promptBytes": 1257,
+      "relevant": false
+    },
+    {
+      "id": "05-en",
+      "language": "en",
+      "title": "Ocean heat storage",
+      "needsGeneratedDescription": true,
+      "error": "invalid_output",
+      "usage": {
+        "prompt_tokens": 273,
+        "completion_tokens": 192,
+        "total_tokens": 465,
+        "prompt_tokens_details": {
+          "cached_tokens": 0
+        },
+        "neurons": 4.175164955668151
+      },
+      "latencyMs": 1795,
+      "promptBytes": 1112,
+      "relevant": false
+    },
+    {
+      "id": "05-pl",
+      "language": "pl",
+      "title": "Magazynowanie ciepła w oceanach",
+      "needsGeneratedDescription": true,
+      "error": "invalid_output",
+      "usage": {
+        "prompt_tokens": 345,
+        "completion_tokens": 192,
+        "total_tokens": 537,
+        "prompt_tokens_details": {
+          "cached_tokens": 0
+        },
+        "neurons": 4.352085809223354
+      },
+      "latencyMs": 1318,
+      "promptBytes": 1177,
+      "relevant": false
+    },
+    {
+      "id": "06-en",
+      "language": "en",
+      "title": "Finding exoplanets",
+      "needsGeneratedDescription": false,
+      "error": "invalid_output",
+      "usage": {
+        "prompt_tokens": 299,
+        "completion_tokens": 192,
+        "total_tokens": 491,
+        "prompt_tokens_details": {
+          "cached_tokens": 0
+        },
+        "neurons": 4.239053041674197
+      },
+      "latencyMs": 908,
+      "promptBytes": 1271,
+      "relevant": false
+    },
+    {
+      "id": "06-pl",
+      "language": "pl",
+      "title": "Poszukiwanie planet pozasłonecznych",
+      "needsGeneratedDescription": false,
+      "error": "invalid_output",
+      "usage": {
+        "prompt_tokens": 395,
+        "completion_tokens": 192,
+        "total_tokens": 587,
+        "prompt_tokens_details": {
+          "cached_tokens": 0
+        },
+        "neurons": 4.474947513081133
+      },
+      "latencyMs": 904,
+      "promptBytes": 1293,
+      "relevant": false
+    },
+    {
+      "id": "07-en",
+      "language": "en",
+      "title": "Compound interest",
+      "needsGeneratedDescription": true,
+      "error": "invalid_output",
+      "usage": {
+        "prompt_tokens": 282,
+        "completion_tokens": 192,
+        "total_tokens": 474,
+        "prompt_tokens_details": {
+          "cached_tokens": 0
+        },
+        "neurons": 4.197280062362552
+      },
+      "latencyMs": 1331,
+      "promptBytes": 1137,
+      "relevant": false
+    },
+    {
+      "id": "07-pl",
+      "language": "pl",
+      "title": "Procent składany",
+      "needsGeneratedDescription": true,
+      "error": "invalid_output",
+      "usage": {
+        "prompt_tokens": 332,
+        "completion_tokens": 192,
+        "total_tokens": 524,
+        "prompt_tokens_details": {
+          "cached_tokens": 0
+        },
+        "neurons": 4.320141766220331
+      },
+      "latencyMs": 952,
+      "promptBytes": 1134,
+      "relevant": false
+    },
+    {
+      "id": "08-en",
+      "language": "en",
+      "title": "Spaced retrieval practice",
+      "needsGeneratedDescription": false,
+      "error": "invalid_output",
+      "usage": {
+        "prompt_tokens": 285,
+        "completion_tokens": 27,
+        "total_tokens": 312,
+        "prompt_tokens_details": {
+          "cached_tokens": 0
+        },
+        "neurons": 1.1931095318868756
+      },
+      "latencyMs": 338,
+      "promptBytes": 1169,
+      "relevant": false
+    },
+    {
+      "id": "08-pl",
+      "language": "pl",
+      "title": "Powtórki rozłożone w czasie",
+      "needsGeneratedDescription": false,
+      "error": "invalid_output",
+      "usage": {
+        "prompt_tokens": 383,
+        "completion_tokens": 192,
+        "total_tokens": 575,
+        "prompt_tokens_details": {
+          "cached_tokens": 0
+        },
+        "neurons": 4.445460704155266
+      },
+      "latencyMs": 1232,
+      "promptBytes": 1231,
+      "relevant": false
+    },
+    {
+      "id": "09-en",
+      "language": "en",
+      "title": "Bread fermentation",
+      "needsGeneratedDescription": true,
+      "error": "invalid_output",
+      "usage": {
+        "prompt_tokens": 278,
+        "completion_tokens": 192,
+        "total_tokens": 470,
+        "prompt_tokens_details": {
+          "cached_tokens": 0
+        },
+        "neurons": 4.187451126053929
+      },
+      "latencyMs": 1109,
+      "promptBytes": 1112,
+      "relevant": false
+    },
+    {
+      "id": "09-pl",
+      "language": "pl",
+      "title": "Fermentacja chleba",
+      "needsGeneratedDescription": true,
+      "error": "invalid_output",
+      "usage": {
+        "prompt_tokens": 329,
+        "completion_tokens": 192,
+        "total_tokens": 521,
+        "prompt_tokens_details": {
+          "cached_tokens": 0
+        },
+        "neurons": 4.312770063988864
+      },
+      "latencyMs": 1237,
+      "promptBytes": 1115,
+      "relevant": false
+    },
+    {
+      "id": "10-en",
+      "language": "en",
+      "title": "The movable type press",
+      "needsGeneratedDescription": false,
+      "error": "invalid_output",
+      "usage": {
+        "prompt_tokens": 289,
+        "completion_tokens": 192,
+        "total_tokens": 481,
+        "prompt_tokens_details": {
+          "cached_tokens": 0
+        },
+        "neurons": 4.214480700902641
+      },
+      "latencyMs": 1189,
+      "promptBytes": 1263,
+      "relevant": false
+    },
+    {
+      "id": "10-pl",
+      "language": "pl",
+      "title": "Druk ruchomą czcionką",
+      "needsGeneratedDescription": false,
+      "error": "invalid_output",
+      "usage": {
+        "prompt_tokens": 405,
+        "completion_tokens": 192,
+        "total_tokens": 597,
+        "prompt_tokens_details": {
+          "cached_tokens": 0
+        },
+        "neurons": 4.499519853852689
+      },
+      "latencyMs": 1292,
+      "promptBytes": 1249,
+      "relevant": false
+    },
+    {
+      "id": "11-en",
+      "language": "en",
+      "title": "Circadian rhythms",
+      "needsGeneratedDescription": true,
+      "error": "invalid_output",
+      "usage": {
+        "prompt_tokens": 277,
+        "completion_tokens": 192,
+        "total_tokens": 469,
+        "prompt_tokens_details": {
+          "cached_tokens": 0
+        },
+        "neurons": 4.184993891976774
+      },
+      "latencyMs": 1529,
+      "promptBytes": 1110,
+      "relevant": false
+    },
+    {
+      "id": "11-pl",
+      "language": "pl",
+      "title": "Rytm dobowy",
+      "needsGeneratedDescription": true,
+      "error": "invalid_output",
+      "usage": {
+        "prompt_tokens": 327,
+        "completion_tokens": 192,
+        "total_tokens": 519,
+        "prompt_tokens_details": {
+          "cached_tokens": 0
+        },
+        "neurons": 4.307855595834553
+      },
+      "latencyMs": 1061,
+      "promptBytes": 1097,
+      "relevant": false
+    },
+    {
+      "id": "12-en",
+      "language": "en",
+      "title": "Bayesian updating",
+      "needsGeneratedDescription": false,
+      "error": "invalid_output",
+      "usage": {
+        "prompt_tokens": 292,
+        "completion_tokens": 192,
+        "total_tokens": 484,
+        "prompt_tokens_details": {
+          "cached_tokens": 0
+        },
+        "neurons": 4.221852403134108
+      },
+      "latencyMs": 1187,
+      "promptBytes": 1259,
+      "relevant": false
+    },
+    {
+      "id": "12-pl",
+      "language": "pl",
+      "title": "Aktualizacja bayesowska",
+      "needsGeneratedDescription": false,
+      "error": "invalid_output",
+      "usage": {
+        "prompt_tokens": 410,
+        "completion_tokens": 192,
+        "total_tokens": 602,
+        "prompt_tokens_details": {
+          "cached_tokens": 0
+        },
+        "neurons": 4.511806024238467
+      },
+      "latencyMs": 1095,
+      "promptBytes": 1330,
+      "relevant": false
+    },
+    {
+      "id": "13-en",
+      "language": "en",
+      "title": "Composting garden waste",
+      "needsGeneratedDescription": true,
+      "error": "invalid_output",
+      "usage": {
+        "prompt_tokens": 277,
+        "completion_tokens": 192,
+        "total_tokens": 469,
+        "prompt_tokens_details": {
+          "cached_tokens": 0
+        },
+        "neurons": 4.184993891976774
+      },
+      "latencyMs": 1424,
+      "promptBytes": 1107,
+      "relevant": false
+    },
+    {
+      "id": "13-pl",
+      "language": "pl",
+      "title": "Kompostowanie odpadów ogrodowych",
+      "needsGeneratedDescription": true,
+      "error": "invalid_output",
+      "usage": {
+        "prompt_tokens": 342,
+        "completion_tokens": 192,
+        "total_tokens": 534,
+        "prompt_tokens_details": {
+          "cached_tokens": 0
+        },
+        "neurons": 4.344714106991887
+      },
+      "latencyMs": 1336,
+      "promptBytes": 1186,
+      "relevant": false
+    },
+    {
+      "id": "14-en",
+      "language": "en",
+      "title": "Opportunity cost",
+      "needsGeneratedDescription": false,
+      "error": "invalid_output",
+      "usage": {
+        "prompt_tokens": 294,
+        "completion_tokens": 192,
+        "total_tokens": 486,
+        "prompt_tokens_details": {
+          "cached_tokens": 0
+        },
+        "neurons": 4.226766871288419
+      },
+      "latencyMs": 1448,
+      "promptBytes": 1211,
+      "relevant": false
+    },
+    {
+      "id": "14-pl",
+      "language": "pl",
+      "title": "Koszt alternatywny",
+      "needsGeneratedDescription": false,
+      "error": "invalid_output",
+      "usage": {
+        "prompt_tokens": 380,
+        "completion_tokens": 192,
+        "total_tokens": 572,
+        "prompt_tokens_details": {
+          "cached_tokens": 0
+        },
+        "neurons": 4.4380890019237995
+      },
+      "latencyMs": 1299,
+      "promptBytes": 1241,
+      "relevant": false
+    },
+    {
+      "id": "15-en",
+      "language": "en",
+      "title": "Accessible form labels",
+      "needsGeneratedDescription": true,
+      "error": "invalid_output",
+      "usage": {
+        "prompt_tokens": 280,
+        "completion_tokens": 100,
+        "total_tokens": 380,
+        "prompt_tokens_details": {
+          "cached_tokens": 0
+        },
+        "neurons": 2.513202652335167
+      },
+      "latencyMs": 789,
+      "promptBytes": 1138,
+      "relevant": false
+    },
+    {
+      "id": "15-pl",
+      "language": "pl",
+      "title": "Dostępne etykiety formularzy",
+      "needsGeneratedDescription": true,
+      "error": "invalid_output",
+      "usage": {
+        "prompt_tokens": 332,
+        "completion_tokens": 192,
+        "total_tokens": 524,
+        "prompt_tokens_details": {
+          "cached_tokens": 0
+        },
+        "neurons": 4.320141766220331
+      },
+      "latencyMs": 1826,
+      "promptBytes": 1139,
+      "relevant": false
+    }
+  ],
+  "notes": [
+    "Initial 30-case prompt-only evaluation; later system/user-message probes also returned 0/4 valid outputs.",
+    "Constrained JSON probe was rejected by the provider.",
+    "Synthetic English/Polish topic fixtures; no private library data used.",
+    "Production and staging remain disabled. No automatic model upgrade."
+  ]
+}

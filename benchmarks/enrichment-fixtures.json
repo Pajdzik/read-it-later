@@ -1,0 +1,424 @@
+[
+  {
+    "id": "01-en",
+    "language": "en",
+    "title": "Database indexes",
+    "markdown": "# Database indexes\n\n- B-tree indexes organize keys in sorted pages.\n- A database can locate matching rows without scanning the whole table.\n- Indexes consume storage and must be maintained when rows change.\n- A query planner estimates whether an index or a sequential scan is cheaper.",
+    "expectedTopicTerms": [
+      "databas",
+      "sql",
+      "index",
+      "query"
+    ],
+    "needsGeneratedDescription": true
+  },
+  {
+    "id": "01-pl",
+    "language": "pl",
+    "title": "Indeksy w bazach danych",
+    "markdown": "# Indeksy w bazach danych\n\n- Indeksy B-tree porządkują klucze na posortowanych stronach.\n- Baza może odnaleźć pasujące wiersze bez przeglądania całej tabeli.\n- Indeksy zajmują miejsce i wymagają aktualizacji przy zmianie danych.\n- Planer zapytań porównuje koszt indeksu i pełnego skanowania.",
+    "expectedTopicTerms": [
+      "databas",
+      "sql",
+      "index",
+      "query"
+    ],
+    "needsGeneratedDescription": true
+  },
+  {
+    "id": "02-en",
+    "language": "en",
+    "title": "HTTP caching",
+    "markdown": "# HTTP caching\n\nCache-Control tells caches how long a response may be reused. An ETag lets a client validate a stored response without downloading the body again. Private responses belong in a browser cache, while shared caches need explicit permission to reuse personalized content.",
+    "expectedTopicTerms": [
+      "cach",
+      "http",
+      "web",
+      "network"
+    ],
+    "needsGeneratedDescription": false
+  },
+  {
+    "id": "02-pl",
+    "language": "pl",
+    "title": "Pamięć podręczna HTTP",
+    "markdown": "# Pamięć podręczna HTTP\n\nCache-Control określa, jak długo można ponownie używać odpowiedzi. ETag pozwala sprawdzić zachowaną odpowiedź bez ponownego pobierania treści. Odpowiedzi prywatne należą do pamięci przeglądarki, a współdzielone serwery wymagają zgody na przechowywanie danych użytkownika.",
+    "expectedTopicTerms": [
+      "cach",
+      "http",
+      "web",
+      "network"
+    ],
+    "needsGeneratedDescription": false
+  },
+  {
+    "id": "03-en",
+    "language": "en",
+    "title": "How attention works",
+    "markdown": "# How attention works\n\n- In a transformer, each token forms queries, keys and values.\n- Attention scores compare queries with keys and combine value vectors using weighted sums.\n- The mechanism lets tokens incorporate information from different positions in the sequence.",
+    "expectedTopicTerms": [
+      "attention",
+      "transformer",
+      "machine learning",
+      "neural",
+      "ai",
+      "artificial intelligence"
+    ],
+    "needsGeneratedDescription": true
+  },
+  {
+    "id": "03-pl",
+    "language": "pl",
+    "title": "Jak działa mechanizm uwagi",
+    "markdown": "# Jak działa mechanizm uwagi\n\n- W transformerze każdy token tworzy zapytania, klucze i wartości.\n- Mechanizm uwagi porównuje zapytania z kluczami, a następnie oblicza ważone sumy wektorów wartości.\n- Tokeny mogą w ten sposób korzystać z informacji zapisanych w różnych miejscach sekwencji.",
+    "expectedTopicTerms": [
+      "attention",
+      "transformer",
+      "machine learning",
+      "neural",
+      "ai",
+      "artificial intelligence"
+    ],
+    "needsGeneratedDescription": true
+  },
+  {
+    "id": "04-en",
+    "language": "en",
+    "title": "Passkeys and phishing",
+    "markdown": "# Passkeys and phishing\n\nA passkey uses a public and private key pair. The service stores the public key; the authenticator keeps the private key. Credentials are bound to a relying party identifier, which prevents a fake domain from requesting a signature for the real service.",
+    "expectedTopicTerms": [
+      "security",
+      "passkey",
+      "authentic",
+      "phish",
+      "cryptograph"
+    ],
+    "needsGeneratedDescription": false
+  },
+  {
+    "id": "04-pl",
+    "language": "pl",
+    "title": "Passkeys a phishing",
+    "markdown": "# Passkeys a phishing\n\nPasskey wykorzystuje parę kluczy publicznego i prywatnego. Serwis przechowuje klucz publiczny, a uwierzytelniacz zachowuje prywatny. Dane uwierzytelniające są związane z identyfikatorem serwisu, dzięki czemu fałszywa domena nie uzyska podpisu dla prawdziwej usługi.",
+    "expectedTopicTerms": [
+      "security",
+      "passkey",
+      "authentic",
+      "phish",
+      "cryptograph"
+    ],
+    "needsGeneratedDescription": false
+  },
+  {
+    "id": "05-en",
+    "language": "en",
+    "title": "Ocean heat storage",
+    "markdown": "# Ocean heat storage\n\n- Water has a large heat capacity, and the oceans absorb much of the excess heat in the climate system.\n- Currents redistribute this energy between regions and depths.\n- Stored ocean heat can influence surface temperatures long after atmospheric conditions change.",
+    "expectedTopicTerms": [
+      "climate",
+      "ocean",
+      "heat",
+      "environment",
+      "science"
+    ],
+    "needsGeneratedDescription": true
+  },
+  {
+    "id": "05-pl",
+    "language": "pl",
+    "title": "Magazynowanie ciepła w oceanach",
+    "markdown": "# Magazynowanie ciepła w oceanach\n\n- Woda ma dużą pojemność cieplną, dlatego oceany pochłaniają znaczną część nadmiaru energii w systemie klimatycznym.\n- Prądy przenoszą ciepło między regionami i głębokościami.\n- Zmagazynowana energia wpływa na temperaturę powierzchni również po zmianie warunków atmosferycznych.",
+    "expectedTopicTerms": [
+      "climate",
+      "ocean",
+      "heat",
+      "environment",
+      "science"
+    ],
+    "needsGeneratedDescription": true
+  },
+  {
+    "id": "06-en",
+    "language": "en",
+    "title": "Finding exoplanets",
+    "markdown": "# Finding exoplanets\n\nWhen a planet passes in front of its star, it can cause a small periodic dip in brightness. Repeated transit observations reveal orbital periods and help estimate planet sizes. Astronomers use additional observations to distinguish planets from other causes of changing starlight.",
+    "expectedTopicTerms": [
+      "astronom",
+      "exoplanet",
+      "planet",
+      "space",
+      "transit"
+    ],
+    "needsGeneratedDescription": false
+  },
+  {
+    "id": "06-pl",
+    "language": "pl",
+    "title": "Poszukiwanie planet pozasłonecznych",
+    "markdown": "# Poszukiwanie planet pozasłonecznych\n\nPrzejście planety przed tarczą gwiazdy powoduje niewielki, okresowy spadek jasności. Powtarzające się tranzyty pozwalają określić okres obiegu i oszacować rozmiar planety. Dodatkowe obserwacje pomagają odróżniać planety od innych przyczyn zmian blasku gwiazdy.",
+    "expectedTopicTerms": [
+      "astronom",
+      "exoplanet",
+      "planet",
+      "space",
+      "transit"
+    ],
+    "needsGeneratedDescription": false
+  },
+  {
+    "id": "07-en",
+    "language": "en",
+    "title": "Compound interest",
+    "markdown": "# Compound interest\n\n- With compound interest, returns are added to the balance and can earn future returns.\n- The effect depends on the rate, the number of compounding periods and the time invested.\n- Fees reduce the amount left to compound.\n- This example explains the arithmetic and makes no return forecast.",
+    "expectedTopicTerms": [
+      "financ",
+      "interest",
+      "invest",
+      "compound",
+      "econom"
+    ],
+    "needsGeneratedDescription": true
+  },
+  {
+    "id": "07-pl",
+    "language": "pl",
+    "title": "Procent składany",
+    "markdown": "# Procent składany\n\n- Przy procencie składanym odsetki są dopisywane do salda i same mogą przynosić kolejne odsetki.\n- Wynik zależy od stopy, częstotliwości kapitalizacji oraz czasu.\n- Opłaty zmniejszają kwotę podlegającą kapitalizacji.\n- Przykład pokazuje obliczenia, a nie prognozuje zysków.",
+    "expectedTopicTerms": [
+      "financ",
+      "interest",
+      "invest",
+      "compound",
+      "econom"
+    ],
+    "needsGeneratedDescription": true
+  },
+  {
+    "id": "08-en",
+    "language": "en",
+    "title": "Spaced retrieval practice",
+    "markdown": "# Spaced retrieval practice\n\nRetrieval practice means trying to recall material rather than only rereading it. Spacing these attempts over time can support long-term retention. A failed recall attempt can reveal a gap that feedback then helps correct.",
+    "expectedTopicTerms": [
+      "learning",
+      "memor",
+      "psycholog",
+      "education",
+      "retriev",
+      "spaced"
+    ],
+    "needsGeneratedDescription": false
+  },
+  {
+    "id": "08-pl",
+    "language": "pl",
+    "title": "Powtórki rozłożone w czasie",
+    "markdown": "# Powtórki rozłożone w czasie\n\nAktywne przypominanie polega na odtwarzaniu materiału z pamięci zamiast samego ponownego czytania. Rozłożenie prób w czasie sprzyja trwałemu zapamiętywaniu. Nieudana próba ujawnia brak, który można uzupełnić dzięki informacji zwrotnej.",
+    "expectedTopicTerms": [
+      "learning",
+      "memor",
+      "psycholog",
+      "education",
+      "retriev",
+      "spaced"
+    ],
+    "needsGeneratedDescription": false
+  },
+  {
+    "id": "09-en",
+    "language": "en",
+    "title": "Bread fermentation",
+    "markdown": "# Bread fermentation\n\n- Yeast consumes sugars in dough and releases carbon dioxide.\n- A gluten network traps gas and allows the dough to expand.\n- Temperature, hydration and fermentation time affect the process.\n- A sourdough starter contains yeasts together with lactic acid bacteria.",
+    "expectedTopicTerms": [
+      "bread",
+      "baking",
+      "ferment",
+      "cook",
+      "food",
+      "sourdough"
+    ],
+    "needsGeneratedDescription": true
+  },
+  {
+    "id": "09-pl",
+    "language": "pl",
+    "title": "Fermentacja chleba",
+    "markdown": "# Fermentacja chleba\n\n- Drożdże zużywają cukry w cieście i wydzielają dwutlenek węgla.\n- Sieć glutenu zatrzymuje gaz, umożliwiając wyrastanie.\n- Na przebieg procesu wpływają temperatura, nawodnienie i czas fermentacji.\n- Zakwas zawiera drożdże oraz bakterie kwasu mlekowego.",
+    "expectedTopicTerms": [
+      "bread",
+      "baking",
+      "ferment",
+      "cook",
+      "food",
+      "sourdough"
+    ],
+    "needsGeneratedDescription": true
+  },
+  {
+    "id": "10-en",
+    "language": "en",
+    "title": "The movable type press",
+    "markdown": "# The movable type press\n\nMovable type lets printers assemble reusable characters into a page. Printing multiple impressions spreads the setup work across many copies. In early modern Europe, printing expanded the circulation of books and pamphlets, while manuscript copying continued alongside it.",
+    "expectedTopicTerms": [
+      "histor",
+      "print",
+      "book",
+      "typograph",
+      "publishing"
+    ],
+    "needsGeneratedDescription": false
+  },
+  {
+    "id": "10-pl",
+    "language": "pl",
+    "title": "Druk ruchomą czcionką",
+    "markdown": "# Druk ruchomą czcionką\n\nRuchoma czcionka pozwala składać stronę z wielokrotnie używanych znaków. Wykonywanie wielu odbitek rozkłada koszt przygotowania na liczne egzemplarze. W nowożytnej Europie druk zwiększył obieg książek i ulotek, choć nadal przepisywano także rękopisy.",
+    "expectedTopicTerms": [
+      "histor",
+      "print",
+      "book",
+      "typograph",
+      "publishing"
+    ],
+    "needsGeneratedDescription": false
+  },
+  {
+    "id": "11-en",
+    "language": "en",
+    "title": "Circadian rhythms",
+    "markdown": "# Circadian rhythms\n\n- The circadian clock coordinates daily changes in alertness and physiology.\n- Light reaching the eyes is an important timing signal.\n- The timing of light exposure can shift the clock, which helps explain why crossing time zones disrupts the usual sleep schedule.",
+    "expectedTopicTerms": [
+      "circadian",
+      "sleep",
+      "biolog",
+      "health",
+      "neuroscience"
+    ],
+    "needsGeneratedDescription": true
+  },
+  {
+    "id": "11-pl",
+    "language": "pl",
+    "title": "Rytm dobowy",
+    "markdown": "# Rytm dobowy\n\n- Zegar dobowy koordynuje codzienne zmiany czujności i procesów fizjologicznych.\n- Światło docierające do oczu jest ważnym sygnałem czasu.\n- Pora ekspozycji na światło może przesuwać rytm, co pomaga wyjaśnić zaburzenia snu po zmianie stref czasowych.",
+    "expectedTopicTerms": [
+      "circadian",
+      "sleep",
+      "biolog",
+      "health",
+      "neuroscience"
+    ],
+    "needsGeneratedDescription": true
+  },
+  {
+    "id": "12-en",
+    "language": "en",
+    "title": "Bayesian updating",
+    "markdown": "# Bayesian updating\n\nBayes rule combines a prior probability with the likelihood of observed evidence. The resulting posterior can become the prior for another update. A rare event may remain unlikely after a positive test when the test also produces false positives. Base rates therefore matter.",
+    "expectedTopicTerms": [
+      "bayes",
+      "probabil",
+      "statistic",
+      "math",
+      "reason"
+    ],
+    "needsGeneratedDescription": false
+  },
+  {
+    "id": "12-pl",
+    "language": "pl",
+    "title": "Aktualizacja bayesowska",
+    "markdown": "# Aktualizacja bayesowska\n\nReguła Bayesa łączy prawdopodobieństwo wstępne z wiarygodnością zaobserwowanych danych. Wynik może stać się punktem wyjścia kolejnej aktualizacji. Rzadkie zdarzenie może pozostać mało prawdopodobne po dodatnim teście, jeśli test daje wyniki fałszywie dodatnie. Istotna jest więc częstość bazowa.",
+    "expectedTopicTerms": [
+      "bayes",
+      "probabil",
+      "statistic",
+      "math",
+      "reason"
+    ],
+    "needsGeneratedDescription": false
+  },
+  {
+    "id": "13-en",
+    "language": "en",
+    "title": "Composting garden waste",
+    "markdown": "# Composting garden waste\n\n- Decomposers break down organic matter in a compost pile.\n- Moisture and oxygen support aerobic decomposition.\n- Mixing dry carbon-rich material with fresh nitrogen-rich scraps helps keep the pile balanced.\n- Turning the pile can improve aeration.",
+    "expectedTopicTerms": [
+      "compost",
+      "garden",
+      "soil",
+      "sustainab",
+      "environment"
+    ],
+    "needsGeneratedDescription": true
+  },
+  {
+    "id": "13-pl",
+    "language": "pl",
+    "title": "Kompostowanie odpadów ogrodowych",
+    "markdown": "# Kompostowanie odpadów ogrodowych\n\n- Organizmy rozkładające materię przetwarzają odpady organiczne w pryzmie kompostowej.\n- Wilgoć i tlen sprzyjają rozkładowi tlenowemu.\n- Mieszanie suchych materiałów bogatych w węgiel ze świeżymi odpadkami zawierającymi azot pomaga utrzymać równowagę.\n- Przerzucanie poprawia napowietrzenie.",
+    "expectedTopicTerms": [
+      "compost",
+      "garden",
+      "soil",
+      "sustainab",
+      "environment"
+    ],
+    "needsGeneratedDescription": true
+  },
+  {
+    "id": "14-en",
+    "language": "en",
+    "title": "Opportunity cost",
+    "markdown": "# Opportunity cost\n\nOpportunity cost is the value of the best alternative forgone when choosing an option. It can include time as well as money. A decision can have an opportunity cost even without a cash payment, because the same resources could have been used elsewhere.",
+    "expectedTopicTerms": [
+      "econom",
+      "opportunity",
+      "decision",
+      "cost"
+    ],
+    "needsGeneratedDescription": false
+  },
+  {
+    "id": "14-pl",
+    "language": "pl",
+    "title": "Koszt alternatywny",
+    "markdown": "# Koszt alternatywny\n\nKoszt alternatywny oznacza wartość najlepszej możliwości odrzuconej przy podejmowaniu decyzji. Dotyczy zarówno czasu, jak i pieniędzy. Wybór może wiązać się z takim kosztem nawet bez zapłaty, ponieważ te same zasoby można byłoby wykorzystać inaczej.",
+    "expectedTopicTerms": [
+      "econom",
+      "opportunity",
+      "decision",
+      "cost"
+    ],
+    "needsGeneratedDescription": false
+  },
+  {
+    "id": "15-en",
+    "language": "en",
+    "title": "Accessible form labels",
+    "markdown": "# Accessible form labels\n\n- A visible label tells people what a form field expects.\n- Associating the label with the control also gives assistive technology a useful accessible name.\n- Error messages should identify the affected field and explain how to correct the input, rather than relying on color alone.",
+    "expectedTopicTerms": [
+      "accessib",
+      "design",
+      "form",
+      "web",
+      "usab",
+      "ux"
+    ],
+    "needsGeneratedDescription": true
+  },
+  {
+    "id": "15-pl",
+    "language": "pl",
+    "title": "Dostępne etykiety formularzy",
+    "markdown": "# Dostępne etykiety formularzy\n\n- Widoczna etykieta wyjaśnia, jakie dane należy wpisać w polu.\n- Powiązanie jej z kontrolką zapewnia technologiom asystującym odpowiednią nazwę.\n- Komunikat błędu powinien wskazywać pole i sposób poprawy danych, zamiast opierać się wyłącznie na kolorze.",
+    "expectedTopicTerms": [
+      "accessib",
+      "design",
+      "form",
+      "web",
+      "usab",
+      "ux"
+    ],
+    "needsGeneratedDescription": true
+  }
+]
