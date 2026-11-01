@@ -459,7 +459,7 @@ describe('article HTTP handlers', () => {
       .bind('exp00000', '# Backup 📰\n\nescaped \u0000\t content', '2026-01-04T00:00:00.000Z', 'upload', 'copy-revision-1').run();
     const exported = await route(request('/api/export'));
     const document = await exported.json() as { version: number; articles: Array<{ id: string; copy?: { markdown: string; capturedAt: string; source: string; revision: string } }> };
-    expect(document.version).toBe(2); expect(document.articles).toHaveLength(105);
+    expect(document.version).toBe(3); expect(document.articles).toHaveLength(105);
     expect(document.articles.find((article) => article.id === 'exp00000')?.copy).toEqual({ markdown: '# Backup 📰\n\nescaped \u0000\t content', capturedAt: '2026-01-04T00:00:00.000Z', source: 'upload', revision: 'copy-revision-1' });
     await env.DB.prepare('DELETE FROM articles').run();
     const first = await route(request('/api/import', 'POST', document));

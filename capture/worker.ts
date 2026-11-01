@@ -15,7 +15,7 @@ export class ArticleCaptureContainer extends Container<CaptureEnv> {
 
 // Intercept ONLY this virtual host. Do not add catch-all handlers or HTTPS interception:
 // source connections must keep using the native validated destination sockets.
-ArticleCaptureContainer.outboundByHost = { "potem.convert": (request, env: CaptureEnv) => managedConversion(request, env) };
+ArticleCaptureContainer.outboundByHost = { "potem.convert": (request, env) => managedConversion(request, env) };
 
 export default {
   async fetch(request: Request, env: CaptureEnv): Promise<Response> {

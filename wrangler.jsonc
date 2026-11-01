@@ -10,7 +10,9 @@
     "GITHUB_BACKUP_REPOSITORY": "Pajdzik/Kamilpedia",
     "OWNER_GITHUB_ID": "1497744",
     "BACKGROUND_CAPTURE_ENABLED": "false",
-    "MANAGED_CONVERSION_ENABLED": "false"
+    "MANAGED_CONVERSION_ENABLED": "false",
+    "ARTICLE_ENRICHMENT_ENABLED": "false",
+    "ARTICLE_ENRICHMENT_DAILY_LIMIT": "100"
   },
   "assets": {
     "directory": "./dist/web",
@@ -45,7 +47,9 @@
         "APP_ORIGIN": "https://read-it-later-staging.<account-subdomain>.workers.dev",
         "OWNER_GITHUB_ID": "replace-with-numeric-github-user-id",
         "BACKGROUND_CAPTURE_ENABLED": "false",
-        "MANAGED_CONVERSION_ENABLED": "false"
+        "MANAGED_CONVERSION_ENABLED": "false",
+        "ARTICLE_ENRICHMENT_ENABLED": "false",
+        "ARTICLE_ENRICHMENT_DAILY_LIMIT": "100"
       },
       "d1_databases": [
         {
@@ -83,7 +87,10 @@
           "binding": "PDF_BUCKET",
           "bucket_name": "read-it-later-pdfs-staging"
         }
-      ]
+      ],
+      "ai": {
+        "binding": "AI"
+      }
     },
     "production": {
       "name": "read-it-later-production",
@@ -100,7 +107,9 @@
         "GITHUB_BACKUP_BRANCH": "main",
         "GITHUB_BACKUP_PATH": "Articles",
         "BACKGROUND_CAPTURE_ENABLED": "true",
-        "MANAGED_CONVERSION_ENABLED": "true"
+        "MANAGED_CONVERSION_ENABLED": "true",
+        "ARTICLE_ENRICHMENT_ENABLED": "false",
+        "ARTICLE_ENRICHMENT_DAILY_LIMIT": "100"
       },
       "d1_databases": [
         {
@@ -138,7 +147,10 @@
           "binding": "PDF_BUCKET",
           "bucket_name": "read-it-later-pdfs-production"
         }
-      ]
+      ],
+      "ai": {
+        "binding": "AI"
+      }
     }
   },
   "triggers": {
@@ -177,5 +189,10 @@
     },
     "redact_query_string": true
   },
-  "r2_buckets": [{ "binding": "PDF_BUCKET", "bucket_name": "read-it-later-pdfs-local" }]
+  "r2_buckets": [
+    {
+      "binding": "PDF_BUCKET",
+      "bucket_name": "read-it-later-pdfs-local"
+    }
+  ]
 }

@@ -1,3 +1,4 @@
+import { normalizeTags } from './tags';
 import type { Article, ArticleCopy, Env } from '../contracts';
 import { errorResponse, jsonResponse } from '../http';
 import { isArticleId } from './identity';
@@ -6,13 +7,13 @@ const MAX_COPY_BYTES = 256 * 1024;
 type ImportArticle = Article;
 export function validateLibrary(value: unknown) {
   const input = parseObject(value, ['version', 'exportedAt', 'articles'], ['version', 'exportedAt', 'articles']);
-  if (input.version !== 1 && input.version !== 2) throw new ValidationError('unsupported import version');
+  if (input.version !== 1 && input.version !== 2 && input.version !== 3) throw new ValidationError('unsupported import version');
   validTimestamp(input.exportedAt, 'exportedAt');
   if (!Array.isArray(input.articles) || input.articles.length > MAX_IMPORT_ITEMS) throw new ValidationError('articles must be an array with at most 1000 items');
   const seenIds = new Set<string>();
   const normalized: Array<ImportArticle & { normalizedUrl: string; copy?: ArticleCopy }> = [];
   for (const value of input.articles) {
-    const item = parseObject(value, ['id', 'url', 'title', 'author', 'description', 'createdAt', 'updatedAt', 'readAt', ...(input.version === 2 ? ['copy'] : [])], ['id', 'url', 'title', 'createdAt', 'updatedAt', 'readAt']);
+    const item = parseObject(value, ['id', 'url', 'title', 'author', 'description', 'createdAt', 'updatedAt', 'readAt', ...(input.version !== 1 ? ['copy'] : []), ...(input.version === 3 ? ['tags', 'descriptionOrigin', 'tagsManuallyEdited'] : [])], ['id', 'url', 'title', 'createdAt', 'updatedAt', 'readAt']);
     if (!isArticleId(item.id)) throw new ValidationError('article id must contain eight lowercase letters or digits; convert legacy backups before importing');
     if (seenIds.has(item.id)) throw new ValidationError('import contains duplicate article IDs');
     seenIds.add(item.id);
@@ -22,6 +23,13 @@ export function validateLibrary(value: unknown) {
     const readAt = item.readAt === null ? null : validTimestamp(item.readAt, 'readAt');
     const author = optionalImportText(item.author, 'author', 200);
     const description = optionalImportText(item.description, 'description', 500);
+    const tags = input.version === 3 ? normalizeTags(item.tags ?? []) : [];
+    const descriptionOrigin = input.version === 3 && item.descriptionOrigin !== undefined
+      ? item.descriptionOrigin : description ? 'manual' : null;
+    if (![null, 'manual', 'extracted', 'generated'].includes(descriptionOrigin as string | null) ||
+        (description && descriptionOrigin === null) || (!description && descriptionOrigin && descriptionOrigin !== 'manual') || (descriptionOrigin === 'generated' && description && [...description].length > 280)) throw new ValidationError('descriptionOrigin is invalid');
+    if (item.tagsManuallyEdited !== undefined && typeof item.tagsManuallyEdited !== 'boolean') throw new ValidationError('tagsManuallyEdited is invalid');
+    const tagsManuallyEdited = item.tagsManuallyEdited === true;
     let copy: ArticleCopy | undefined;
     if (item.copy !== undefined) {
       const value = parseObject(item.copy, ['markdown', 'capturedAt', 'source', 'revision'], ['markdown', 'capturedAt', 'source', 'revision']);
@@ -34,7 +42,7 @@ export function validateLibrary(value: unknown) {
       if (typeof value.revision !== 'string' || !/^[A-Za-z0-9_-]{1,128}$/.test(value.revision)) throw new ValidationError('article copy revision is invalid');
       copy = { markdown: value.markdown, capturedAt, source: value.source, revision: value.revision };
     }
-    normalized.push({ id: item.id, url: url.url, normalizedUrl: url.normalizedUrl, title: item.title.trim(), author, description, createdAt, updatedAt, readAt, ...(copy ? { copy } : {}) });
+    normalized.push({ id: item.id, url: url.url, normalizedUrl: url.normalizedUrl, title: item.title.trim(), author, description, descriptionOrigin: descriptionOrigin as Article["descriptionOrigin"], tags, tagsManuallyEdited, createdAt, updatedAt, readAt, ...(copy ? { copy } : {}) });
   }
   return normalized;
 }
@@ -70,14 +78,17 @@ export async function importArticles(request: Request, env: Env, options: Import
     const guard = `EXISTS(SELECT 1 FROM archive_records r JOIN archive_sessions s ON s.id=r.session_id
       WHERE r.session_id=? AND r.article_id=? AND r.committed=0 AND s.completed=1 AND s.commit_token=?)`;
     for (const item of toInsert) {
-      statements.push(env.DB.prepare(`INSERT INTO articles (id,url,normalized_url,title,author,description,created_at,updated_at,read_at,pdf_asset_id)
-        SELECT ?, ?, ?, ?, ?, ?, ?, ?, ?, ? ${archiveSessionId ? `WHERE ${guard}` : ''} ON CONFLICT(normalized_url) DO NOTHING`)
-        .bind(item.id, item.url, item.normalizedUrl, item.title, item.author, item.description, item.createdAt, item.updatedAt, item.readAt, assets.get(item.id) ?? null,
+      statements.push(env.DB.prepare(`INSERT INTO articles (id,url,normalized_url,title,author,description,created_at,updated_at,read_at,pdf_asset_id,description_origin,tags_manual)
+        SELECT ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ? ${archiveSessionId ? `WHERE ${guard}` : ''} ON CONFLICT(normalized_url) DO NOTHING`)
+        .bind(item.id, item.url, item.normalizedUrl, item.title, item.author, item.description, item.createdAt, item.updatedAt, item.readAt, assets.get(item.id) ?? null, item.descriptionOrigin, item.tagsManuallyEdited ? 1 : 0,
           ...(archiveSessionId ? [archiveSessionId,item.id,token!] : [])));
       if (item.copy) statements.push(env.DB.prepare(`INSERT INTO article_copies (article_id,markdown,captured_at,source,revision)
         SELECT ?,?,?,?,? WHERE changes() = 1 AND EXISTS (SELECT 1 FROM articles WHERE id = ?)
         ON CONFLICT(article_id) DO NOTHING`)
         .bind(item.id, item.copy.markdown, item.copy.capturedAt, item.copy.source, item.copy.revision, item.id));
+      if (item.tags.length) statements.push(env.DB.prepare(`INSERT INTO article_tags(article_id,tag)
+        SELECT ?,value FROM json_each(?) WHERE changes()=1 AND EXISTS(SELECT 1 FROM articles WHERE id=?)`)
+        .bind(item.id, JSON.stringify(item.tags), item.id));
     }
     const markerStart = statements.length;
     if (archiveSessionId) for (const item of normalized) statements.push(env.DB.prepare(`UPDATE archive_records SET committed=1
@@ -95,6 +106,7 @@ export async function importArticles(request: Request, env: Env, options: Import
       const inserted = articleResult?.meta.changes ?? 0;
       imported += inserted;
       if (item.copy) resultIndex++;
+      if (item.tags.length) resultIndex++;
       if (!inserted) skipped++;
     }
     // Only the transaction that consumes a staged record reports it. A stale

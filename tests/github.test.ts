@@ -12,7 +12,7 @@ const env: Env = {
   GITHUB_BACKUP_PATH: 'Articles', GITHUB_BACKUP_TOKEN: 'server-only-backup-token',
 };
 const copy: ArticleCopy = { markdown: '# 日本語 📰\n\nQuoted “text” & café.\n\n---\nExisting body frontmatter\n', capturedAt: '2026-10-01T01:00:00.000Z', source: 'upload', revision: 'first-revision' };
-const article: Article = {
+const article: Article = { tags: [], descriptionOrigin: null, tagsManuallyEdited: false,
   id: 'k7m2q9x4', url: 'https://example.com/source?q=one%20two', title: 'Why we read',
   author: 'Author', description: 'Description\nwith newline', createdAt: '2026-01-01T00:00:00.000Z',
   updatedAt: '2026-01-02T00:00:00.000Z', readAt: '2026-01-03T00:00:00.000Z',

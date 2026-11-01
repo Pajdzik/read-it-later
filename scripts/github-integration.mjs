@@ -75,6 +75,9 @@ async function exportLibrary(base) {
   const value = JSON.parse(new TextDecoder("utf-8", { fatal: true }).decode(await (await api(base, "/api/export")).arrayBuffer()));
   return validateBackupEnvelope(value);
 }
+function restoredDefaults(item) {
+  return { ...item, tags: item.tags ?? [], descriptionOrigin: item.descriptionOrigin ?? (item.description ? 'manual' : null), tagsManuallyEdited: item.tagsManuallyEdited ?? false };
+}
 function sorted(value) { return value.articles.slice().sort((a, b) => a.id.localeCompare(b.id)); }
 function markdown(record, body) {
   return `---\npotem_backup_version: 1\n${Object.entries(record).map(([key, value]) => `${key}: ${JSON.stringify(value)}`).join("\n")}\n---\n${body}`;
@@ -129,7 +132,7 @@ async function main() {
     assert.equal(first.reduce((sum, result) => sum + result.skipped, 0), 1);
     const afterFirst = await exportLibrary(baseUrl);
     const expected = [preexisting.articles[0], ...converted.batches.flatMap(batch => batch.articles).filter(item => item.url !== "https://example.invalid/keep?utm_source=github")];
-    assert.deepEqual(sorted(afterFirst), expected.sort((a, b) => a.id.localeCompare(b.id)));
+    assert.deepEqual(sorted(afterFirst), expected.map(restoredDefaults).sort((a, b) => a.id.localeCompare(b.id)));
     assert.deepEqual(sorted(afterFirst).find(item => item.id === "preex001"), before.articles[0]);
     const migratedRestore = await importBatches(baseUrl, migrationBatches);
     assert.ok(migratedRestore.every(result => result.imported === 0));

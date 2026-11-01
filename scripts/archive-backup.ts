@@ -17,6 +17,9 @@ export type BackupArticle = {
   title: string;
   author?: string | null;
   description?: string | null;
+  tags?: string[];
+  descriptionOrigin?: 'manual' | 'extracted' | 'generated' | null;
+  tagsManuallyEdited?: boolean;
   createdAt: string;
   updatedAt: string;
   readAt: string | null;
@@ -24,7 +27,7 @@ export type BackupArticle = {
 };
 
 export type BackupEnvelope = {
-  version: 1 | 2;
+  version: 1 | 2 | 3;
   exportedAt: string;
   articles: BackupArticle[];
 };
@@ -57,14 +60,14 @@ function timestamp(value: unknown): value is string {
 /** Validate the portable envelope and all persisted fields without retaining auth data. */
 export function validateBackupEnvelope(input: unknown): BackupEnvelope {
   const backup = record(input, ["version", "exportedAt", "articles"], ["version", "exportedAt", "articles"], "backup");
-  if ((backup.version !== 1 && backup.version !== 2) || !timestamp(backup.exportedAt) || !Array.isArray(backup.articles)) {
+  if ((backup.version !== 1 && backup.version !== 2 && backup.version !== 3) || !timestamp(backup.exportedAt) || !Array.isArray(backup.articles)) {
     throw new Error("Invalid backup.");
   }
   if (Buffer.byteLength(JSON.stringify(input), "utf8") > MAX_BACKUP_BYTES) throw new Error("Invalid backup.");
   const articles = backup.articles;
   const seenIds = new Set();
   for (const candidate of articles) {
-    const item = record(candidate, ["id", "url", "title", "author", "description", "createdAt", "updatedAt", "readAt", ...(backup.version === 2 ? ["copy"] : [])], ["id", "url", "title", "createdAt", "updatedAt", "readAt"], "article");
+    const item = record(candidate, ["id", "url", "title", "author", "description", "createdAt", "updatedAt", "readAt", ...(backup.version !== 1 ? ["copy"] : []), ...(backup.version === 3 ? ["tags", "descriptionOrigin", "tagsManuallyEdited"] : [])], ["id", "url", "title", "createdAt", "updatedAt", "readAt"], "article");
     if (typeof item.id !== "string" || !item.id || item.id.length > 128 || seenIds.has(item.id) ||
       typeof item.url !== "string" || !item.url || item.url.length > 8192 ||
       typeof item.title !== "string" || !item.title.trim() || item.title.length > 500 ||
@@ -72,6 +75,12 @@ export function validateBackupEnvelope(input: unknown): BackupEnvelope {
       !(item.author === undefined || item.author === null || (typeof item.author === "string" && !!item.author.trim() && item.author.length <= 200)) ||
       !(item.description === undefined || item.description === null || (typeof item.description === "string" && !!item.description.trim() && item.description.length <= 500))) {
       throw new Error("Invalid backup.");
+    }
+    if (backup.version === 3) {
+      if (item.tags !== undefined && (!Array.isArray(item.tags) || item.tags.length > 10 || item.tags.some(tag => typeof tag !== 'string' || !tag.trim() || [...tag].length > 40 || /[\p{Cc}\p{Cs}<>]/u.test(tag)))) throw new Error('Invalid backup tags.');
+      if (item.descriptionOrigin !== undefined && ![null, 'manual', 'extracted', 'generated'].includes(item.descriptionOrigin as string | null)) throw new Error('Invalid description origin.');
+      if (item.descriptionOrigin !== undefined && ((item.description && item.descriptionOrigin === null) || (!item.description && item.descriptionOrigin && item.descriptionOrigin !== 'manual') || item.descriptionOrigin === 'generated' && typeof item.description === 'string' && [...item.description].length > 280)) throw new Error('Invalid description origin.');
+      if (item.tagsManuallyEdited !== undefined && typeof item.tagsManuallyEdited !== 'boolean') throw new Error('Invalid tag protection.');
     }
     seenIds.add(item.id);
     if (item.copy !== undefined) {

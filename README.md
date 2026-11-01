@@ -36,6 +36,12 @@ HTTP handlers perform authentication and validation, then call the article repos
 
 The frontend is bundled with esbuild. JavaScript and CSS use content-hashed filenames. A minimal service worker caches selected public assets only; it does not cache article data or support offline saves. Icon URLs are versioned. Local development runs the same Worker and migrations against Wrangler's local D1.
 
+### Automatic tags and fallback descriptions
+
+Owner-editable tags appear below article leads and filter the library alongside search and read state. Article details also allow description editing and deliberate clearing. JSON/ZIP library exports use v3 and GitHub Markdown uses frontmatter v2; older supported backups still restore.
+
+Automatic enrichment is implemented but **disabled in staging and production**: the configured low-cost model failed its initial English/Polish quality gate. When enabled after evaluation, only new saves receive durable intent; copies and extraction complete before enrichment, and imports/duplicates never start it. A shared atomic limit permits at most 100 AI attempts per UTC day, with one transient retry and no automatic model upgrade. See [article enrichment](docs/article-enrichment.md) for configuration, costs, evaluation results, and recovery.
+
 ### Saving and article metadata
 
 Both the authenticated Add form and token capture API use the same save path. URLs must be absolute HTTP(S), have no embedded credentials, and fit within 8 KiB. The submitted URL is retained for opening the original. A separate normalized URL is the unique deduplication key: normalize host/default ports, remove fragments and `utm_*`, `fbclid`, and `gclid`, and retain other query bytes/order, path case, and trailing slashes. This deliberately treats fragment-only differences as the same article; changing the policy later requires an explicit data migration.
@@ -129,7 +135,7 @@ All API payloads are JSON with camelCase fields. Errors use `{error: {code, mess
 
 Article details offer **Recapture article**, an optional metadata refresh, and guarded one-step undo. The existing copy stays readable while recovery runs. See [capture recovery](docs/capture-recovery.md) for behavior, concurrency, API, and migration details.
 
-Export format is `{version: 2, exportedAt, articles: [...]}`; each article may include its Markdown copy and capture metadata. Import accepts versions 1 and 2. Exports exclude authentication records and stream articles in bounded pages. Concurrent edits can affect different pages, so avoid editing during a backup when consistent results matter.
+Export format is `{version: 3, exportedAt, articles: [...]}`; each article may include its Markdown copy, tags, description provenance, and edit protection. Import accepts versions 1, 2, and 3. Exports exclude authentication records and stream articles in bounded pages. Concurrent edits can affect different pages, so avoid editing during a backup when consistent results matter.
 
 Import accepts up to 1 MiB and 1,000 articles. It validates the complete input and uses a transactional D1 batch. New records retain IDs/dates and copies; existing normalized URLs are skipped without attaching their incoming copies; IDs already associated with different URLs are rejected. Older exports without author/description remain accepted. A full export can exceed the import bound, as before; split large restores into valid files. Import is a restore/merge operation, not an overwrite or rollback mechanism. Keep exports outside Cloudflare and test restores in a separate database.
 
@@ -137,7 +143,7 @@ To rehearse a downloaded backup without changing the file or contacting producti
 
 To convert a legacy Obsidian Markdown folder offline, run `pnpm obsidian:convert --source /absolute/path/Articles --output /absolute/path/new-output-directory`. The converter reads but never changes the source, does not start a server or contact a service, and writes a private review report plus bounded version-2 import files. Review `report.json` before using Settings → Import. See the [Obsidian migration guide](docs/obsidian-import.md) for mapping rules, limits, and fixture evidence; actual-vault migration remains an owner-reviewed step.
 
-To recover GitHub Markdown backups offline, run `pnpm github:convert --source /absolute/path/Articles --output /absolute/path/new-output-directory`. It reads Potem backup files without contacting GitHub or changing the source, then writes a private `report.json` and bounded version-2 import files. The report flags every imported article with `read_state_not_backed_up`; GitHub Markdown does not contain read state. Review the report and batches before using Settings → Import. See the [GitHub Markdown recovery guide](docs/github-recovery.md) for accepted fields, limits, duplicate handling, and fixture evidence. Actual backup folders have not been read or imported.
+To recover GitHub Markdown backups offline, run `pnpm github:convert --source /absolute/path/Articles --output /absolute/path/new-output-directory`. It reads Potem backup files without contacting GitHub or changing the source, then writes a private `report.json` and bounded version-3 import files. The report flags every imported article with `read_state_not_backed_up`; GitHub Markdown does not contain read state. Review the report and batches before using Settings → Import. See the [GitHub Markdown recovery guide](docs/github-recovery.md) for accepted fields, limits, duplicate handling, and fixture evidence. Actual backup folders have not been read or imported.
 
 ## Markdown preservation
 

@@ -54,6 +54,8 @@ function fixture(): BackupEnvelope {
       url: `https://archive-fixture.invalid/articles/${n}`,
       title: `Restore rehearsal ${n} — Ω`,
       author: i % 3 === 0 ? "Writer Ω" : null,
+      tags: i % 2 ? ["rehearsal", "unicode"] : [], tagsManuallyEdited: i % 2 === 1,
+      descriptionOrigin: i % 4 === 0 ? "manual" : null,
       description: i % 4 === 0 ? "Quoted description: \"archive\"" : null,
       createdAt: new Date(Date.parse(fixedTime) - i * 60000).toISOString(),
       updatedAt: new Date(Date.parse(fixedTime) - i * 30000).toISOString(),
@@ -70,7 +72,7 @@ function fixture(): BackupEnvelope {
     }
     articles.push(item);
   }
-  return { version: 2, exportedAt: fixedTime, articles };
+  return { version: 3, exportedAt: fixedTime, articles };
 }
 
 type RehearsalOptions = { "--backup"?: string; "--report"?: string };

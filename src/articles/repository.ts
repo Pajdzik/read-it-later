@@ -1,6 +1,7 @@
 import type { Article, ArticleCopy, ArticleCursor } from "../contracts";
 import { ValidationError } from "./validation";
 import { isArticleId, newArticleId } from "./identity";
+import { hydrateTags, normalizeTags } from "./tags";
 
 export type ArticleStatus = "unread" | "read" | "all";
 
@@ -12,12 +13,15 @@ export interface SaveArticleInput {
   author?: string;
   description?: string;
   extractionRequested?: boolean;
+  enrichmentRequested?: boolean;
+  enrichAfterCopy?: boolean;
   titleOrigin?: "fallback" | "supplied" | "extracted" | "protected";
 }
 
 export interface ListArticlesInput {
   status: ArticleStatus;
   q?: string;
+  tag?: string;
   limit?: number;
   cursor?: string;
 }
@@ -27,16 +31,18 @@ export interface UpdateArticleInput {
   title?: string;
   author?: string | null;
   description?: string | null;
+  tags?: string[];
 }
 
 export interface SaveArticleCopyInput extends ArticleCopy {}
 
 export async function suggestArticle(db: D1Database, exclude?: string): Promise<{ article: Article | null; hasAlternative: boolean }> {
   // Prefer a different article on shuffle, but keep the sole unread article available.
-  const { results } = await db.prepare(`SELECT id,url,title,author,description,created_at,updated_at,read_at
+  const { results } = await db.prepare(`SELECT id,url,title,author,description,description_origin,tags_manual,created_at,updated_at,read_at
     FROM articles WHERE read_at IS NULL
     ORDER BY (id = ?) ASC, RANDOM() LIMIT 2`).bind(exclude ?? "").all<Record<string, unknown>>();
-  return { article: mapArticle(results[0] ?? null), hasAlternative: results.length > 1 };
+  const articles = await hydrateTags(db, results.map(row => mapArticle(row)!));
+  return { article: articles[0] ?? null, hasAlternative: results.length > 1 };
 }
 
 function mapArticleCopy(row: Record<string, unknown> | null): ArticleCopy | null {
@@ -67,7 +73,7 @@ export async function listArticlesForExport(
     values.push(decoded.createdAt, decoded.createdAt, decoded.id);
   }
   values.push(limit + 1);
-  const rows = await db.prepare(`SELECT a.id,a.url,a.title,a.author,a.description,a.created_at,a.updated_at,a.read_at,
+  const rows = await db.prepare(`SELECT a.id,a.url,a.title,a.author,a.description,a.description_origin,a.tags_manual,a.created_at,a.updated_at,a.read_at,
       c.markdown AS copy_markdown,c.captured_at AS copy_captured_at,c.source AS copy_source,c.revision AS copy_revision
     FROM articles a LEFT JOIN article_copies c ON c.article_id = a.id${where}
     ORDER BY a.created_at DESC,a.id DESC LIMIT ?`).bind(...values).all<Record<string, unknown>>();
@@ -80,6 +86,8 @@ export async function listArticlesForExport(
       source: row.copy_source, revision: row.copy_revision,
     }),
   }));
+  const hydrated = await hydrateTags(db, page.map(item => item.article));
+  page.forEach((item, index) => { item.article = hydrated[index]; });
   const last = page.at(-1)?.article;
   return {
     items: page,
@@ -124,6 +132,9 @@ function mapArticle(row: Record<string, unknown> | null): Article | null {
     title: String(row.title),
     author: row.author == null ? null : String(row.author),
     description: row.description == null ? null : String(row.description),
+    descriptionOrigin: row.description_origin == null ? null : row.description_origin as Article["descriptionOrigin"],
+    tagsManuallyEdited: Number(row.tags_manual) === 1,
+    tags: [],
     createdAt: String(row.created_at),
     updatedAt: String(row.updated_at),
     readAt: row.read_at === null ? null : String(row.read_at),
@@ -174,9 +185,9 @@ export async function saveArticle(
   for (let attempt = 0; attempt < 5; attempt++) {
     const id = newArticleId();
     const insert = db.prepare(
-      `INSERT INTO articles (id,url,normalized_url,title,author,description,created_at,updated_at,read_at,extraction_requested_at,title_origin)
-       VALUES (?,?,?,?,?,?,?,?,NULL,?,?) ON CONFLICT(normalized_url) DO NOTHING ON CONFLICT(id) DO NOTHING`,
-    ).bind(id, input.url, input.normalizedUrl, insertTitle, input.author ?? null, input.description ?? null, now, now, extractionRequestedAt, titleOrigin);
+      `INSERT INTO articles (id,url,normalized_url,title,author,description,created_at,updated_at,read_at,extraction_requested_at,title_origin,enrichment_requested_at,description_origin,enrichment_wait_for_copy)
+       VALUES (?,?,?,?,?,?,?,?,NULL,?,?,?,?,?) ON CONFLICT(normalized_url) DO NOTHING ON CONFLICT(id) DO NOTHING`,
+    ).bind(id, input.url, input.normalizedUrl, insertTitle, input.author ?? null, input.description ?? null, now, now, extractionRequestedAt, titleOrigin, input.enrichmentRequested ? now : null, input.description ? "manual" : null, input.enrichAfterCopy ? 1 : 0);
     // Duplicate metadata only fills empty fields. For older callers that still pass
     // fallbackTitle, a matching unprotected title can be upgraded to page metadata.
     const updateDuplicate = db.prepare(`UPDATE articles SET
@@ -184,7 +195,9 @@ export async function saveArticle(
           (title_origin = 'fallback' OR title = ?) AND ? != '' THEN ? ELSE title END,
         title_origin = CASE WHEN ? AND title_origin != 'protected' AND
           (title_origin = 'fallback' OR title = ?) AND ? != '' THEN 'extracted' ELSE title_origin END,
-        author = COALESCE(author, ?), description = COALESCE(description, ?),
+        author = COALESCE(author, ?),
+        description = CASE WHEN description_origin IS NOT 'manual' THEN COALESCE(description, ?) ELSE description END,
+        description_origin = CASE WHEN description IS NULL AND description_origin IS NOT 'manual' AND ? IS NOT NULL THEN 'manual' ELSE description_origin END,
         extraction_requested_at = CASE WHEN ? AND NOT EXISTS (
           SELECT 1 FROM article_copies c WHERE c.article_id = articles.id
         ) AND NOT EXISTS (
@@ -197,16 +210,19 @@ export async function saveArticle(
       WHERE normalized_url = ? AND changes() = 0`)
       .bind(allowDuplicateMetadataTitle ? 1 : 0, input.fallbackTitle ?? "", input.title?.trim() ?? "", input.title?.trim() ?? "",
         allowDuplicateMetadataTitle ? 1 : 0, input.fallbackTitle ?? "", input.title?.trim() ?? "",
-        input.author ?? null, input.description ?? null,
+        input.author ?? null, input.description ?? null, input.description ?? null,
         input.extractionRequested ? 1 : 0, now,
         allowDuplicateMetadataTitle ? 1 : 0, input.fallbackTitle ?? "", input.title?.trim() ?? "", input.title?.trim() ?? "",
         input.author ?? null, input.description ?? null, now,
         input.normalizedUrl);
-    const [result] = await db.batch([insert, updateDuplicate]);
-    const existing = await db.prepare("SELECT id,url,title,author,description,created_at,updated_at,read_at,title_origin FROM articles WHERE normalized_url = ?")
+    const enrichment = db.prepare(`INSERT INTO article_enrichment_jobs(article_id,next_attempt_at,created_at,updated_at)
+      SELECT id,?,?,? FROM articles WHERE id=? AND normalized_url=? AND enrichment_requested_at=? ON CONFLICT DO NOTHING`)
+      .bind(now, now, now, id, input.normalizedUrl, now);
+    const [result] = await db.batch([insert, updateDuplicate, enrichment]);
+    const existing = await db.prepare("SELECT id,url,title,author,description,description_origin,tags_manual,created_at,updated_at,read_at,title_origin FROM articles WHERE normalized_url = ?")
       .bind(input.normalizedUrl).first<Record<string, unknown>>();
     if (!existing) continue; // The ID was occupied; retry only that conflict.
-    const current = mapArticle(existing)!;
+    const [current] = await hydrateTags(db, [mapArticle(existing)!]);
     if (result.meta.changes) return { article: current, duplicate: false, metadataUpdated: false };
     const metadataUpdated = !!before && (
       String(before.title) !== current.title ||
@@ -219,9 +235,9 @@ export async function saveArticle(
 }
 
 export async function getArticle(db: D1Database, id: string): Promise<Article | null> {
-  const row = await db.prepare("SELECT id,url,title,author,description,created_at,updated_at,read_at FROM articles WHERE id = ?")
+  const row = await db.prepare("SELECT id,url,title,author,description,description_origin,tags_manual,created_at,updated_at,read_at FROM articles WHERE id = ?")
     .bind(id).first<Record<string, unknown>>();
-  return mapArticle(row);
+  return row ? (await hydrateTags(db, [mapArticle(row)!]))[0] : null;
 }
 
 export async function listArticles(
@@ -240,17 +256,21 @@ export async function listArticles(
     const query = `%${escapeLike(options.q)}%`;
     values.push(query, query);
   }
+  if (options.tag) {
+    where.push("EXISTS (SELECT 1 FROM article_tags t WHERE t.article_id=articles.id AND t.tag=?)");
+    values.push(options.tag);
+  }
   if (options.cursor) {
     const cursor = decodeCursor(options.cursor);
     where.push("(created_at < ? OR (created_at = ? AND id < ?))");
     values.push(cursor.createdAt, cursor.createdAt, cursor.id);
   }
-  const sql = `SELECT id,url,title,author,description,created_at,updated_at,read_at FROM articles${where.length ? ` WHERE ${where.join(" AND ")}` : ""} ORDER BY created_at DESC,id DESC LIMIT ?`;
+  const sql = `SELECT id,url,title,author,description,description_origin,tags_manual,created_at,updated_at,read_at FROM articles${where.length ? ` WHERE ${where.join(" AND ")}` : ""} ORDER BY created_at DESC,id DESC LIMIT ?`;
   values.push(limit + 1);
   const rows = await db.prepare(sql).bind(...values).all<Record<string, unknown>>();
   const found = rows.results ?? [];
   const hasMore = found.length > limit;
-  const page = found.slice(0, limit).map((row) => mapArticle(row)!);
+  const page = await hydrateTags(db, found.slice(0, limit).map((row) => mapArticle(row)!));
   const last = page.at(-1);
   return {
     items: page,
@@ -270,22 +290,32 @@ export async function updateArticle(
   const read = patch.read === true;
   const hasAuthor = patch.author !== undefined;
   const hasDescription = patch.description !== undefined;
-  await db.prepare(`UPDATE articles SET
+  const update = db.prepare(`UPDATE articles SET
     title = CASE WHEN ? THEN ? ELSE title END,
     title_origin = CASE WHEN ? THEN 'protected' ELSE title_origin END,
     read_at = CASE WHEN ? THEN CASE WHEN ? THEN COALESCE(read_at, ?) ELSE NULL END ELSE read_at END,
     author = CASE WHEN ? THEN ? ELSE author END,
     description = CASE WHEN ? THEN ? ELSE description END,
+    description_origin = CASE WHEN ? THEN 'manual' ELSE description_origin END,
+    tags_manual = CASE WHEN ? THEN 1 ELSE tags_manual END,
     updated_at = CASE WHEN
       (? AND (title != ? OR title_origin != 'protected')) OR
       (? AND ((? AND read_at IS NULL) OR (NOT ? AND read_at IS NOT NULL))) OR
-      (? AND author IS NOT ?) OR (? AND description IS NOT ?)
+      (? AND author IS NOT ?) OR (? AND (description IS NOT ? OR description_origin IS NOT 'manual')) OR ?
       THEN ? ELSE updated_at END
     WHERE id = ?`)
     .bind(hasTitle ? 1 : 0, title, hasTitle ? 1 : 0, hasRead ? 1 : 0, read ? 1 : 0, now,
-      hasAuthor ? 1 : 0, patch.author ?? null, hasDescription ? 1 : 0, patch.description ?? null,
+      hasAuthor ? 1 : 0, patch.author ?? null, hasDescription ? 1 : 0, patch.description ?? null, hasDescription ? 1 : 0, patch.tags !== undefined ? 1 : 0,
       hasTitle ? 1 : 0, title, hasRead ? 1 : 0, read ? 1 : 0, read ? 1 : 0,
-      hasAuthor ? 1 : 0, patch.author ?? null, hasDescription ? 1 : 0, patch.description ?? null, now, id).run();
+      hasAuthor ? 1 : 0, patch.author ?? null, hasDescription ? 1 : 0, patch.description ?? null, patch.tags !== undefined ? 1 : 0, now, id);
+  const statements = [update];
+  if (patch.tags !== undefined) {
+    const tags = normalizeTags(patch.tags);
+    statements.push(db.prepare('DELETE FROM article_tags WHERE article_id=?').bind(id));
+    statements.push(db.prepare(`INSERT INTO article_tags(article_id,tag) SELECT ?,value FROM json_each(?) WHERE EXISTS(SELECT 1 FROM articles WHERE id=?)`)
+      .bind(id, JSON.stringify(tags), id));
+  }
+  await db.batch(statements);
   return getArticle(db, id);
 }
 

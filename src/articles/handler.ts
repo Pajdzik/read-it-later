@@ -17,6 +17,8 @@ import { getGitHubBackupConfiguration, getGitHubBackupStatus, GitHubBackupError,
 import { isArticleId } from './identity.js';
 import { deliverArticle, integrationConfigurations, integrationStatuses } from '../integrations/registry';
 import { IntegrationError } from '../integrations/types';
+import { enrichmentEnabled, enrichmentStatuses, scheduleEnrichment } from "./enrichment";
+import { listTags, normalizeTags } from "./tags";
 import { requestRecapture, undoRecapture } from './recovery.js';
 
 const PRIVATE = PRIVATE_HEADERS;
@@ -30,12 +32,13 @@ export async function handleArticles(request: Request, env: Env, ctx?: Execution
   const url = new URL(request.url); const method = request.method.toUpperCase();
   if (url.pathname === '/api/capture' && method === 'POST') return capture(request, env, ctx);
   const isArticlePath = url.pathname === '/api/articles' || /^\/api\/articles\/[^/]+(?:\/pdf|\/copy|\/github|\/integrations(?:\/[a-z][a-z0-9-]{0,47})?|\/extraction(?:\/(?:retry|recapture|undo))?)?$/.test(url.pathname);
-  if (!url.pathname.startsWith('/api/archive') && !isArticlePath && !['/api/export', '/api/import', '/api/github', '/api/github/reconcile', '/api/integrations'].includes(url.pathname)) return null;
+  if (!url.pathname.startsWith('/api/archive') && !isArticlePath && !['/api/export', '/api/import', '/api/github', '/api/github/reconcile', '/api/integrations', '/api/tags'].includes(url.pathname)) return null;
   const needsWrite = method !== 'GET';
   let session: Awaited<ReturnType<typeof requireSession>>;
   try { session = await requireSession(request, env, needsWrite); } catch (error) { return exceptionResponse(error, 'articles.auth', storageError); }
   if (isResponse(session)) return session;
   try {
+    if (url.pathname === '/api/tags' && method === 'GET') return jsonResponse({ tags: await listTags(env.DB) });
     if (url.pathname.startsWith('/api/archive')) return await handleArchive(request, env);
     const pdfRoute = /^\/api\/articles\/([^/]+)\/pdf$/.exec(url.pathname);
     if (pdfRoute && method === 'GET') {
@@ -151,7 +154,7 @@ export async function handleArticles(request: Request, env: Env, ctx?: Execution
         const article = await getArticle(env.DB, id);
         if (!article) return fail(404, 'not_found', 'Article not found.');
         const extraction = await getExtractionStatus(env.DB, id, isBackgroundCapturePaused(env));
-        return jsonResponse({ article: { ...article, originalPdf: await getOriginalPdf(env.DB, article.id), hasCopy: extraction?.state === 'ready', extraction } });
+        return jsonResponse({ article: { ...article, originalPdf: await getOriginalPdf(env.DB, article.id), hasCopy: extraction?.state === 'ready', extraction, enrichment: (await enrichmentStatuses(env, [id])).get(id) } });
       }
       if (method === 'PATCH') return await patchArticle(request, env, id);
       if (method === 'DELETE') { await deleteArticle(env.DB, id); return new Response(null, { status: 204, headers: PRIVATE }); }
@@ -165,7 +168,7 @@ export async function handleArticles(request: Request, env: Env, ctx?: Execution
         if (!(await getArticle(env.DB, id))) return fail(404, 'not_found', 'Article not found.');
         return jsonResponse({ copy: await getArticleCopy(env.DB, id) });
       }
-      if (method === 'PUT') return await putArticleCopy(request, env, id);
+      if (method === 'PUT') return await putArticleCopy(request, env, id, ctx);
     }
     return null;
   } catch (error) {
@@ -174,7 +177,7 @@ export async function handleArticles(request: Request, env: Env, ctx?: Execution
   }
 }
 
-async function putArticleCopy(request: Request, env: Env, id: string): Promise<Response> {
+async function putArticleCopy(request: Request, env: Env, id: string, ctx?: ExecutionContext): Promise<Response> {
   const input = parseObject(await readJson(request, MAX_COPY_ENVELOPE_BYTES), ['markdown', 'source', 'expectedRevision'], ['markdown', 'source', 'expectedRevision']);
   if (typeof input.markdown !== 'string') throw new ValidationError('markdown must be text');
   const markdown = input.markdown;
@@ -191,12 +194,14 @@ async function putArticleCopy(request: Request, env: Env, id: string): Promise<R
   const result = await saveArticleCopy(env.DB, id, copy, expectedRevision as string | null);
   if (result === 'missing') return fail(404, 'not_found', 'Article not found.');
   if (result === 'conflict') return fail(409, 'revision_conflict', 'This copy changed since you opened it. Reload it before replacing.');
+  await scheduleEnrichment(env, id, ctx);
   return jsonResponse({ copy });
 }
 
 async function createArticle(request: Request, env: Env, tokenCapture = false, ctx?: ExecutionContext): Promise<Response> {
-  const input = parseObject(await readJson(request), ['url', 'title', 'author', 'description', 'captureMarkdown'], ['url']);
-  if (tokenCapture && ('author' in input || 'description' in input)) throw new ValidationError('capture tokens cannot set article metadata');
+  const input = parseObject(await readJson(request), ['url', 'title', 'author', 'description', 'captureMarkdown', 'enrichAfterCopy'], ['url']);
+  if (tokenCapture && ('author' in input || 'description' in input || 'enrichAfterCopy' in input)) throw new ValidationError('capture tokens cannot set article metadata');
+  if (input.enrichAfterCopy !== undefined && typeof input.enrichAfterCopy !== 'boolean') throw new ValidationError('enrichAfterCopy must be a boolean');
   if (input.captureMarkdown !== undefined && typeof input.captureMarkdown !== 'boolean') throw new ValidationError('captureMarkdown must be a boolean');
   const extractionRequested = input.captureMarkdown === true || (tokenCapture && input.captureMarkdown !== false);
   const normalized = normalizeArticleUrl(input.url);
@@ -206,7 +211,7 @@ async function createArticle(request: Request, env: Env, tokenCapture = false, c
   const author = input.author === undefined ? undefined : optionalMetadata(input.author, 'author', 200);
   const description = input.description === undefined ? undefined : optionalMetadata(input.description, 'description', 500);
   const result = await saveArticle(env.DB, {
-    ...normalized, title, author: author ?? undefined, description: description ?? undefined, extractionRequested,
+    ...normalized, title, author: author ?? undefined, description: description ?? undefined, extractionRequested, enrichmentRequested: enrichmentEnabled(env), enrichAfterCopy: input.enrichAfterCopy === true,
     titleOrigin: suppliedTitle ? 'supplied' : 'fallback',
   });
   if (extractionRequested) {
@@ -216,10 +221,11 @@ async function createArticle(request: Request, env: Env, tokenCapture = false, c
     }
     catch { logUnexpectedError('articles.extraction_enqueue'); }
   }
+  if (!result.duplicate) await scheduleEnrichment(env, result.article.id, ctx);
   // Capture tokens can confirm that work was accepted, but cannot learn
   // whether a URL already exists or inspect any stored article metadata.
   if (tokenCapture) return jsonResponse({ ok: true, extractionRequested });
-  return jsonResponse({ ...result, extraction: await getExtractionStatus(env.DB, result.article.id, isBackgroundCapturePaused(env)) }, result.duplicate ? 200 : 201);
+  return jsonResponse({ ...result, enrichment: (await enrichmentStatuses(env, [result.article.id])).get(result.article.id), extraction: await getExtractionStatus(env.DB, result.article.id, isBackgroundCapturePaused(env)) }, result.duplicate ? 200 : 201);
 }
 
 async function capture(request: Request, env: Env, ctx?: ExecutionContext): Promise<Response> {
@@ -235,7 +241,7 @@ async function capture(request: Request, env: Env, ctx?: ExecutionContext): Prom
 }
 
 async function listRoute(url: URL, env: Env): Promise<Response> {
-  const allowed = new Set(['status', 'q', 'limit', 'cursor']);
+  const allowed = new Set(['status', 'q', 'tag', 'limit', 'cursor']);
   url.searchParams.forEach((_value, key) => { if (!allowed.has(key)) throw new ValidationError(`unknown query parameter: ${key}`); });
   for (const key of allowed) if (url.searchParams.getAll(key).length > 1) throw new ValidationError(`query parameter ${key} may only appear once`);
   const status = url.searchParams.get('status') || 'unread';
@@ -247,21 +253,24 @@ async function listRoute(url: URL, env: Env): Promise<Response> {
   if (!Number.isInteger(limit) || limit < 1 || limit > 100) throw new ValidationError('limit must be an integer from 1 to 100');
   const cursor = url.searchParams.get('cursor') || undefined;
   if (cursor && cursor.length > 2048) throw new ValidationError('cursor is invalid');
-  const page = await listArticles(env.DB, { status, q, limit, cursor });
+  const rawTag = url.searchParams.get('tag');
+  const tag = rawTag === null ? undefined : normalizeTags([rawTag])[0];
+  const page = await listArticles(env.DB, { status, q, tag, limit, cursor });
   const paused = isBackgroundCapturePaused(env);
   const statuses = await getExtractionStatuses(env.DB, page.items.map(article => article.id), paused);
+  const enrichments = await enrichmentStatuses(env, page.items.map(a => a.id));
   const pdfs = await originalPdfSummaries(env.DB, page.items.map(a => a.id));
   return jsonResponse({ ...page, capture: { paused }, items: page.items.map(article => {
     const extraction = statuses.get(article.id);
-    return { ...article, originalPdf: pdfs.get(article.id), hasCopy: extraction?.state === 'ready', extraction };
+    return { ...article, enrichment: enrichments.get(article.id), originalPdf: pdfs.get(article.id), hasCopy: extraction?.state === 'ready', extraction };
   }) });
 }
 
 async function patchArticle(request: Request, env: Env, id: string): Promise<Response> {
-  const input = parseObject(await readJson(request), ['read', 'title', 'author', 'description']);
+  const input = parseObject(await readJson(request), ['read', 'title', 'author', 'description', 'tags']);
   if (!Object.keys(input).length) throw new ValidationError('at least one field is required');
   if ('read' in input && typeof input.read !== 'boolean') throw new ValidationError('read must be a boolean');
-  const patch: { read?: boolean; title?: string; author?: string | null; description?: string | null } = {};
+  const patch: { read?: boolean; title?: string; author?: string | null; description?: string | null; tags?: string[] } = {};
   if ('read' in input) patch.read = input.read as boolean;
   if ('title' in input) {
     if (typeof input.title !== 'string') throw new ValidationError('title must be a string');
@@ -270,11 +279,12 @@ async function patchArticle(request: Request, env: Env, id: string): Promise<Res
     patch.title = title;
   }
   if ('author' in input) patch.author = input.author === null ? null : optionalMetadata(input.author, 'author', 200);
+  if ('tags' in input) patch.tags = normalizeTags(input.tags);
   if ('description' in input) patch.description = input.description === null ? null : optionalMetadata(input.description, 'description', 500);
   const article = await updateArticle(env.DB, id, patch);
   if (!article) return fail(404, 'not_found', 'Article not found.');
   const extraction = await getExtractionStatus(env.DB, id, isBackgroundCapturePaused(env));
-  return jsonResponse({ article: { ...article, originalPdf: await getOriginalPdf(env.DB, article.id), hasCopy: extraction?.state === 'ready', extraction } });
+  return jsonResponse({ article: { ...article, originalPdf: await getOriginalPdf(env.DB, article.id), hasCopy: extraction?.state === 'ready', extraction, enrichment: (await enrichmentStatuses(env, [id])).get(id) } });
 }
 
 function optionalMetadata(value: unknown, field: string, limit: number): string | null {
@@ -293,7 +303,7 @@ async function exportArticles(env: Env): Promise<Response> {
   const encoder = new TextEncoder();
   const stream = new ReadableStream<Uint8Array>({
     start(controller) {
-      controller.enqueue(encoder.encode(`{"version":2,"exportedAt":${JSON.stringify(exportedAt)},"articles":[`));
+      controller.enqueue(encoder.encode(`{"version":3,"exportedAt":${JSON.stringify(exportedAt)},"articles":[`));
     },
     async pull(controller) {
       try {

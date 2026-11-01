@@ -44,6 +44,9 @@ type Article = {
   title: string;
   author: string | null;
   description: string | null;
+  tags?: string[];
+  descriptionOrigin?: 'manual' | 'extracted' | 'generated' | null;
+  enrichment?: { state: 'queued' | 'running' | 'retry_wait' | 'deferred' | 'succeeded' | 'failed' | 'skipped'; paused: boolean };
   createdAt: string;
   updatedAt: string;
   readAt: string | null;
@@ -189,7 +192,7 @@ function setArticleTitle(article: Article) { document.title = `${article.title} 
 function rememberListView(opener?: HTMLElement) {
   const active = opener ?? (document.activeElement instanceof HTMLElement ? document.activeElement : null);
   const article = active?.closest<HTMLElement>(".article");
-  listSnapshot = { scrollY: window.scrollY, cursor: state.cursor, pageCount: Math.max(1, Math.ceil(list.children.length / 50)), focus: active, focusArticleId: article?.dataset.id || null, focusKind: active?.classList.contains("article-lead") ? "lead" : article ? "title" : "other", status: state.status, query: state.query, rowCount: list.children.length };
+  listSnapshot = { scrollY: window.scrollY, cursor: state.cursor, pageCount: Math.max(1, Math.ceil(list.children.length / 50)), focus: active, focusArticleId: article?.dataset.id || null, focusKind: active?.classList.contains("article-lead") ? "lead" : article ? "title" : "other", status: state.status, query: state.query, tag: state.tag, rowCount: list.children.length };
 }
 async function restoreListView() {
   const completion = pendingReadCompletion;
@@ -199,11 +202,12 @@ async function restoreListView() {
   if (snapshot) {
     state.status = snapshot.status;
     state.query = snapshot.query;
+    state.tag = snapshot.tag;
     $<HTMLInputElement>("#search").value = snapshot.query;
     document.querySelectorAll<HTMLButtonElement>("[data-status]").forEach((button) => button.setAttribute("aria-pressed", String(button.dataset.status === snapshot.status)));
   }
   let refreshed = true;
-  if (completion || (snapshot && list.children.length !== snapshot.rowCount)) {
+  if (completion || snapshot?.forceRefresh || (snapshot && list.children.length !== snapshot.rowCount)) {
     refreshed = await load() === true;
     for (let page = 1; refreshed && page < (snapshot?.pageCount || 1) && state.cursor; page++) {
       if (parseReaderPath(location.pathname)) return;
@@ -211,6 +215,7 @@ async function restoreListView() {
     }
   }
   if (parseReaderPath(location.pathname)) return;
+  if (refreshed && snapshot?.forceRefresh && listSnapshot === snapshot) listSnapshot = { ...snapshot, forceRefresh: false, rowCount: list.children.length, cursor: state.cursor };
   const fallback = snapshot?.focusArticleId
     ? list.querySelector<HTMLElement>(`.article[data-id="${CSS.escape(snapshot.focusArticleId)}"] .${snapshot.focusKind === "lead" ? "article-lead" : "article-title"}`)
     : null;
@@ -397,6 +402,7 @@ const state = {
   session: null as Session | null,
   status: "unread",
   query: "",
+  tag: "",
   cursor: null as string | null,
   loading: false,
   theme: (() => { try { return localStorage.getItem("later-theme") || "system"; } catch { return "system"; } })(),
@@ -429,7 +435,7 @@ let readerFromList = false;
 let readerReturnPending = false;
 let pendingReadCompletion: string | null = null;
 let readerReadRequest: object | null = null;
-let listSnapshot: { scrollY: number; cursor: string | null; pageCount: number; focus: HTMLElement | null; focusArticleId: string | null; focusKind: "title" | "lead" | "other"; status: string; query: string; rowCount: number } | null = null;
+let listSnapshot: { scrollY: number; cursor: string | null; pageCount: number; focus: HTMLElement | null; focusArticleId: string | null; focusKind: "title" | "lead" | "other"; status: string; query: string; tag: string; rowCount: number; forceRefresh?: boolean } | null = null;
 let extractionPollTimer = 0;
 let extractionPollStartedAt = 0;
 let extractionPollGeneration = 0;
@@ -690,20 +696,16 @@ function stopExtractionPolling() {
 }
 function scheduleExtractionPoll(article: Article) {
   stopExtractionPolling();
-  if (!state.session?.authenticated || document.visibilityState === "hidden" || !extractionIsPending(article.extraction)) return;
+  if (!state.session?.authenticated || document.visibilityState === "hidden" || (!extractionIsPending(article.extraction) && !enrichmentIsPending(article))) return;
   if (!$<HTMLDialogElement>("#detail-dialog").open && !$<HTMLDialogElement>("#reader-dialog").open) return;
   const generation = extractionPollGeneration;
   const delay = Date.now() - extractionPollStartedAt < 60_000 ? 5_000 : 30_000;
   extractionPollTimer = window.setTimeout(async () => {
     try {
-      const result = await request<{ extraction: ExtractionStatus }>(`/api/articles/${encodeURIComponent(article.id)}/extraction`);
+      const detail = await request<{ article: Article }>(`/api/articles/${encodeURIComponent(article.id)}`);
       if (generation !== extractionPollGeneration || state.selected?.id !== article.id) return;
-      let updated = { ...state.selected, extraction: result.extraction } as Article;
-      if (!extractionIsPending(result.extraction)) {
-        const detail = await request<{ article: Article }>(`/api/articles/${encodeURIComponent(article.id)}`);
-        if (generation !== extractionPollGeneration || state.selected?.id !== article.id) return;
-        updated = { ...detail.article, extraction: result.extraction };
-      }
+      const updated = detail.article;
+      const result = { extraction: updated.extraction! };
       state.selected = updated;
       const detailStatus = document.querySelector('#detail-extraction-status');
       if (detailStatus) detailStatus.textContent = extractionLabel(result.extraction);
@@ -724,18 +726,20 @@ function scheduleExtractionPoll(article: Article) {
           if (!$("#reader-body").hidden && result.extraction.recovery) {
             if (result.extraction.recovery.state === 'succeeded') $("#reader-new-copy").hidden = false;
             else showNotice(extractionLabel(result.extraction), true);
-          } else {
+          } else if ($("#reader-body").hidden) {
             const copy = await request<{ copy: ArticleCopy | null }>(`/api/articles/${encodeURIComponent(article.id)}/copy`);
             if (copy.copy && generation === extractionPollGeneration && state.selected?.id === article.id && $<HTMLDialogElement>("#reader-dialog").open && !$<HTMLDialogElement>("#detail-dialog").open) openReader(updated, copy.copy);
           }
         } else if ($<HTMLDialogElement>("#detail-dialog").open) refreshDetailAfterExtraction(updated);
         stopExtractionPolling();
+        if (enrichmentIsPending(updated)) scheduleExtractionPoll(updated);
         return;
       }
       if (result.extraction.state === "failed") {
         if ($<HTMLDialogElement>("#detail-dialog").open) refreshDetailAfterExtraction(updated);
-        else renderPendingReader(updated);
+        else if ($("#reader-body").hidden) renderPendingReader(updated);
         stopExtractionPolling();
+        if (enrichmentIsPending(updated)) scheduleExtractionPoll(updated);
         return;
       }
       const status = $("#reader-pending-status");
@@ -744,6 +748,7 @@ function scheduleExtractionPoll(article: Article) {
         const detailStatus = $("#detail-extraction-status");
         if (detailStatus) detailStatus.textContent = extractionLabel(result.extraction);
       }
+      if (!extractionIsPending(updated.extraction) && $<HTMLDialogElement>('#detail-dialog').open) refreshDetailAfterExtraction(updated);
       scheduleExtractionPoll(updated);
     } catch {
       if (generation === extractionPollGeneration) scheduleExtractionPoll(article);
@@ -755,16 +760,57 @@ function startExtractionPolling(article: Article) {
   extractionPollStartedAt = Date.now();
   scheduleExtractionPoll(article);
 }
+function detailContentKey(article: Article): string {
+  return JSON.stringify([article.id, article.url, article.title, article.author, article.description, article.descriptionOrigin,
+    article.tags, article.createdAt, article.readAt, article.originalPdf, article.extraction]);
+}
 function refreshDetailAfterExtraction(article: Article) {
   const root = $("#detail-content");
+  const status = root.querySelector<HTMLElement>('.enrichment-status');
+  if (status) { status.textContent = enrichmentLabel(article); status.hidden = !status.textContent; }
+  // Status-only polls must leave the editor, its focus, and its copy request intact.
+  if (root.dataset.contentKey === detailContentKey(article)) return;
   if (root.querySelector<HTMLElement>('.copy-editor')?.dataset.saving === 'true') return;
-  const input = root.querySelector<HTMLInputElement>(".edit-form input");
-  const titleDraft = input && input.value !== input.defaultValue ? input.value : undefined;
-  renderDetail(article);
-  const titleInput = root.querySelector<HTMLInputElement>(".edit-form input");
-  if (titleDraft !== undefined && titleInput) {
-    titleInput.value = titleDraft;
-    titleInput.dispatchEvent(new Event('input'));
+  if (root.querySelector<HTMLElement>('.edit-form')?.dataset.saving === 'true') return;
+  const active = document.activeElement;
+  const focused = active instanceof HTMLInputElement || active instanceof HTMLTextAreaElement ? active : null;
+  const fieldSelector = focused
+    ? focused.dataset.field ? `.edit-form [data-field="${CSS.escape(focused.dataset.field)}"]`
+      : focused.matches('.copy-editor textarea') ? '.copy-editor textarea' : null : null;
+  const selection = fieldSelector && focused && root.contains(focused) ? {
+    selector: fieldSelector, start: focused.selectionStart, end: focused.selectionEnd,
+    direction: focused.selectionDirection, top: focused.scrollTop, left: focused.scrollLeft,
+  } : null;
+  const fields = [...root.querySelectorAll<HTMLInputElement | HTMLTextAreaElement>('.edit-form [data-field]')];
+  const drafts = fields.filter(field => field.value !== field.defaultValue || field.dataset.cleared === 'true')
+    .map(field => ({ key: field.dataset.field!, value: field.value, cleared: field.dataset.cleared }));
+  const editorLoaded = renderDetail(article, false);
+  for (const draft of drafts) {
+    const field = root.querySelector<HTMLInputElement | HTMLTextAreaElement>(`.edit-form [data-field="${draft.key}"]`);
+    if (field) { field.value = draft.value; if (draft.cleared) field.dataset.cleared = draft.cleared; field.dispatchEvent(new Event('input')); }
+  }
+  if (selection) {
+    const field = root.querySelector<HTMLInputElement | HTMLTextAreaElement>(selection.selector);
+    if (field) {
+      field.focus({ preventScroll: true });
+      const restoreSelection = () => {
+        if (selection.start !== null && selection.end !== null) field.setSelectionRange(selection.start, selection.end, selection.direction ?? 'none');
+        field.scrollTop = selection.top; field.scrollLeft = selection.left;
+      };
+      if (selection.selector === '.copy-editor textarea') {
+        // The saved body loads asynchronously. Do not clamp the selection on an
+        // empty textarea, or restore it after the owner has interacted again.
+        let moved = false;
+        const cancel = () => { moved = true; };
+        const events = ['input', 'keydown', 'pointerdown', 'blur'];
+        events.forEach(event => field.addEventListener(event, cancel));
+        const cleanup = () => events.forEach(event => field.removeEventListener(event, cancel));
+        void editorLoaded.then(() => {
+          cleanup();
+          if (!moved && field.isConnected && document.activeElement === field) restoreSelection();
+        }, cleanup);
+      } else restoreSelection();
+    }
   }
 }
 document.addEventListener("visibilitychange", () => {
@@ -772,7 +818,7 @@ document.addEventListener("visibilitychange", () => {
     stopExtractionPolling();
     return;
   }
-  if (state.selected && extractionIsPending(state.selected.extraction)) scheduleExtractionPoll(state.selected);
+  if (state.selected && (extractionIsPending(state.selected.extraction) || enrichmentIsPending(state.selected))) scheduleExtractionPoll(state.selected);
 });
 function el<K extends keyof HTMLElementTagNameMap>(
   tag: K,
@@ -813,6 +859,60 @@ function iconLink(label: string, icon: IconName, className = "") {
   link.title = label;
   link.innerHTML = iconMarkup(icon);
   return link;
+}
+function enrichmentIsPending(article: Article): boolean {
+  return !!article.enrichment && !article.enrichment.paused && ['queued', 'running', 'retry_wait'].includes(article.enrichment.state);
+}
+function enrichmentLabel(article: Article): string {
+  if (!article.enrichment) return '';
+  if (article.enrichment.paused && ['queued','running','retry_wait','deferred'].includes(article.enrichment.state)) return 'Automatic tags paused';
+  if (article.enrichment.state === 'failed') return 'Automatic tags unavailable. You can add tags below.';
+  if (article.enrichment.state === 'deferred') return 'Automatic tags waiting for the daily allowance';
+  return enrichmentIsPending(article) ? 'Generating tags…' : '';
+}
+async function refreshTagPicker() {
+  const generation = loadGeneration;
+  try {
+    const result = await request<{ tags: Array<{ tag: string; count: number }> }>('/api/tags');
+    if (!state.session?.authenticated || generation !== loadGeneration) return;
+    const picker = $<HTMLSelectElement>('#tag-filter');
+    picker.replaceChildren(new Option('All tags', ''));
+    for (const item of result.tags) picker.add(new Option(`${item.tag} (${item.count})`, item.tag));
+    if (state.tag && !result.tags.some(t => t.tag === state.tag)) picker.add(new Option(state.tag, state.tag));
+    picker.value = state.tag;
+    $<HTMLButtonElement>('#tag-clear').hidden = !state.tag;
+    $('#tag-controls').hidden = !result.tags.length && !state.tag;
+  } catch { /* Tag discovery does not block the reading list. */ }
+}
+function selectTag(tag: string) {
+  state.tag = tag;
+  $<HTMLSelectElement>('#tag-filter').value = tag;
+  $<HTMLButtonElement>('#tag-clear').hidden = !tag;
+  if (parseReaderPath(location.pathname)) {
+    // Closing reader-backed details restores the saved list asynchronously.
+    // Make this explicit filter choice the view that history restores.
+    if (!listSnapshot) rememberListView();
+    invalidateLoads();
+    listSnapshot = { ...listSnapshot!, tag, cursor: null, pageCount: 1, forceRefresh: true, scrollY: 0,
+      focus: $<HTMLSelectElement>('#tag-filter'), focusArticleId: null, focusKind: 'other' };
+    navigateReaderAway();
+  } else void load();
+}
+$('#tag-filter').addEventListener('change', event => selectTag((event.target as HTMLSelectElement).value));
+$('#tag-clear').addEventListener('click', () => selectTag(''));
+function renderTags(article: Article): HTMLElement {
+  const tags = el('div', undefined, 'article-tags');
+  tags.setAttribute('aria-label', 'Article tags');
+  for (const tag of article.tags ?? []) {
+    const chip = el('button', tag, 'tag-chip'); chip.type = 'button';
+    chip.setAttribute('aria-label', `Filter by ${tag}`);
+    chip.addEventListener('click', () => {
+      if ($<HTMLDialogElement>('#detail-dialog').open) $<HTMLDialogElement>('#detail-dialog').close();
+      selectTag(tag);
+    });
+    tags.append(chip);
+  }
+  return tags;
 }
 function renderArticle(article: Article) {
   const li = el("li", undefined, `article${article.readAt ? " is-read" : ""}`);
@@ -860,6 +960,9 @@ function renderArticle(article: Article) {
   actions.append(read, edit, link);
   main.append(title, metaRow);
   if (description) title.after(description);
+  const tags = renderTags(article);
+  if (article.descriptionOrigin === 'generated') tags.prepend(el('span', 'Generated description', 'generated-label'));
+  if (tags.childElementCount) metaRow.before(tags);
   li.append(main, actions);
   return li;
 }
@@ -872,7 +975,7 @@ function render(items: Article[], append = false) {
   if (!count) {
     $("#empty h3").textContent = "Nothing here yet";
     $("#empty p").textContent =
-      "When you save an article, it’ll be waiting here.";
+      state.tag || state.query ? "Try another filter or clear your search." : "When you save an article, it’ll be waiting here.";
   }
   $("#more").hidden = !state.cursor;
 }
@@ -888,12 +991,14 @@ async function load(reset = true) {
   try {
     const p = new URLSearchParams({ status: state.status, limit: "50" });
     if (state.query) p.set("q", state.query);
+    if (state.tag) p.set("tag", state.tag);
     if (state.cursor && !reset) p.set("cursor", state.cursor);
     const page = await request<Page>(`/api/articles?${p}`);
     if (generation !== loadGeneration) return;
     $("#capture-status").hidden = page.capture?.paused !== true;
     state.cursor = page.nextCursor;
     render(page.items, !reset);
+    if (reset) void refreshTagPicker();
     if (reset && !suggestedArticle && !suggestionError) suggestionLoaded = false;
     void loadSuggestion();
     return true;
@@ -956,21 +1061,29 @@ function showDetailError(message: string) {
   }
   error.textContent = message;
 }
-function renderDetail(article: Article) {
+function renderDetail(article: Article, restartPolling = true) {
   state.selected = article;
   const root = $("#detail-content");
   root.replaceChildren();
+  root.dataset.contentKey = detailContentKey(article);
   const eyebrow = el("p", sourceHost(article.url), "eyebrow");
   const form = el("form", undefined, "edit-form");
   form.addEventListener("submit", async (e) => {
     e.preventDefault();
     const title = input.value.trim();
     if (!title) return;
+    const patch = {
+      ...(title !== input.defaultValue ? { title } : {}),
+      ...(tagInput.value !== tagInput.defaultValue || tagInput.dataset.cleared === 'true' ? { tags: tagInput.value.split(',').map(tag => tag.trim()).filter(Boolean) } : {}),
+      ...(descriptionInput.value !== descriptionInput.defaultValue || descriptionInput.dataset.cleared === 'true' ? { description: descriptionInput.value.trim() || null } : {}),
+    };
+    if (!Object.keys(patch).length) return;
+    form.dataset.saving = "true";
     try {
       invalidateLoads();
       const result = await request<{ article: Article }>(
         `/api/articles/${encodeURIComponent(article.id)}`,
-        { method: "PATCH", body: JSON.stringify({ title }) },
+        { method: "PATCH", body: JSON.stringify(patch) },
       );
       state.selected = result.article;
       if (lastOpenedArticle?.id === result.article.id || readLastOpenedId() === result.article.id) {
@@ -985,22 +1098,37 @@ function renderDetail(article: Article) {
         setArticleTitle(result.article);
         history.replaceState(readerHistoryState(result.article.id, readerFromList), "", articlePath(result.article));
       }
-      showNotice("Title updated.");
+      showNotice("Article details updated.");
       await load();
       renderDetail(result.article);
     } catch (err) {
       showDetailError((err as Error).message);
-    }
+    } finally { form.dataset.saving = 'false'; }
   });
   const label = el("label", "Title", "field-label");
   const input = el("input");
   input.value = article.title;
   input.defaultValue = article.title;
+  input.dataset.field = "title";
   input.maxLength = 500;
   label.append(input);
   const save = el("button", "Save title", "button primary");
   save.type = "submit";
-  form.append(label, save);
+  save.textContent = 'Save details';
+  const tagLabel = el('label', 'Tags (comma separated)', 'field-label');
+  const tagInput = el('input'); tagInput.dataset.field = 'tags';
+  tagInput.value = (article.tags ?? []).join(', '); tagInput.defaultValue = tagInput.value;
+  tagInput.maxLength = 600; tagInput.placeholder = 'e.g. programming, databases'; tagLabel.append(tagInput);
+  const descriptionLabel = el('label', 'Description', 'field-label');
+  const descriptionInput = el('textarea'); descriptionInput.dataset.field = 'description';
+  descriptionInput.rows = 3; descriptionInput.maxLength = 500;
+  descriptionInput.value = article.description ?? ''; descriptionInput.defaultValue = descriptionInput.value;
+  descriptionLabel.append(descriptionInput);
+  const clearTags = el('button', 'Clear tags', 'button secondary'); clearTags.type = 'button';
+  clearTags.addEventListener('click', () => { tagInput.value = ''; tagInput.dataset.cleared = 'true'; tagInput.dispatchEvent(new Event('input')); tagInput.focus(); });
+  const clearDescription = el('button', 'Clear description', 'button secondary'); clearDescription.type = 'button';
+  clearDescription.addEventListener('click', () => { descriptionInput.value = ''; descriptionInput.dataset.cleared = 'true'; descriptionInput.dispatchEvent(new Event('input')); descriptionInput.focus(); });
+  form.append(label, tagLabel, clearTags, descriptionLabel, clearDescription, save);
   const url = el("a", article.url, "detail-url");
   url.href = safeHttpUrl(article.url) || "#";
   url.target = "_blank";
@@ -1067,20 +1195,27 @@ function renderDetail(article: Article) {
     if (article.extraction.state === "failed") extractionStatus.textContent = `${extractionFailureMessage(article.extraction.errorCode)} Paste or upload a browser copy below, or retry.`;
     extractionPanel.append(extractionStatus, retryCapture);
   }
+  const enrichmentStatus = el('p', enrichmentLabel(article), 'muted enrichment-status');
+  enrichmentStatus.hidden = !enrichmentStatus.textContent;
   root.append(
     eyebrow,
     el("h2", article.title),
     ...(article.author ? [el("p", `By ${article.author}`, "muted")] : []),
     ...(article.description ? [el("p", article.description, "detail-description")] : []),
     el("p", `Saved ${dateLabel(article.createdAt)}`, "muted"),
+    ...(article.descriptionOrigin === 'generated' ? [el('p', 'Generated description', 'muted generated-label')] : []),
+    renderTags(article),
+    enrichmentStatus,
+
     form,
     el("h3", "Original link"),
     url,
     actions,
     extractionPanel,
   );
-  void renderCopyEditor(article);
-  if (extractionIsPending(article.extraction)) startExtractionPolling(article);
+  const editorLoaded = renderCopyEditor(article);
+  if (restartPolling && (extractionIsPending(article.extraction) || enrichmentIsPending(article))) startExtractionPolling(article);
+  return editorLoaded;
 }
 
 async function renderCopyEditor(article: Article) {
@@ -1149,8 +1284,8 @@ async function renderCopyEditor(article: Article) {
   discard.type = 'button';
   const recoveryHint = el('p', undefined, 'muted copy-status');
   recoveryHint.setAttribute('aria-live', 'polite');
-  const titleInput = root.querySelector<HTMLInputElement>('.edit-form input');
-  const isDirty = () => Boolean(copyDrafts.has(article.id) || (titleInput && titleInput.value !== titleInput.defaultValue));
+  const metadataFields = [...root.querySelectorAll<HTMLInputElement | HTMLTextAreaElement>('.edit-form [data-field]')];
+  const isDirty = () => Boolean(copyDrafts.has(article.id) || metadataFields.some(field => field.value !== field.defaultValue || field.dataset.cleared === 'true'));
   const updateRecoveryControls = () => {
     const dirty = isDirty();
     recapture.disabled = !loaded || saving || dirty || extractionIsPending(state.selected?.extraction);
@@ -1161,12 +1296,12 @@ async function renderCopyEditor(article: Article) {
     refreshMetadata.disabled = saving;
     recoveryHint.textContent = dirty ? 'Save or discard your unsaved changes before recapturing or undoing.' : '';
   };
-  titleInput?.addEventListener('input', updateRecoveryControls);
+  metadataFields.forEach(field => field.addEventListener('input', updateRecoveryControls));
   discard.addEventListener('click', () => {
     copyDrafts.delete(article.id);
     textarea.value = saved?.markdown ?? '';
     source = saved?.source ?? 'paste';
-    if (titleInput) titleInput.value = titleInput.defaultValue;
+    for (const field of metadataFields) { field.value = field.defaultValue; delete field.dataset.cleared; }
     showStatus(saved ? `Saved ${dateLabel(saved.capturedAt)}` : 'No Markdown copy saved yet.');
     updateRecoveryControls();
   });
@@ -1534,7 +1669,7 @@ function openReader(article: Article, copy: ArticleCopy, opener?: HTMLElement) {
   title.focus({ preventScroll: true });
   restoreReadingPosition(positionContext);
   stopExtractionPolling();
-  if (extractionIsPending(article.extraction)) startExtractionPolling(article);
+  if (extractionIsPending(article.extraction) || enrichmentIsPending(article)) startExtractionPolling(article);
 }
 $("#reader-new-copy").addEventListener('click', () => {
   if (state.selected) void openSavedCopy(state.selected);
@@ -1631,6 +1766,11 @@ function restoreReaderFocus(opener = readerReturnFocus) {
   opener.focus({ preventScroll: true });
 }
 function discardPrivateContent() {
+  invalidateLoads();
+  $('#tag-controls').hidden = true;
+  $<HTMLSelectElement>('#tag-filter').replaceChildren(new Option('All tags', ''));
+  state.tag = '';
+  $('#tag-clear').hidden = true;
   $("#capture-status").hidden = true;
   pendingReadCompletion = null;
   lastOpenedFetchGeneration++;
@@ -1708,7 +1848,7 @@ function openDetail(article: Article) {
   clearReader();
   renderDetail(article);
   showDialog($<HTMLDialogElement>("#detail-dialog"), $<HTMLInputElement>("#detail-content input"));
-  if (extractionIsPending(article.extraction)) startExtractionPolling(article);
+  if (extractionIsPending(article.extraction) || enrichmentIsPending(article)) startExtractionPolling(article);
 }
 async function openArticleById(id: string) {
   if (!state.session?.authenticated || !isArticleId(id)) return;
@@ -2422,7 +2562,7 @@ $("#add-form").addEventListener("submit", async (e) => {
         body: JSON.stringify({
           url, ...(title ? { title } : {}),
           ...(captured?.requestId ? { author: $<HTMLInputElement>('#capture-author').value, description: $<HTMLTextAreaElement>('#capture-description').value } : {}),
-          ...(captureFromUrl ? { captureMarkdown: true } : captured ? { captureMarkdown: false } : {}),
+          ...(captureFromUrl ? { captureMarkdown: true } : captured ? { captureMarkdown: false, enrichAfterCopy: $<HTMLInputElement>('#capture-copy-enabled').checked } : {}),
         }),
       },
     );

@@ -35,7 +35,7 @@ export async function captureRecoverySmoke(browser, base) {
     if (pathname === '/api/session') body = { authenticated: true, csrfToken: 'fixture-csrf' };
     else if (pathname === '/api/articles') body = { items: [{ ...article, hasCopy: true, extraction }], nextCursor: null };
     else if (pathname === '/api/articles/suggestion') body = { article: null, hasAlternative: false };
-    else if (pathname === '/api/articles/recover1') body = { article: { ...article, hasCopy: true, extraction } };
+    else if (pathname === '/api/articles/recover1') { polls++; body = { article: { ...article, hasCopy: true, extraction } }; }
     else if (pathname === '/api/articles/recover1/copy') body = { copy };
     else if (pathname === '/api/articles/recover1/integrations') body = { integrations: [] };
     else if (pathname === '/api/articles/recover1/extraction') { polls++; body = { extraction }; }

@@ -62,7 +62,7 @@ async function markdownFiles(root: string): Promise<MarkdownFile[]> {
       consumedBytes += bytes.byteLength;
       if (consumedBytes > 64 * 1024 * 1024) fail("github_source_limits_exceeded");
       const text = new TextDecoder("utf-8", { fatal: true }).decode(bytes);
-      if (!/^---\r?\npotem_backup_version: 1(?:\r?\n|$)/.test(text.replace(/^\uFEFF/, ""))) continue;
+      if (!/^---\r?\npotem_backup_version: [12](?:\r?\n|$)/.test(text.replace(/^\uFEFF/, ""))) continue;
       const parsed = parseGitHubMarkdown(bytes);
       const normalizedUrl = normalizeSourceUrl(parsed.item.url).normalizedUrl;
       files.push({ path: path.relative(root, file).split(path.sep).join("/"), bytes, item: parsed.item, normalizedUrl });
@@ -156,7 +156,7 @@ export async function migrateBackups({ jsonPath, githubDirectory, outputPath }: 
     ...markdown.filter(file => !jsonIds.has(file.item.id)).map(file => ({ ...file.item, id: newIdFor.get(file.item.id)! })),
   ];
   const exportedAt = timestamp(new Date());
-  const envelope: BackupEnvelope = { version: 2, exportedAt, articles: convertedRecords };
+  const envelope: BackupEnvelope = { version: 3, exportedAt, articles: convertedRecords };
   validateBackupEnvelope(envelope);
   const batches = splitImportBatches(envelope);
 

@@ -5,7 +5,7 @@ Status: implemented and fixture-validated October 18, 2026. Actual backup folder
 ## Purpose
 
 Turn a local checkout or downloaded folder of Potem GitHub Markdown backups into
-the existing version-2 JSON import format. The GitHub writer already preserves
+the version-3 JSON import format, including tags and description provenance. The GitHub writer already preserves
 article IDs, URLs, titles, optional metadata, saved dates, capture metadata and
 exact Markdown bodies. Recovery previously required constructing JSON by hand;
 this converter makes that documented recovery path practical.
@@ -30,7 +30,7 @@ must not exist and must be separate from the GitHub source tree. The command
 validates JSON with the archive parser and recognized Potem Markdown with the
 GitHub recovery parser, builds one shared ID map across both inputs, reserves all
 existing short IDs first, and rejects an ID associated with inconsistent source
-URLs. It writes version-2 JSON batches, readable `Articles/<title-slug>.md` files,
+URLs. It writes version-3 JSON batches, readable `Articles/<title-slug>.md` files,
 and a private `migration-report.json` containing old/new IDs and old/new paths.
 Markdown bodies and all non-ID frontmatter lines stay byte-for-byte unchanged.
 When only Markdown is supplied, its existing format has no read state; the
@@ -41,17 +41,16 @@ does not contact GitHub or publish repository changes.
 ## Source format and mapping
 
 Accept the format produced by `articleMarkdown` in `src/articles/github.ts`:
-an opening `---`, `potem_backup_version: 1`, JSON scalar metadata lines and a
+an opening `---`, `potem_backup_version: 1` or `2`, JSON metadata lines and a
 closing `---`, followed by the exact body. Accept LF or CRLF header lines and
 an optional UTF-8 BOM before the opening delimiter; preserve all body characters
 and line endings. Split only the first header, including its closing line ending.
 A second frontmatter block belongs to the body. Reject malformed UTF-8,
 unterminated headers, duplicate fields, unknown fields and unsupported versions.
-Parse metadata values as JSON scalars; arbitrary YAML, aliases, tags, sequences
-and objects are outside this writer's format and are rejected.
+Parse metadata values as JSON scalars, except the tag array in frontmatter v2; arbitrary YAML, aliases, YAML tags, other sequences, and objects are rejected.
 
 Require all writer fields: `id`, `title`, `url`, `author`, `description`, `savedAt`,
-`capturedAt`, `source`, `revision`. The recovery parser accepts legacy ID strings
+`capturedAt`, `source`, `revision`. Frontmatter v2 also requires `tags`, `descriptionOrigin`, and `tagsManuallyEdited`. The recovery parser accepts legacy ID strings
 for conversion, while emitted JSON and Markdown use valid short IDs. Preserve strings exactly, including quoted
 Unicode and newlines, and preserve null optional metadata. Validate against the
 existing import limits: nonempty ID up to 128 characters, nonblank title up to

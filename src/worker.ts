@@ -1,3 +1,4 @@
+import { recoverEnrichmentJobs } from './articles/enrichment';
 import type { Env } from "./contracts";
 import { handleAuth } from "./auth/handler";
 import { handleArticles } from "./articles/handler";
@@ -26,7 +27,9 @@ export default {
     await consumeExtractionBatch(batch, env);
   },
   async scheduled(_controller: ScheduledController, env: Env): Promise<void> {
-    try { await recoverExtractionJobs(env); }
+    // Run independently: a paused or failed capture recovery must not block enrichment.
+    const results = await Promise.allSettled([recoverExtractionJobs(env), recoverEnrichmentJobs(env)]);
+    try { if (results.some(result => result.status === 'rejected')) throw new Error('recovery_failed'); }
     catch {
       logUnexpectedError("worker.scheduled");
       throw new Error("Background extraction processing failed");

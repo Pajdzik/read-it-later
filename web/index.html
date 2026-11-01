@@ -72,6 +72,11 @@
           </div>
           <span id="result-count" class="muted"></span>
         </div>
+        <div id="tag-controls" class="tag-controls" hidden>
+          <label for="tag-filter">Tags</label>
+          <select id="tag-filter" aria-label="Filter by tag"><option value="">All tags</option></select>
+          <button id="tag-clear" class="button secondary" type="button" hidden>Clear tag filter</button>
+        </div>
         <p id="capture-status" class="notice" role="status" hidden>Automatic capture is paused. Saved copies are still available.</p>
         <section id="last-opened" class="last-opened" aria-label="Last opened" hidden>
           <span id="last-opened-label" class="last-opened-label">Last opened</span>

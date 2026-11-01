@@ -297,7 +297,7 @@ describe('recovery HTTP boundaries', () => {
     expect(cooldown.headers.get('Retry-After')).toBe('60');
     const exported = (await handleArticles(new Request(`${origin}/api/export`), localEnv))!;
     const backup = await exported.json() as { version: number; articles: unknown[] };
-    expect(backup.version).toBe(2);
+    expect(backup.version).toBe(3);
     expect(JSON.stringify(backup)).not.toContain('resulting_revision');
     expect((await route(id, 'undo', { expectedRevision: copy.revision })).status).toBe(200);
     expect((await route(id, 'undo', { expectedRevision: copy.revision })).status).toBe(409);

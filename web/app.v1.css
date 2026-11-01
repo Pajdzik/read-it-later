@@ -1341,3 +1341,13 @@ body:has(#reader-dialog[open]) {
 
 .reader-pdf-actions { display: flex; flex-wrap: wrap; gap: 1rem; font-size: .9rem; }
 .reader-pdf-actions[hidden] { display: none; }
+
+/* Topic tags share the library's compact, keyboard-accessible controls. */
+.article-tags { display: flex; flex-wrap: wrap; gap: .4rem; margin: .55rem 0; }
+.tag-chip { font: inherit; font-size: .78rem; color: var(--muted); background: transparent; border: 1px solid currentColor; border-radius: 1rem; padding: .2rem .6rem; cursor: pointer; overflow-wrap: anywhere; max-width: 100%; }
+.tag-chip:hover, .tag-chip:focus-visible { color: var(--ink); }
+.generated-label { font-size: .75rem; color: var(--muted); align-self: center; }
+.tag-controls { display: flex; flex-wrap: wrap; gap: .6rem; align-items: center; margin: .25rem 0 1rem; }
+.tag-controls[hidden] { display: none; }
+.tag-controls select { min-width: 0; max-width: 100%; border: 1px solid var(--line); border-radius: .5rem; padding: .4rem .6rem; background: var(--white); color: var(--ink); font: inherit; }
+.edit-form textarea { width: 100%; box-sizing: border-box; font: inherit; border: 1px solid var(--line); border-radius: .6rem; background: var(--white); color: var(--ink); padding: .65rem; }

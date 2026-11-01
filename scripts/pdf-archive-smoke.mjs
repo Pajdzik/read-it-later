@@ -9,10 +9,10 @@ export async function pdfArchiveSmoke(context, base) {
   const pdf = new TextEncoder().encode('%PDF-1.7\n% Private PDF browser fixture\n%%EOF');
   const hash = Array.from(new Uint8Array(await crypto.subtle.digest('SHA-256',pdf)),b=>b.toString(16).padStart(2,'0')).join('');
   const id = '11111111-1111-4111-8111-111111111111';
-  const article = { id:'pdfui001',url:'https://news.example.com/preserved.pdf',title:'Preserved PDF browser smoke',author:'Test Author',description:'Portable PDF',createdAt:now,updatedAt:now,readAt:null,
+  const article = { id:'pdfui001',url:'https://news.example.com/preserved.pdf',title:'Preserved PDF browser smoke',author:'Test Author',description:'Portable PDF',tags:['documents','pdf'],descriptionOrigin:'manual',tagsManuallyEdited:true,createdAt:now,updatedAt:now,readAt:null,
     copy:{markdown:'# Preserved PDF browser smoke\n\nPrivate reading copy.',capturedAt:now,source:'paste',revision:'pdf-browser-revision'} };
   const files = new Map([
-    ['library.json',new TextEncoder().encode(JSON.stringify({version:2,exportedAt:now,articles:[article]}))],
+    ['library.json',new TextEncoder().encode(JSON.stringify({version:3,exportedAt:now,articles:[article]}))],
     ['manifest.json',new TextEncoder().encode(JSON.stringify({version:1,exportedAt:now,pdfs:[{articleId:article.id,id,bytes:pdf.length,checksum:hash,capturedAt:now,sourceUrl:article.url}]}))],
     [`pdf/${id}.pdf`,pdf],
   ]);
@@ -30,6 +30,10 @@ export async function pdfArchiveSmoke(context, base) {
     const archive = new Blob([await readFile(await download.path())]);
     const directory = await readZipDirectory(archive);
     const manifest = JSON.parse(new TextDecoder().decode(await readZipEntry(archive,directory.get('manifest.json'))));
+    const library = JSON.parse(new TextDecoder().decode(await readZipEntry(archive,directory.get('library.json'))));
+    assert.equal(library.version,3);
+    const exported = library.articles.find(a=>a.id===article.id);
+    assert.deepEqual(exported.tags,article.tags); assert.equal(exported.tagsManuallyEdited,true); assert.equal(exported.descriptionOrigin,'manual');
     assert.ok(manifest.pdfs.some(p=>p.articleId===article.id && p.checksum===hash));
     await page.goto(`${base}/read/${article.id}/preserved-pdf`);
     await expect(page.locator('#reader-body')).toContainText('Private reading copy.');
@@ -38,6 +42,8 @@ export async function pdfArchiveSmoke(context, base) {
     const original = await page.request.get(`${base}/api/articles/${article.id}/pdf`);
     assert.deepEqual(new Uint8Array(await original.body()),pdf);
     const detail = await (await page.request.get(`${base}/api/articles/${article.id}`)).json();
+    assert.deepEqual(detail.article.tags,article.tags);
+    assert.equal(detail.article.tagsManuallyEdited,true);
     assert.equal(detail.article.readAt,null,'Opening the saved PDF must not mark it read');
     await page.setViewportSize({width:390,height:844});
     await expect(page.locator('#reader-pdf-open')).toBeVisible();

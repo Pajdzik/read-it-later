@@ -14,7 +14,7 @@ export const MAX_COPY_BYTES = 256 * 1024;
 export const MAX_IMPORT_BYTES = 1024 * 1024;
 export const MAX_IMPORT_ITEMS = 1000;
 const FIELDS = ["id", "title", "url", "author", "description", "savedAt", "capturedAt", "source", "revision"] as const;
-const FIELD_SET: ReadonlySet<string> = new Set(FIELDS);
+const FIELD_SET: ReadonlySet<string> = new Set([...FIELDS, "tags", "descriptionOrigin", "tagsManuallyEdited"]);
 const TIMESTAMP = /^\d{4}-\d\d-\d\dT\d\d:\d\d:\d\d\.\d{3}Z$/;
 
 type Failure = Error & { fatal?: boolean; code?: string };
@@ -96,21 +96,27 @@ export function parseGitHubMarkdown(input: string | Uint8Array): ParsedMarkdown 
     const literal = match[2]!;
     if (key === "potem_backup_version") {
       if (Object.hasOwn(values, key)) fail("duplicate_frontmatter_field");
-      if (literal !== "1") fail("unsupported_backup_version");
-      values[key] = 1;
+      if (literal !== "1" && literal !== "2") fail("unsupported_backup_version");
+      values[key] = Number(literal);
       continue;
     }
     if (!FIELD_SET.has(key)) fail("unknown_frontmatter_field");
     if (Object.hasOwn(values, key)) fail("duplicate_frontmatter_field");
     let value: unknown;
     try { value = JSON.parse(literal); } catch { fail("invalid_frontmatter_scalar"); }
-    if (!(value === null || typeof value === "string")) fail("invalid_frontmatter_scalar");
+    if (!(value === null || typeof value === "string" || key === "tags" && Array.isArray(value) || key === "tagsManuallyEdited" && typeof value === "boolean")) fail("invalid_frontmatter_scalar");
     values[key] = value;
   }
   if (!Object.hasOwn(values, "potem_backup_version")) fail("missing_backup_version");
   for (const field of FIELDS) if (!Object.hasOwn(values, field)) {
     const code = field === "savedAt" ? "saved_at" : field === "capturedAt" ? "captured_at" : field;
     fail(`missing_${code}`);
+  }
+  if (values.potem_backup_version === 1 && ['tags','descriptionOrigin','tagsManuallyEdited'].some(k => Object.hasOwn(values,k))) fail('unknown_frontmatter_field');
+  if (values.potem_backup_version === 2) {
+    for (const field of ['tags','descriptionOrigin','tagsManuallyEdited']) if (!Object.hasOwn(values,field)) fail('missing_enrichment_metadata');
+    if (!Array.isArray(values.tags) || values.tags.length > 10 || values.tags.some(t => typeof t !== 'string' || !t.trim() || [...t].length > 40 || /[\p{Cc}\p{Cs}<>]/u.test(t))) fail('invalid_tags');
+    if (![null,'manual','extracted','generated'].includes(values.descriptionOrigin as string | null) || typeof values.tagsManuallyEdited !== 'boolean') fail('invalid_enrichment_metadata');
   }
   const body = source.slice(bodyStart);
   if (typeof values.id !== "string" || !values.id || values.id.length > 128) fail("invalid_id");
@@ -129,6 +135,7 @@ export function parseGitHubMarkdown(input: string | Uint8Array): ParsedMarkdown 
   return {
     item: {
       id: values.id, url: values.url, title: values.title, author: values.author, description: values.description,
+      ...(values.potem_backup_version === 2 ? { tags: values.tags as string[], descriptionOrigin: values.descriptionOrigin as BackupArticle['descriptionOrigin'], tagsManuallyEdited: values.tagsManuallyEdited as boolean } : {}),
       createdAt: values.savedAt, updatedAt: values.savedAt, readAt: null,
       copy: { markdown: body, capturedAt: values.capturedAt, source: values.source, revision: values.revision },
     },
@@ -206,7 +213,7 @@ async function readCandidate(root: string, candidate: Candidate, consumed: { byt
 }
 
 function validateItem(parsed: ParsedMarkdown, exportedAt: string): void {
-  const one = { version: 2, exportedAt, articles: [parsed.item] };
+  const one = { version: 3, exportedAt, articles: [parsed.item] };
   try { validateBackupEnvelope(one); }
   catch { fail("invalid_portable_record"); }
   try { splitImportBatches(one, { maxBytes: MAX_IMPORT_BYTES, maxItems: MAX_IMPORT_ITEMS }); }
@@ -265,7 +272,7 @@ export async function convertGitHubMarkdown(sourcePath: string, outputPath: stri
   }
   const mapId = createShortIdMapper(sourceIds);
   for (const item of eligible) item.id = mapId(item.id);
-  const envelope: BackupEnvelope = { version: 2, exportedAt, articles: eligible };
+  const envelope: BackupEnvelope = { version: 3, exportedAt, articles: eligible };
   validateBackupEnvelope(envelope);
   if (byteLength(JSON.stringify(envelope)) > MAX_BACKUP_BYTES) fail("portable_backup_size_limit_exceeded");
   const batches = splitImportBatches(envelope, { maxBytes: MAX_IMPORT_BYTES, maxItems: MAX_IMPORT_ITEMS });

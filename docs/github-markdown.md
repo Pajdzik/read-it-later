@@ -1,5 +1,7 @@
 # GitHub article integration
 
+Current files use `potem_backup_version: 2`, adding the tag array, description origin, and manual-tag protection flag. Recovery accepts frontmatter v1/v2 and emits library JSON v3. See [article enrichment](article-enrichment.md) for the metadata and release gate.
+
 GitHub is an optional provider in the [article integrations system](integrations.md). The current UI uses a destination selector and **Also send to an integration**, with **Send saved copy to GitHub** for explicit retries. The provider retains the backup format, configuration, and conflict protections described below. The legacy GitHub API routes remain supported; new clients use the generic integration API.
 
 In article details, paste or upload Markdown and optionally check **Also send to an integration** (with GitHub selected) before choosing **Save Markdown copy**. The checkbox starts unchecked each time the editor opens. Potem saves the copy in D1 first, then sends that saved revision to GitHub. Unchecked saves make no GitHub write. The original link and read state remain independent.

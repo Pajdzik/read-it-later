@@ -3,7 +3,7 @@ import type { ExtractionJob, ExtractionMetadata } from './jobs';
 
 /** SQL representation shared by request, completion, and undo guards. */
 export const metadataSnapshot = (alias: string): string =>
-  `json_array(${alias}.title,${alias}.title_origin,${alias}.author,${alias}.description)`;
+  `json_array(${alias}.title,${alias}.title_origin,${alias}.author,${alias}.description,${alias}.description_origin)`;
 
 export type RecaptureResult = 'queued' | 'active' | 'missing' | 'revision_conflict' | 'capture_active' | 'cooldown';
 
@@ -60,10 +60,11 @@ export async function undoRecapture(
       title_origin = json_extract((SELECT previous_metadata FROM article_capture_recovery WHERE article_id=?), '$[1]'),
       author = json_extract((SELECT previous_metadata FROM article_capture_recovery WHERE article_id=?), '$[2]'),
       description = json_extract((SELECT previous_metadata FROM article_capture_recovery WHERE article_id=?), '$[3]'),
+      description_origin = json_extract((SELECT previous_metadata FROM article_capture_recovery WHERE article_id=?), '$[4]'),
       updated_at = ?
     WHERE id = ? AND EXISTS (SELECT 1 FROM article_copies WHERE article_id=? AND revision=?)
       AND EXISTS (SELECT 1 FROM article_capture_recovery WHERE article_id=? AND previous_metadata IS NOT NULL)`)
-    .bind(id, id, id, id, now, id, id, revision, id);
+    .bind(id, id, id, id, id, now, id, id, revision, id);
   const supersede = db.prepare(`UPDATE article_extraction_jobs SET
       state='failed',error_code='copy_changed',lease_token=NULL,lease_expires_at=NULL,finished_at=?,updated_at=?
     WHERE article_id=? AND state IN ('queued','running','retry_wait')
@@ -116,10 +117,11 @@ export async function completeRecapture(
   const description = result.metadata.description?.trim() || null;
   const metadata = db.prepare(`UPDATE articles SET title=COALESCE(?,title),
       title_origin=CASE WHEN ? IS NOT NULL THEN 'extracted' ELSE title_origin END,
-      author=COALESCE(?,author),description=COALESCE(?,description),updated_at=?
+      author=COALESCE(?,author),description=COALESCE(?,description),
+      description_origin=CASE WHEN ? IS NOT NULL THEN 'extracted' ELSE description_origin END,updated_at=?
     WHERE id=? AND ${written}
       AND EXISTS (SELECT 1 FROM article_extraction_jobs WHERE article_id=? AND refresh_metadata=1)`)
-    .bind(title, title, author, description, now, job.articleId, job.articleId, revision, job.articleId);
+    .bind(title, title, author, description, description, now, job.articleId, job.articleId, revision, job.articleId);
   const finalSnapshot = db.prepare(`UPDATE article_capture_recovery SET resulting_metadata=
       (SELECT ${metadataSnapshot('a')} FROM articles a WHERE a.id=?)
     WHERE article_id=? AND resulting_revision=? AND ${written}`)
