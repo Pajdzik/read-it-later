@@ -1028,7 +1028,7 @@ button {
 .reader-body h4,
 .reader-body h5,
 .reader-body h6 {
-  margin: 1.8em 0 0.55em;
+  margin: 1.25em 0 0.45em;
   font-family: Georgia, "Times New Roman", serif;
   line-height: 1.2;
 }
@@ -1045,7 +1045,6 @@ button {
   margin-inline: 0;
   padding-left: 1em;
   border-left: 3px solid var(--line);
-  color: var(--muted);
 }
 .reader-body pre,
 .reader-body table {
