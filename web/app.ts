@@ -106,6 +106,15 @@ function readReadingPosition(context: { id: string; revision: string }): Reading
     return value as ReadingPosition;
   } catch { return null; }
 }
+// The clipped toolbar no longer covers the visible article pane. Anchor hidden
+// controls at the viewport top and shown controls below their lower edge.
+function readerArticlePaneTop() {
+  const dialog = $<HTMLDialogElement>("#reader-dialog");
+  const toolbar = $(".reader-toolbar");
+  const viewportTop = dialog.getBoundingClientRect().top;
+  if (toolbar.matches(".is-hidden:not(:has(:focus-visible))")) return viewportTop;
+  return Math.max(viewportTop, toolbar.getBoundingClientRect().bottom);
+}
 function saveReadingPosition() {
   window.clearTimeout(readerPositionTimer);
   readerPositionTimer = 0;
@@ -114,8 +123,7 @@ function saveReadingPosition() {
   if (!context || restoringReaderPosition || readerPositionRestorePending || $("#reader-pending").hidden === false) return;
   const scrollTop = Math.min(MAX_READER_SCROLL, Math.max(0, dialog.scrollTop));
   const body = $("#reader-body");
-  const toolbar = $(".reader-toolbar");
-  const anchorY = toolbar.getBoundingClientRect().bottom;
+  const anchorY = readerArticlePaneTop();
   const children = Array.from(body.children) as HTMLElement[];
   let block = -1;
   let fraction = 0;
@@ -141,6 +149,10 @@ function restoreReadingPosition(context: { id: string; revision: string }) {
   const position = readReadingPosition(context);
   if (!position) return;
   const dialog = $<HTMLDialogElement>("#reader-dialog");
+  // A deterministic shown state gives legacy pixel-only records and block
+  // anchors the same viewport geometry on first open, after rotation, and
+  // when the previous session left controls hidden.
+  resetReaderToolbarScrollState();
   restoringReaderPosition = true;
   readerPositionRestorePending = true;
   requestAnimationFrame(() => {
@@ -156,14 +168,14 @@ function restoreReadingPosition(context: { id: string; revision: string }) {
       const body = $("#reader-body");
       const block = position.block >= 0 ? body.children.item(position.block) as HTMLElement | null : null;
       if (block) {
-        const toolbar = $(".reader-toolbar");
         const bounds = block.getBoundingClientRect();
         dialog.scrollTop = Math.max(0, Math.min(MAX_READER_SCROLL,
-          dialog.scrollTop + bounds.top + position.fraction * bounds.height - toolbar.getBoundingClientRect().bottom));
+          dialog.scrollTop + bounds.top + position.fraction * bounds.height - readerArticlePaneTop()));
       } else dialog.scrollTop = position.scrollTop;
     }
     requestAnimationFrame(() => {
       if (readerPositionContext === context && generation === readerPositionRestoreGeneration) {
+        resetReaderToolbarScrollState();
         readerPositionRestorePending = false;
         restoringReaderPosition = false;
       }
@@ -1638,9 +1650,13 @@ function updateReaderToolbarOnScroll() {
   const dialog = $<HTMLDialogElement>("#reader-dialog");
   const toolbar = $(".reader-toolbar");
   const current = dialog.scrollTop;
+  updateReaderToolbarTitle();
+  if (restoringReaderPosition || readerPositionRestorePending) {
+    readerToolbarLastScrollTop = current;
+    return;
+  }
   const delta = current - readerToolbarLastScrollTop;
   readerToolbarLastScrollTop = current;
-  updateReaderToolbarTitle();
   if (!dialog.open || current <= 1 || !toolbar.classList.contains("is-compact")) {
     readerToolbarUpwardDistance = 0;
     toolbar.classList.remove("is-hidden");
