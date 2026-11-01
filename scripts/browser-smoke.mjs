@@ -712,8 +712,31 @@ try {
   const backBounds = await reader.locator(".reader-close button").boundingBox();
   assert.ok(backBounds && backBounds.width >= 44 && backBounds.height >= 44 && backBounds.y >= 0 && backBounds.y + backBounds.height <= 1000,
     `Reader Back control should remain reachable after a long scroll: ${JSON.stringify(backBounds)}.`);
-  await reader.evaluate((dialog) => { dialog.scrollTop = 600; window.dispatchEvent(new Event("pagehide")); });
-  await closeReader(title);
+  await reader.evaluate((dialog) => { dialog.scrollTop = 600; });
+  await page.mouse.move(700, 500);
+  await page.mouse.wheel(0, 80);
+  await expect(toolbar).toHaveClass(/is-hidden/);
+  await expect.poll(() => toolbar.evaluate((element) => getComputedStyle(element).clipPath)).toContain("100%");
+  assert.equal(await page.evaluate(() => {
+    const element = document.querySelector(".reader-toolbar");
+    const bounds = element.getBoundingClientRect();
+    return element.contains(document.elementFromPoint(bounds.left + 20, bounds.top + 20));
+  }), false, "A clipped toolbar should not receive pointer hits in its hidden area.");
+  assert.equal(await toolbar.evaluate((element) => element.classList.contains("is-hidden")), true,
+    "The position fixture should be saved while controls are hidden.");
+  const savedVisibleAnchor = await reader.evaluate((dialog) => {
+    const toolbar = dialog.querySelector(".reader-toolbar");
+    const anchor = toolbar.matches(".is-hidden:not(:has(:focus-visible))")
+      ? dialog.getBoundingClientRect().top
+      : Math.max(dialog.getBoundingClientRect().top, toolbar.getBoundingClientRect().bottom);
+    const blocks = [...dialog.querySelector("#reader-body").children];
+    const index = blocks.findIndex((block) => block.getBoundingClientRect().bottom > anchor);
+    const bounds = blocks[index]?.getBoundingClientRect();
+    return { index, text: blocks[index]?.textContent,
+      fraction: bounds?.height ? (anchor - bounds.top) / bounds.height : null };
+  });
+  await page.keyboard.press("Escape");
+  await expect(reader).toBeHidden();
   assert.equal(await page.evaluate(() => window.scrollY), backgroundScroll,
     "Closing the reader should restore the background page position.");
   assert.equal(await page.evaluate(() => document.activeElement?.textContent?.trim()), "Browser smoke article",
@@ -736,7 +759,6 @@ try {
   await title.click();
   await reader.getByRole("heading", { name: "Browser smoke article" }).waitFor();
   await page.evaluate(() => new Promise((resolve) => requestAnimationFrame(() => requestAnimationFrame(resolve))));
-  const restoredSameLayout = await reader.evaluate((dialog) => dialog.scrollTop);
   assert.equal(typeof savedPosition.revision, "string");
   assert.ok(Number.isInteger(savedPosition.block) && savedPosition.block >= 0);
   assert.ok(Number.isFinite(savedPosition.fraction) && savedPosition.fraction >= -100 && savedPosition.fraction <= 100);
@@ -745,14 +767,38 @@ try {
     "Position storage must not contain article titles, URLs, or copy text.");
   assert.equal(await page.evaluate((id) => localStorage.getItem(`later-reading-position:${encodeURIComponent(id)}`), entryFixture.id), entryPositionBaseline,
     "Reading another article must not overwrite its position record.");
-  assert.ok(Math.abs(restoredSameLayout - savedPosition.scrollTop) <= 2,
-    `Reopen should restore same-layout pixels: expected ${savedPosition.scrollTop}, got ${restoredSameLayout}.`);
+  const restoredAnchor = await reader.evaluate((dialog) => {
+    const toolbar = dialog.querySelector(".reader-toolbar");
+    const anchor = toolbar.matches(".is-hidden:not(:has(:focus-visible))")
+      ? dialog.getBoundingClientRect().top
+      : Math.max(dialog.getBoundingClientRect().top, toolbar.getBoundingClientRect().bottom);
+    const blocks = [...dialog.querySelector("#reader-body").children];
+    const index = blocks.findIndex((block) => block.getBoundingClientRect().bottom > anchor);
+    const bounds = blocks[index]?.getBoundingClientRect();
+    return { index, text: blocks[index]?.textContent,
+      fraction: bounds?.height ? (anchor - bounds.top) / bounds.height : null };
+  });
+  assert.equal(restoredAnchor.text, savedVisibleAnchor.text,
+    "Reopening after saving with hidden controls should return the same visible article text.");
+  assert.equal(restoredAnchor.index, savedVisibleAnchor.index,
+    "Reopening should restore the same Markdown block.");
+  assert.ok(Math.abs(restoredAnchor.fraction - savedVisibleAnchor.fraction) < 0.03,
+    `Reopening should retain the within-paragraph reading fraction: ${savedVisibleAnchor.fraction} → ${restoredAnchor.fraction}.`);
   assert.equal(await reader.locator("details").count(), 0,
     "Reader metadata should remain directly visible on each fresh reader open.");
+  const currentRestoredPixels = await reader.evaluate((dialog) => dialog.scrollTop);
   await page.evaluate(() => window.dispatchEvent(new Event("pagehide")));
-  assert.equal(await page.evaluate((id) => JSON.parse(localStorage.getItem(`later-reading-position:${encodeURIComponent(id)}`)).scrollTop, articleId), savedPosition.scrollTop,
+  assert.equal(await page.evaluate((id) => JSON.parse(localStorage.getItem(`later-reading-position:${encodeURIComponent(id)}`)).scrollTop, articleId), currentRestoredPixels,
     "pagehide should preserve the current restored position.");
-  await page.reload();
+  await page.keyboard.press("Escape");
+  await expect(reader).toBeHidden();
+  await page.evaluate(({ id, scrollTop }) => {
+    const key = `later-reading-position:${encodeURIComponent(id)}`;
+    const position = JSON.parse(localStorage.getItem(key));
+    // Older records use the pixel fallback (block -1) with the same schema.
+    localStorage.setItem(key, JSON.stringify({ ...position, block: -1, fraction: 0, scrollTop }));
+  }, { id: articleId, scrollTop: savedPosition.scrollTop });
+  await page.goto(`${base}${await title.getAttribute("href")}`);
   await title.waitFor();
   await reader.getByRole("heading", { name: "Browser smoke article" }).waitFor();
   assert.equal(new URL(page.url()).pathname, await title.getAttribute("href"),
@@ -761,7 +807,9 @@ try {
   const restoredAfterReload = await reader.evaluate((dialog) => dialog.scrollTop);
   const reloadStoredPosition = await page.evaluate((id) => JSON.parse(localStorage.getItem(`later-reading-position:${encodeURIComponent(id)}`)), articleId);
   assert.ok(Math.abs(restoredAfterReload - savedPosition.scrollTop) <= 2,
-    `Reload should restore same-layout pixels: expected ${savedPosition.scrollTop}, got ${restoredAfterReload}; record ${JSON.stringify(reloadStoredPosition)}, viewport ${await page.evaluate(() => innerWidth)}.`);
+    `A closed legacy pixel record should restore pixels: expected ${savedPosition.scrollTop}, got ${restoredAfterReload}; record ${JSON.stringify(reloadStoredPosition)}, viewport ${await page.evaluate(() => innerWidth)}.`);
+  assert.equal(await toolbar.evaluate((element) => element.classList.contains("is-hidden")), false,
+    "Restoring a legacy pixel position should leave controls in the deterministic shown state.");
   assert.equal(await page.evaluate(async (id) => (await (await fetch(`/api/articles/${id}`)).json()).article.readAt, articleId), readStateBefore,
     "Restoring a saved position must not change read state.");
   await reader.evaluate((dialog) => { dialog.scrollTop = 0; });
