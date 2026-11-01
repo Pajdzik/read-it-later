@@ -1616,13 +1616,46 @@ function setReaderTitle(text: string) {
   const compactTitle = $("#reader-toolbar-title");
   compactTitle.textContent = text;
   $(".reader-toolbar").classList.remove("is-compact");
+  resetReaderToolbarScrollState();
+}
+let readerToolbarLastScrollTop = 0;
+let readerToolbarUpwardDistance = 0;
+function resetReaderToolbarScrollState() {
+  const dialog = $<HTMLDialogElement>("#reader-dialog");
+  readerToolbarLastScrollTop = dialog.scrollTop;
+  readerToolbarUpwardDistance = 0;
+  $(".reader-toolbar").classList.remove("is-hidden");
 }
 function updateReaderToolbarTitle() {
   const dialog = $<HTMLDialogElement>("#reader-dialog");
   const title = $("#reader-title");
   const toolbar = $(".reader-toolbar");
+  const shownToolbarBottom = dialog.getBoundingClientRect().top + toolbar.offsetHeight;
   toolbar.classList.toggle("is-compact", dialog.open && Boolean(title.textContent) &&
-    title.getBoundingClientRect().bottom <= toolbar.getBoundingClientRect().bottom);
+    title.getBoundingClientRect().bottom <= shownToolbarBottom);
+}
+function updateReaderToolbarOnScroll() {
+  const dialog = $<HTMLDialogElement>("#reader-dialog");
+  const toolbar = $(".reader-toolbar");
+  const current = dialog.scrollTop;
+  const delta = current - readerToolbarLastScrollTop;
+  readerToolbarLastScrollTop = current;
+  updateReaderToolbarTitle();
+  if (!dialog.open || current <= 1 || !toolbar.classList.contains("is-compact")) {
+    readerToolbarUpwardDistance = 0;
+    toolbar.classList.remove("is-hidden");
+    return;
+  }
+  if (delta > 0) {
+    readerToolbarUpwardDistance = 0;
+    toolbar.classList.add("is-hidden");
+  } else if (delta < 0 && toolbar.classList.contains("is-hidden")) {
+    readerToolbarUpwardDistance += -delta;
+    if (readerToolbarUpwardDistance >= 24) {
+      toolbar.classList.remove("is-hidden");
+      readerToolbarUpwardDistance = 0;
+    }
+  }
 }
 function updatePdfReader(article?: Article) {
   $('#reader-pdf-actions').hidden = !article?.originalPdf;
@@ -1836,7 +1869,7 @@ document.addEventListener("pointerdown", (event) => {
   }
 }, true);
 $("#reader-dialog").addEventListener("scroll", () => {
-  updateReaderToolbarTitle();
+  updateReaderToolbarOnScroll();
   scheduleReadingPositionSave();
 }, { passive: true });
 const readerTitleResizeObserver = new ResizeObserver(updateReaderToolbarTitle);

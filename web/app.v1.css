@@ -865,6 +865,15 @@ button {
   padding-top: env(safe-area-inset-top, 0px);
   border-bottom: 1px solid var(--line);
   background: var(--white);
+  transform: translateY(0);
+}
+.reader-toolbar.is-hidden {
+  clip-path: inset(0 0 100% 0);
+  pointer-events: none;
+}
+.reader-toolbar:has(:focus-visible) {
+  clip-path: inset(0);
+  pointer-events: auto;
 }
 .reader-toolbar-inner {
   min-height: 56px;
@@ -1326,6 +1335,9 @@ body:has(#reader-dialog[open]) {
   }
   .reader-toolbar.is-compact .reader-toolbar-title {
     transition-delay: 60ms, 60ms, 0s;
+  }
+  .reader-toolbar {
+    transition: clip-path 180ms ease;
   }
 }
 .extension-actions { display: flex; flex-wrap: wrap; gap: .65rem; margin-top: 1rem; align-items: center; }
