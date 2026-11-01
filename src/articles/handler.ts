@@ -248,9 +248,10 @@ async function listRoute(url: URL, env: Env): Promise<Response> {
   const cursor = url.searchParams.get('cursor') || undefined;
   if (cursor && cursor.length > 2048) throw new ValidationError('cursor is invalid');
   const page = await listArticles(env.DB, { status, q, limit, cursor });
-  const statuses = await getExtractionStatuses(env.DB, page.items.map(article => article.id), isBackgroundCapturePaused(env));
+  const paused = isBackgroundCapturePaused(env);
+  const statuses = await getExtractionStatuses(env.DB, page.items.map(article => article.id), paused);
   const pdfs = await originalPdfSummaries(env.DB, page.items.map(a => a.id));
-  return jsonResponse({ ...page, items: page.items.map(article => {
+  return jsonResponse({ ...page, capture: { paused }, items: page.items.map(article => {
     const extraction = statuses.get(article.id);
     return { ...article, originalPdf: pdfs.get(article.id), hasCopy: extraction?.state === 'ready', extraction };
   }) });

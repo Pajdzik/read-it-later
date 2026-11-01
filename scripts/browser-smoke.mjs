@@ -1,4 +1,5 @@
 import { pdfArchiveSmoke } from "./pdf-archive-smoke.mjs";
+import { captureStatusSmoke } from "./capture-status-smoke.mjs";
 import { chromium } from "playwright";
 import { expect } from "playwright/test";
 import { spawn } from "node:child_process";
@@ -111,6 +112,7 @@ try {
   });
   await checkReadingSuggestion(browser, base);
   await captureRecoverySmoke(browser, base);
+  await captureStatusSmoke(browser, base);
   await readerTitleSmoke(browser, base);
   const context = await browser.newContext({
     viewport: { width: 1440, height: 1000 },
@@ -1302,7 +1304,7 @@ try {
   await urlPage.locator("#notice").getByText(/Link saved\. Capturing Markdown in the background/).waitFor();
   const asyncArticle = urlPage.locator(`.article[data-id="${asyncFixture.id}"]`);
   const pendingBadge = asyncArticle.locator(".extraction-badge");
-  await expect(pendingBadge).toHaveAttribute("aria-label", "Capturing Markdown");
+  await expect(pendingBadge).toHaveAttribute("aria-label", "Capture queued");
   await expect(pendingBadge.locator("svg")).toHaveCount(1);
   const urlReader = urlPage.locator("#reader-dialog");
   await asyncArticle.getByRole("link", { name: "Background capture smoke", exact: true }).click();
@@ -1318,7 +1320,7 @@ try {
   const asyncDetail = urlPage.locator("#detail-content");
   const draftBox = asyncDetail.getByRole("textbox", { name: "Markdown copy" });
   await draftBox.fill("# My manual draft\n\nKeep this while background capture finishes.");
-  await asyncDetail.locator("#detail-extraction-status").getByText("Capturing Markdown").waitFor();
+  await asyncDetail.locator("#detail-extraction-status").getByText("Capture queued").waitFor();
   await asyncDetail.locator(".copy-status").getByText(/Unsaved draft/).waitFor();
   await urlPage.waitForFunction(() => document.querySelector("#detail-extraction-status")?.textContent === "Markdown ready", null, { timeout: 10000 });
   assert.equal(await draftBox.inputValue(), "# My manual draft\n\nKeep this while background capture finishes.", "Polling must preserve the user's unsaved Markdown draft.");
@@ -1378,7 +1380,7 @@ try {
   await failedArticle.getByRole("button", { name: "Edit", exact: true }).click();
   await urlPage.locator("#detail-content .edit-form input").fill("Keep my unsaved title");
   await urlPage.locator("#detail-content").getByRole("button", { name: "Retry capture" }).click();
-  await urlPage.locator("#detail-extraction-status").getByText("Capturing Markdown").waitFor();
+  await urlPage.locator("#detail-extraction-status").getByText("Capture queued").waitFor();
   assert.equal(await urlPage.locator("#detail-content .edit-form input").inputValue(), "Keep my unsaved title", "Retry acknowledgment must preserve an unsaved title draft.");
   await urlPage.locator("#detail-dialog .dialog-close button").click();
   await urlPage.unroute("**/api/articles");

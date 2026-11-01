@@ -18,6 +18,18 @@ function setup() {
   };
   return { queue, bindings };
 }
+
+it('reports the global capture pause independently of an empty article list', async () => {
+  const { bindings } = setup();
+  for (const paused of [true, false]) {
+    const response = await worker.fetch(new Request(origin + '/api/articles'), {
+      ...bindings, MANAGED_CONVERSION_ENABLED: paused ? 'false' : 'true',
+    });
+    expect(response.status).toBe(200);
+    expect(await response.json()).toMatchObject({ items: [], capture: { paused } });
+    expect(response.headers.get('Cache-Control')).toContain('no-store');
+  }
+});
 function request(path: string, body: unknown) {
   return new Request(origin + path, { method: 'POST', headers: {
     Origin: origin, 'Content-Type': 'application/json', 'X-CSRF-Token': 'dev-bypass',
