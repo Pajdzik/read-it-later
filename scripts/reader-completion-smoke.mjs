@@ -33,6 +33,7 @@ export async function readerCompletionSmoke(context, base, sourceBase) {
     await page.locator("#search").fill("Completion smoke");
     const row = (id) => page.locator(`.article[data-id="${id}"]`);
     await expect(page.locator(".article")).toHaveCount(2);
+    await row(first.id).getByRole("button", { name: "More actions", exact: true }).click();
     await row(first.id).getByRole("button", { name: "Edit", exact: true }).click();
     const detail = page.locator("#detail-dialog");
     const draft = "# Unsaved completion draft";
@@ -91,6 +92,7 @@ export async function readerCompletionSmoke(context, base, sourceBase) {
     await page.unroute(`**/api/articles/${first.id}`);
 
     await page.locator('[data-status="read"]').click();
+    await row(first.id).getByRole("button", { name: "More actions", exact: true }).click();
     await row(first.id).getByRole("button", { name: "Edit", exact: true }).click();
     await expect(detail.getByRole("textbox", { name: "Markdown copy" })).toHaveValue(draft);
     await page.locator("#detail-dialog .dialog-close button").click();

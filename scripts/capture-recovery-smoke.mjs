@@ -57,6 +57,7 @@ export async function captureRecoverySmoke(browser, base) {
   });
   const detail = page.locator('#detail-content');
   const edit = async () => {
+    await page.locator('.article[data-id="recover1"]').getByRole('button', { name: 'More actions', exact: true }).click();
     await page.locator('.article[data-id="recover1"]').getByRole('button', { name: 'Edit', exact: true }).click();
     await expect(detail.getByRole('textbox', { name: 'Markdown copy', exact: true })).toHaveValue(copy.markdown);
   };

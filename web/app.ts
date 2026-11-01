@@ -830,19 +830,17 @@ function el<K extends keyof HTMLElementTagNameMap>(
   if (className) node.className = className;
   return node;
 }
-type IconName = "capture-failed" | "edit" | "external" | "mark-read" | "mark-unread";
+type IconName = "capture-failed"  | "mark-read" | "mark-unread" | "more";
 function iconMarkup(name: IconName): string {
   switch (name) {
     case "capture-failed":
       return '<svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="9" /><path d="M12 7v6m0 4h.01" /></svg>';
-    case "edit":
-      return '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="m4 16.5-.8 3.3 3.3-.8L18.7 6.8a2.3 2.3 0 0 0-3.3-3.3L4 16.5Z" /><path d="m13.9 5.1 5 5" /></svg>';
-    case "external":
-      return '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M15 3h6v6m-1-5-9 9" /><path d="M11 5H7a4 4 0 0 0-4 4v8a4 4 0 0 0 4 4h8a4 4 0 0 0 4-4v-4" /></svg>';
     case "mark-unread":
       return '<svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="7" /></svg>';
     case "mark-read":
       return '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="m5 12 4.5 4.5L19 7" /></svg>';
+    case "more":
+      return '<svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="5" cy="12" r="1.5"/><circle cx="12" cy="12" r="1.5"/><circle cx="19" cy="12" r="1.5"/></svg>';
   }
 }
 function iconButton(label: string, icon: IconName, className = "") {
@@ -852,13 +850,6 @@ function iconButton(label: string, icon: IconName, className = "") {
   button.title = label;
   button.innerHTML = iconMarkup(icon);
   return button;
-}
-function iconLink(label: string, icon: IconName, className = "") {
-  const link = el("a", undefined, `action-button icon-action${className ? ` ${className}` : ""}`);
-  link.setAttribute("aria-label", label);
-  link.title = label;
-  link.innerHTML = iconMarkup(icon);
-  return link;
 }
 function enrichmentIsPending(article: Article): boolean {
   return !!article.enrichment && !article.enrichment.paused && ['queued', 'running', 'retry_wait'].includes(article.enrichment.state);
@@ -941,11 +932,6 @@ function renderArticle(article: Article) {
       event.preventDefault(); void navigateToArticle(article.id, description);
     });
   }
-  const link = iconLink("Open original", "external", "subtle original-link");
-  link.href = safeHttpUrl(article.url) || "#";
-  link.target = "_blank";
-  link.rel = "noopener noreferrer";
-  link.addEventListener("click", (e) => e.stopPropagation());
   if (description) main.append(description);
   const actions = el("div", undefined, "article-actions");
   const read = iconButton(
@@ -955,9 +941,35 @@ function renderArticle(article: Article) {
   );
   read.addEventListener("click", () => mutateRead(article, !article.readAt));
   metaRow.append(meta, extractionBadge);
-  const edit = iconButton("Edit", "edit", "subtle edit-action");
-  edit.addEventListener("click", () => openDetail(article));
-  actions.append(read, edit, link);
+  const more = el("div", undefined, "article-more");
+  const moreButton = iconButton("More actions", "more", "subtle more-action");
+  const menu = el("div", undefined, "article-action-menu");
+  menu.id = `article-actions-${article.id}`;
+  menu.setAttribute("popover", "auto");
+  moreButton.setAttribute("popovertarget", menu.id);
+  const edit = el("button", "Edit", "article-menu-item edit-action");
+  edit.type = "button";
+  edit.addEventListener("click", () => {
+    menu.hidePopover();
+    openDetail(article, moreButton);
+  });
+  const link = el("a", "Open original", "article-menu-item original-link");
+  link.href = safeHttpUrl(article.url) || "#";
+  link.target = "_blank";
+  link.rel = "noopener noreferrer";
+  link.addEventListener("click", (e) => { e.stopPropagation(); menu.hidePopover(); });
+  menu.append(edit, link);
+  more.append(moreButton, menu);
+  menu.addEventListener("toggle", (event) => {
+    if ((event as ToggleEvent).newState === "open") {
+      const bounds = moreButton.getBoundingClientRect();
+      const menuHeight = menu.getBoundingClientRect().height;
+      const below = bounds.bottom + menuHeight + 5 <= window.innerHeight;
+      menu.style.top = `${below ? bounds.bottom + 5 : Math.max(8, bounds.top - menuHeight - 5)}px`;
+      menu.style.right = `${Math.max(8, window.innerWidth - bounds.right)}px`;
+    }
+  });
+  actions.append(read, more);
   main.append(title, metaRow);
   if (description) title.after(description);
   const tags = renderTags(article);
@@ -966,6 +978,9 @@ function renderArticle(article: Article) {
   li.append(main, actions);
   return li;
 }
+window.addEventListener("scroll", () => {
+  document.querySelector<HTMLElement>(".article-action-menu:popover-open")?.hidePopover();
+}, { passive: true });
 function render(items: Article[], append = false) {
   if (!append) list.replaceChildren();
   for (const item of items) list.append(renderArticle(item));
@@ -1844,7 +1859,9 @@ readerTitleResizeObserver.observe($("#reader-title"));
 readerTitleResizeObserver.observe($(".reader-toolbar"));
 window.addEventListener("pagehide", saveReadingPosition);
 document.addEventListener("visibilitychange", () => { if (document.visibilityState === "hidden") saveReadingPosition(); });
-function openDetail(article: Article) {
+let detailReturnFocus: HTMLElement | null = null;
+function openDetail(article: Article, opener: HTMLElement | null = document.activeElement instanceof HTMLElement ? document.activeElement : null) {
+  detailReturnFocus = opener;
   clearReader();
   renderDetail(article);
   showDialog($<HTMLDialogElement>("#detail-dialog"), $<HTMLInputElement>("#detail-content input"));
@@ -1977,6 +1994,9 @@ $("#detail-dialog").addEventListener("close", () => {
   clearReader();
   $("#detail-content").replaceChildren();
   state.selected = null;
+  const target = detailReturnFocus;
+  detailReturnFocus = null;
+  if (target?.isConnected) target.focus({ preventScroll: true });
 });
 async function initialize() {
   try {

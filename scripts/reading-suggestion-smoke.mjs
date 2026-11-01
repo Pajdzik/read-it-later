@@ -91,6 +91,7 @@ export async function checkReadingSuggestion(browser, base) {
     failSuggestion = false;
     await card.getByRole("button", { name: "Retry", exact: true }).click();
     await expect(title).toHaveText(articles[0].title);
+    await page.locator(`.article[data-id="${articles[0].id}"]`).getByRole("button", { name: "More actions", exact: true }).click();
     await page.locator(`.article[data-id="${articles[0].id}"]`).getByRole("button", { name: "Edit", exact: true }).click();
     page.once("dialog", (dialog) => dialog.accept());
     await page.getByRole("button", { name: "Delete article", exact: true }).click();

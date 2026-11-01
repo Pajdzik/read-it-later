@@ -323,6 +323,7 @@ async function verifyReader(base: string, envelope: BackupEnvelope, temporary: s
       diagnosticStage = "reader focus restoration";
       assert.equal(await page.evaluate(() => document.activeElement?.textContent), sample.title, "Escape should return focus to the title link.");
       diagnosticStage = "reader Markdown download";
+      await row.getByRole("button", { name: "More actions", exact: true }).click();
       await row.getByRole("button", { name: "Edit", exact: true }).click();
       const detail = page.locator("#detail-content");
       await detail.getByRole("button", { name: "Download Markdown", exact: true }).waitFor();

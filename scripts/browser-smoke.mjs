@@ -276,6 +276,7 @@ try {
   await page.reload();
   await page.locator("#loading").waitFor({ state: "hidden" });
   await title.waitFor();
+  await article.getByRole("button", { name: "More actions", exact: true }).click();
   await article.getByRole("button", { name: "Edit", exact: true }).click();
   await page.locator("#detail-content .copy-status").getByText(/uploaded file/).waitFor();
   assert.equal(await page.locator("#detail-content").getByRole("textbox", { name: "Markdown copy" }).inputValue(), uploadedMarkdown, "Uploaded Markdown must survive reload.");
@@ -302,6 +303,7 @@ try {
   await page.waitForFunction(() => location.pathname === "/");
   await page.reload();
   await title.waitFor();
+  await article.getByRole("button", { name: "More actions", exact: true }).click();
   await article.getByRole("button", { name: "Edit", exact: true }).click();
   await detail.getByText(/Sent to GitHub/).waitFor();
   assert.equal(await githubCheckbox.isChecked(), false);
@@ -402,12 +404,14 @@ try {
   const entryActions = entryArticle.locator(".article-actions");
   const entryMetaRow = entryArticle.locator(".article-meta-row");
   const entryRead = entryActions.getByRole("button", { name: "Mark read", exact: true });
-  const entryEdit = entryActions.getByRole("button", { name: "Edit", exact: true });
-  const entryOriginal = entryActions.getByRole("link", { name: "Open original" });
+  const entryMore = entryActions.getByRole("button", { name: "More actions", exact: true });
+  const entryMenu = entryActions.locator(".article-action-menu");
+  const entryEdit = entryMenu.getByRole("button", { name: "Edit", exact: true });
   const assertControlLayout = async () => {
-    assert.equal(await entryActions.locator("button, a").count(), 3, "Read, Edit, and Open original must share the action container.");
+    assert.equal(await entryActions.locator(":scope > button, :scope > .article-more").count(), 2, "Mark read and More must share the action container.");
+    assert.equal(await entryMenu.locator("button, a").count(), 2, "Edit and Open original must be grouped in More.");
     assert.equal(await entryMetaRow.locator("button").count(), 0, "Mark read must stay out of the metadata row.");
-    const actionCenters = await Promise.all([entryRead, entryEdit, entryOriginal].map(async (control) => {
+    const actionCenters = await Promise.all([entryRead, entryMore].map(async (control) => {
       const bounds = await control.boundingBox();
       assert.ok(bounds, "Each article action must be visible.");
       return bounds.y + bounds.height / 2;
@@ -418,6 +422,20 @@ try {
   await page.setViewportSize({ width: 1440, height: 1000 });
   await assertControlLayout();
   await page.screenshot({ path: "/tmp/potem-article-actions-desktop.png" });
+  await entryMore.focus();
+  await page.keyboard.press("Enter");
+  await expect(entryMenu).toBeVisible();
+  await page.keyboard.press("Tab");
+  assert.equal(await entryEdit.evaluate((item) => item === document.activeElement), true, "Tab should move from More to Edit.");
+  await page.keyboard.press("Escape");
+  assert.equal(await entryMore.evaluate((item) => item === document.activeElement), true, "Escape should close More and restore focus to its trigger.");
+  await entryMore.click();
+  await page.locator("#result-count").click();
+  await expect(entryMenu).not.toBeVisible({ timeout: 1000 });
+  await entryMore.click();
+  await page.locator('.article[data-id=smoke001]').getByRole("button", { name: "More actions" }).click();
+  await expect(entryMenu).toBeHidden();
+  await page.keyboard.press("Escape");
   await entryTitle.click();
   const reader = page.locator("#reader-dialog");
   await reader.getByRole("heading", { name: "Reader entry smoke" }).waitFor();
@@ -505,6 +523,12 @@ try {
   await entryLead.waitFor();
   await page.setViewportSize({ width: 390, height: 844 });
   await assertControlLayout();
+  await entryMore.click();
+  assert.equal(await entryMenu.evaluate((menu) => menu.matches(":popover-open")), true, "More should open its popover on a narrow viewport.");
+  await entryEdit.click();
+  await page.locator("#detail-dialog").waitFor({ state: "visible" });
+  await page.locator("#detail-dialog .dialog-close button").click();
+  await expect(entryMore).toBeFocused();
   await page.screenshot({ path: "/tmp/potem-article-actions-mobile.png" });
   await page.evaluate((id) => localStorage.setItem(`later-reading-position:${encodeURIComponent(id)}`, JSON.stringify({ revision: "replaced-copy-revision", block: 1, fraction: 0, scrollTop: 400 })), entryFixture.id);
   await entryLead.click();
@@ -564,6 +588,7 @@ try {
   });
   await title.click();
   await pendingCopyStarted;
+  await article.getByRole("button", { name: "More actions", exact: true }).click();
   await article.getByRole("button", { name: "Edit", exact: true }).click();
   releasePendingCopy();
   await detail.getByRole("textbox", { name: "Markdown copy" }).waitFor();
@@ -759,6 +784,7 @@ try {
   assert.ok(await reader.evaluate((dialog) => dialog.scrollTop <= 1), "Reopening a saved top position should stay at zero after rendering.");
   await closeReader(title);
   assert.equal(await reader.locator("#reader-body").textContent(), "", "Closing the reader must discard its private DOM.");
+  await article.getByRole("button", { name: "More actions", exact: true }).click();
   await article.getByRole("button", { name: "Edit", exact: true }).click();
   await detail.locator(".copy-status").getByText(/pasted Markdown/).waitFor();
   await detail.getByRole("textbox", { name: "Markdown copy" }).fill("Unsaved draft stays in the editor.");
@@ -781,6 +807,7 @@ try {
   await page.locator("#detail-dialog .dialog-close button").click();
   await page.reload();
   await title.waitFor();
+  await article.getByRole("button", { name: "More actions", exact: true }).click();
   await article.getByRole("button", { name: "Edit", exact: true }).click();
   await detail.locator(".copy-status").getByText(/pasted Markdown/).waitFor();
   await detail.getByRole("button", { name: "Read saved copy" }).click();
@@ -810,6 +837,7 @@ try {
     if (!response.ok) throw new Error(`Couldn’t set frontmatter fixture: ${response.status}`);
   }, { id: articleId, title: injectedTitle });
   await page.reload();
+  await page.locator(".article").filter({ hasText: "Quoted metadata" }).getByRole("button", { name: "More actions", exact: true }).click();
   await page.locator(".article").filter({ hasText: "Quoted metadata" }).getByRole("button", { name: "Edit", exact: true }).click();
   await detail.locator(".copy-status").getByText(/pasted Markdown/).waitFor();
   const injectedDownloadPromise = page.waitForEvent("download");
@@ -843,6 +871,7 @@ try {
   await page.reload();
   await page.getByRole("button", { name: "Read", exact: true }).click();
   await title.waitFor();
+  await article.getByRole("button", { name: "More actions", exact: true }).click();
   await article.getByRole("button", { name: "Edit", exact: true }).click();
   await page.route("**/api/articles/*", async (route) => {
     if (route.request().method() === "PATCH")
@@ -877,7 +906,8 @@ try {
     await page.locator("#more").isHidden(),
     "Show more should be hidden on the last page.",
   );
-  const original = article.getByRole("link", { name: "Open original" });
+  await article.getByRole("button", { name: "More actions", exact: true }).click();
+  const original = article.locator(".article-action-menu").getByRole("link", { name: "Open original" });
   assert.equal(await original.getAttribute("target"), "_blank");
   assert.match(await original.getAttribute("rel"), /noopener/);
   await page.route("**/api/articles", async (route) => {
@@ -1371,17 +1401,20 @@ try {
     await detailRetryGate;
     await route.fulfill({ contentType: "application/json", body: JSON.stringify({ extraction: { state: "queued", attempts: 0, errorCode: null, nextAttemptAt: null, paused: false } }) });
   });
+  await failedArticle.getByRole("button", { name: "More actions", exact: true }).click();
   await failedArticle.getByRole("button", { name: "Edit", exact: true }).click();
   const lateDetailResponse = urlPage.waitForResponse((response) => response.url().endsWith(`/articles/${failedFixture.id}/extraction/retry`));
   await urlPage.locator("#detail-content").getByRole("button", { name: "Retry capture" }).click();
   await detailRetryStarted;
   await urlPage.locator("#detail-dialog .dialog-close button").click();
+  await asyncArticle.getByRole("button", { name: "More actions", exact: true }).click();
   await asyncArticle.getByRole("button", { name: "Edit", exact: true }).click();
   releaseDetailRetry();
   await (await lateDetailResponse).finished();
   await urlPage.evaluate(() => new Promise((resolve) => requestAnimationFrame(() => requestAnimationFrame(resolve))));
   assert.equal(await urlPage.locator("#detail-content h2").textContent(), "Background capture smoke", "A late retry must not replace another article's details.");
   await urlPage.locator("#detail-dialog .dialog-close button").click();
+  await failedArticle.getByRole("button", { name: "More actions", exact: true }).click();
   await failedArticle.getByRole("button", { name: "Edit", exact: true }).click();
   await urlPage.locator("#detail-content .edit-form input[data-field=title]").fill("Keep my unsaved title");
   await urlPage.locator("#detail-content").getByRole("button", { name: "Retry capture" }).click();
