@@ -340,6 +340,7 @@ async function runProfile(name, browserType, device) {
     Math.max(...sharedEdges.map((bounds) => bounds.x + bounds.width)) - Math.min(...sharedEdges.map((bounds) => bounds.x + bounds.width)) <= 2,
     `${name}: reader blocks should share a column: ${JSON.stringify(sharedEdges)}.`);
   await readyReader.evaluate((dialog) => { dialog.scrollTop = dialog.scrollHeight; });
+  await expect(readyReader.locator(".reader-toolbar")).toHaveClass(/is-hidden/);
   await readyReader.evaluate((dialog) => { dialog.scrollTop -= 24; });
   await expect(readyReader.locator(".reader-toolbar")).not.toHaveClass(/is-hidden/);
   await expect.poll(async () => (await readyReader.locator(".reader-toolbar").boundingBox())?.y).toBeGreaterThanOrEqual(0);
