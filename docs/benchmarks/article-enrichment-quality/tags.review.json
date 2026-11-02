@@ -1,0 +1,219 @@
+{
+  "reportDigest": "c409a81f67408a1a48ad5396acd6c6041e63186b7541ce8026ee5610ce5b0749",
+  "reviewerType": "agent",
+  "reviewer": "Codex",
+  "reviewedAt": "2026-11-02T04:38:53.556Z",
+  "method": "Agent inspected the complete response, complete tag set, request and supplied source text; no keyword-based acceptance or second-model judging calls.",
+  "judgments": [
+    {
+      "id": "tags/minimal/01-en",
+      "resultDigest": "276cc22c12046131767490508d996a00fa0817edc74a4e4d0b4833bb4a92b650",
+      "completeTagSetRelevant": false,
+      "tags": [],
+      "description": {
+        "grounded": null,
+        "language": null,
+        "oneSentence": null,
+        "evidence": "No accepted description; structurally rejected responses are never salvaged."
+      },
+      "notes": "Rejected the whole response: the complete response is not a single parseable JSON value (truncation, fences or malformed syntax). No fields or tags were accepted. ",
+      "structuralJudgment": "rejected"
+    },
+    {
+      "id": "tags/minimal/01-pl",
+      "resultDigest": "ec32884129ffe4e4ced3a6f9b577cab8218172dea2e18218170ae0d523175f8c",
+      "completeTagSetRelevant": false,
+      "tags": [],
+      "description": {
+        "grounded": null,
+        "language": null,
+        "oneSentence": null,
+        "evidence": "No accepted description; structurally rejected responses are never salvaged."
+      },
+      "notes": "Rejected the whole response: the complete response is not a single parseable JSON value (truncation, fences or malformed syntax). No fields or tags were accepted. ",
+      "structuralJudgment": "rejected"
+    },
+    {
+      "id": "tags/minimal/04-en",
+      "resultDigest": "e4ed9c05b4b2f057e3a3e13f805634df69b22bb271066db2b74acc02b60a665c",
+      "completeTagSetRelevant": false,
+      "tags": [],
+      "description": {
+        "grounded": null,
+        "language": null,
+        "oneSentence": null,
+        "evidence": "No accepted description; structurally rejected responses are never salvaged."
+      },
+      "notes": "Rejected the whole response: unexpected/missing fields: received title, description, tags, required tags; the description has 3 sentence segments. No fields or tags were accepted. ",
+      "structuralJudgment": "rejected"
+    },
+    {
+      "id": "tags/minimal/04-pl",
+      "resultDigest": "bffeba91fb1c4d31ae81adbee987502f9690317fd574263632e64ad738c7999a",
+      "completeTagSetRelevant": false,
+      "tags": [],
+      "description": {
+        "grounded": null,
+        "language": null,
+        "oneSentence": null,
+        "evidence": "No accepted description; structurally rejected responses are never salvaged."
+      },
+      "notes": "Rejected the whole response: unexpected/missing fields: received title, description, tags, required tags; the raw set repeats tags; the description has 3 sentence segments. No fields or tags were accepted. ",
+      "structuralJudgment": "rejected"
+    },
+    {
+      "id": "tags/vocabulary/01-en",
+      "resultDigest": "a9d096f6aaa114d7a2b57828a11c95e7d25c8c77c918133f182043f6198f5264",
+      "completeTagSetRelevant": false,
+      "tags": [],
+      "description": {
+        "grounded": null,
+        "language": null,
+        "oneSentence": null,
+        "evidence": "No accepted description; structurally rejected responses are never salvaged."
+      },
+      "notes": "Rejected the whole response: the complete response is not a single parseable JSON value (truncation, fences or malformed syntax). No fields or tags were accepted. ",
+      "structuralJudgment": "rejected"
+    },
+    {
+      "id": "tags/vocabulary/01-pl",
+      "resultDigest": "5815ac0dd6b424be555edc717f0cddf26de072737803c81f66f85602cd8e70f3",
+      "completeTagSetRelevant": false,
+      "tags": [],
+      "description": {
+        "grounded": null,
+        "language": null,
+        "oneSentence": null,
+        "evidence": "No accepted description; structurally rejected responses are never salvaged."
+      },
+      "notes": "Rejected the whole response: the complete response is not a single parseable JSON value (truncation, fences or malformed syntax). No fields or tags were accepted. ",
+      "structuralJudgment": "rejected"
+    },
+    {
+      "id": "tags/vocabulary/04-en",
+      "resultDigest": "d3e665a12d10bf44fe18d20d63fedf487a3af970ee2066a680779386e496746f",
+      "completeTagSetRelevant": false,
+      "tags": [],
+      "description": {
+        "grounded": null,
+        "language": null,
+        "oneSentence": null,
+        "evidence": "No accepted description; structurally rejected responses are never salvaged."
+      },
+      "notes": "Rejected the whole response: unexpected/missing fields: received title, description, tags, required tags; the description has 3 sentence segments. No fields or tags were accepted. ",
+      "structuralJudgment": "rejected"
+    },
+    {
+      "id": "tags/vocabulary/04-pl",
+      "resultDigest": "76b76d6e15bf5878bea678bab21638aff3274e6c3c3094dea71970dd761b6aa5",
+      "completeTagSetRelevant": false,
+      "tags": [],
+      "description": {
+        "grounded": null,
+        "language": null,
+        "oneSentence": null,
+        "evidence": "No accepted description; structurally rejected responses are never salvaged."
+      },
+      "notes": "Rejected the whole response: unexpected/missing fields: received title, description, existingTags, required tags; the description has 3 sentence segments. No fields or tags were accepted. ",
+      "structuralJudgment": "rejected"
+    },
+    {
+      "id": "tags/examples/01-en",
+      "resultDigest": "908dae3001198300a6867ef5ae0db1aff4e88dfd3c4699d6d4dc380bb5094ad8",
+      "completeTagSetRelevant": true,
+      "tags": [
+        {
+          "tag": "database",
+          "relevant": true,
+          "english": true,
+          "evidence": "The article describes database row lookups and indexes."
+        },
+        {
+          "tag": "indexes",
+          "relevant": true,
+          "english": true,
+          "evidence": "B-tree indexes and their maintenance costs are explicit source topics."
+        },
+        {
+          "tag": "optimization",
+          "relevant": true,
+          "english": true,
+          "evidence": "The source describes faster lookups and choosing a cheaper scan strategy."
+        },
+        {
+          "tag": "query planner",
+          "relevant": true,
+          "english": true,
+          "evidence": "The query planner and its cost comparison are explicit in the source."
+        }
+      ],
+      "description": {
+        "grounded": null,
+        "language": null,
+        "oneSentence": null,
+        "evidence": "No accepted description; structurally rejected responses are never salvaged."
+      },
+      "notes": "Every returned tag is an English topic grounded in the article."
+    },
+    {
+      "id": "tags/examples/01-pl",
+      "resultDigest": "48dbe18b0816a0b3c8861fb42426aff91b12a8a693afd8c272d2a991252fc9ca",
+      "completeTagSetRelevant": false,
+      "tags": [
+        {
+          "tag": "database",
+          "relevant": true,
+          "english": true,
+          "evidence": "The article describes database row lookups and indexes."
+        },
+        {
+          "tag": "index",
+          "relevant": true,
+          "english": true,
+          "evidence": "The Polish article explicitly discusses database indexes."
+        },
+        {
+          "tag": "tree",
+          "relevant": false,
+          "english": true,
+          "evidence": "Bare tree is ambiguous and insufficiently specific; the source discusses B-tree database indexes."
+        }
+      ],
+      "description": {
+        "grounded": null,
+        "language": null,
+        "oneSentence": null,
+        "evidence": "No accepted description; structurally rejected responses are never salvaged."
+      },
+      "notes": "Reviewed the entire set: at least one tag is unrelated, too vague, unsupported or not English."
+    },
+    {
+      "id": "tags/examples/04-en",
+      "resultDigest": "a369ba54fce27ce3e1567aff26fd4d52655f9d42934eaf32711a43206b9147cb",
+      "completeTagSetRelevant": false,
+      "tags": [],
+      "description": {
+        "grounded": null,
+        "language": null,
+        "oneSentence": null,
+        "evidence": "No accepted description; structurally rejected responses are never salvaged."
+      },
+      "notes": "Rejected the whole response: unexpected/missing fields: received title, tags, required tags. No fields or tags were accepted. ",
+      "structuralJudgment": "rejected"
+    },
+    {
+      "id": "tags/examples/04-pl",
+      "resultDigest": "21debe984d4848bcea993bad8f65ad764caf253a550be69a1ee2efa2c0f76f0f",
+      "completeTagSetRelevant": false,
+      "tags": [],
+      "description": {
+        "grounded": null,
+        "language": null,
+        "oneSentence": null,
+        "evidence": "No accepted description; structurally rejected responses are never salvaged."
+      },
+      "notes": "Rejected the whole response: unexpected/missing fields: received title, tags, required tags. No fields or tags were accepted. ",
+      "structuralJudgment": "rejected"
+    }
+  ]
+}

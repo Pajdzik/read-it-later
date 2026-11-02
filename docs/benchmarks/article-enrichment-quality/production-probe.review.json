@@ -1,0 +1,107 @@
+{
+  "reportDigest": "d7124c70ee1db46308099b944fe56366d695e8f402074319f4a2c62836befefc",
+  "reviewerType": "agent",
+  "reviewer": "Codex",
+  "reviewedAt": "2026-11-02T04:38:53.602Z",
+  "method": "Agent inspected the complete response, complete tag set, request and supplied source text; no keyword-based acceptance or second-model judging calls.",
+  "judgments": [
+    {
+      "id": "combined/production/01-en",
+      "resultDigest": "cf75972216cc06063e8fff279797d64709ef0d4d73cdaf0738a032f37d4a990c",
+      "completeTagSetRelevant": false,
+      "tags": [],
+      "description": {
+        "grounded": null,
+        "language": null,
+        "oneSentence": null,
+        "evidence": "No accepted description; structurally rejected responses are never salvaged."
+      },
+      "notes": "Rejected the whole response: the complete raw set has 6 tags, exceeding five; the description has 3 sentence segments. No fields or tags were accepted. ",
+      "structuralJudgment": "rejected"
+    },
+    {
+      "id": "combined/production/01-pl",
+      "resultDigest": "1571bbb9c1dbeb2d6eaa09afa4a48b397b5315bb861059e45d936679bdc62360",
+      "completeTagSetRelevant": false,
+      "tags": [],
+      "description": {
+        "grounded": null,
+        "language": null,
+        "oneSentence": null,
+        "evidence": "No accepted description; structurally rejected responses are never salvaged."
+      },
+      "notes": "Rejected the whole response: the complete response is not a single parseable JSON value (truncation, fences or malformed syntax). No fields or tags were accepted. ",
+      "structuralJudgment": "rejected"
+    },
+    {
+      "id": "combined/production/04-en",
+      "resultDigest": "66d1c9903b2e99f6fdb4987d05205faee1994e98b4feda5e4a9d6b4f425dc1b1",
+      "completeTagSetRelevant": true,
+      "tags": [
+        {
+          "tag": "authentication",
+          "relevant": true,
+          "english": true,
+          "evidence": "The article describes an authenticator, credentials and signatures."
+        },
+        {
+          "tag": "passkey",
+          "relevant": true,
+          "english": true,
+          "evidence": "The article explicitly explains a passkey key pair and relying-party binding."
+        },
+        {
+          "tag": "phishing",
+          "relevant": true,
+          "english": true,
+          "evidence": "Fake-domain signature prevention is the stated threat and article topic."
+        },
+        {
+          "tag": "security",
+          "relevant": true,
+          "english": true,
+          "evidence": "Protection against a fake domain requesting signatures supports this security topic."
+        }
+      ],
+      "description": {
+        "grounded": true,
+        "language": "en",
+        "oneSentence": false,
+        "evidence": "The effective description is the unchanged meaningful paragraph from this same source; key storage, authenticator and relying-party facts appear verbatim."
+      },
+      "notes": "Every returned tag is an English topic grounded in the article. Description generation was not requested; the preserved extracted paragraph may contain multiple sentences."
+    },
+    {
+      "id": "combined/production/04-pl",
+      "resultDigest": "3138dbd568f1509bf629635aa15de5300c4884cb6f8ab4f2bdc4d12f9bebe7c8",
+      "completeTagSetRelevant": false,
+      "tags": [
+        {
+          "tag": "passkey",
+          "relevant": true,
+          "english": true,
+          "evidence": "The article explicitly explains a passkey key pair and relying-party binding."
+        },
+        {
+          "tag": "password",
+          "relevant": false,
+          "english": true,
+          "evidence": "The supplied article does not discuss password authentication; this adds an unsupported neighboring topic."
+        },
+        {
+          "tag": "phishing",
+          "relevant": true,
+          "english": true,
+          "evidence": "Fake-domain signature prevention is the stated threat and article topic."
+        }
+      ],
+      "description": {
+        "grounded": true,
+        "language": "pl",
+        "oneSentence": false,
+        "evidence": "The effective description is the unchanged meaningful paragraph from this same source; key storage, authenticator and relying-party facts appear verbatim."
+      },
+      "notes": "Reviewed the entire set: at least one tag is unrelated, too vague, unsupported or not English. Description generation was not requested; the preserved extracted paragraph may contain multiple sentences."
+    }
+  ]
+}

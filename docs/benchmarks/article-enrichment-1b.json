@@ -586,7 +586,7 @@
   ],
   "notes": [
     "Initial 30-case prompt-only evaluation; later system/user-message probes also returned 0/4 valid outputs.",
-    "Constrained JSON probe was rejected by the provider.",
+    "Correction: the available json_object probe returned malformed multi-object output; the earlier provider-rejection claim was inaccurate. This model is not listed as supporting enforced JSON mode.",
     "Synthetic English/Polish topic fixtures; no private library data used.",
     "Production and staging remain disabled. No automatic model upgrade."
   ]

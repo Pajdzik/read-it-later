@@ -1,0 +1,22 @@
+{
+  "passed": false,
+  "relevantTagSets": 0,
+  "language": {
+    "en": {
+      "total": 2,
+      "valid": 0,
+      "relevant": 0
+    },
+    "pl": {
+      "total": 2,
+      "valid": 0,
+      "relevant": 0
+    }
+  },
+  "reasons": [
+    "description/plain/01-en:invalid_output",
+    "description/plain/01-pl:invalid_output",
+    "description/plain/04-en:invalid_output",
+    "description/plain/04-pl:invalid_output"
+  ]
+}

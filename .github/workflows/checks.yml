@@ -55,6 +55,9 @@ jobs:
       - name: Run Worker and D1 tests
         run: pnpm test
 
+      - name: Test enrichment evaluation and recorded evidence (offline)
+        run: pnpm test:enrichment-evaluator
+
       - name: Test queue provisioning
         run: |
           pnpm test:queues-deployment

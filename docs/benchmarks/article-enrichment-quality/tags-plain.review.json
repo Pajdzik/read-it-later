@@ -1,0 +1,143 @@
+{
+  "reportDigest": "4efd6a7750c2ae57a78c40b37fdf809535cbd714e65c2c5881ffbb1c1343af2a",
+  "reviewerType": "agent",
+  "reviewer": "Codex",
+  "reviewedAt": "2026-11-02T04:38:53.592Z",
+  "method": "Agent inspected the complete response, complete tag set, request and supplied source text; no keyword-based acceptance or second-model judging calls.",
+  "judgments": [
+    {
+      "id": "tags/plain/01-en",
+      "resultDigest": "a7896d9eeadede1e9e5fe2db21e5ad43cefa4e2529255206d6d5032a1af8fe9b",
+      "completeTagSetRelevant": true,
+      "tags": [
+        {
+          "tag": "database",
+          "relevant": true,
+          "english": true,
+          "evidence": "The article describes database row lookups and indexes."
+        },
+        {
+          "tag": "database_design",
+          "relevant": true,
+          "english": true,
+          "evidence": "Index storage and write-maintenance tradeoffs support this broad database-design topic."
+        },
+        {
+          "tag": "database_performance",
+          "relevant": true,
+          "english": true,
+          "evidence": "Avoiding full table scans is an explicit performance benefit."
+        },
+        {
+          "tag": "database_planning",
+          "relevant": true,
+          "english": true,
+          "evidence": "The source explicitly discusses the query planner."
+        },
+        {
+          "tag": "indexes",
+          "relevant": true,
+          "english": true,
+          "evidence": "B-tree indexes and their maintenance costs are explicit source topics."
+        }
+      ],
+      "description": {
+        "grounded": null,
+        "language": null,
+        "oneSentence": null,
+        "evidence": "No accepted description; structurally rejected responses are never salvaged."
+      },
+      "notes": "Every returned tag is an English topic grounded in the article."
+    },
+    {
+      "id": "tags/plain/01-pl",
+      "resultDigest": "e66895f5d7c5f946b69e47b3810af0ede645e03bff5a6ca0d00a097658cb2407",
+      "completeTagSetRelevant": false,
+      "tags": [],
+      "description": {
+        "grounded": null,
+        "language": null,
+        "oneSentence": null,
+        "evidence": "No accepted description; structurally rejected responses are never salvaged."
+      },
+      "notes": "Rejected the whole response: the complete response is not a single parseable JSON value (truncation, fences or malformed syntax). No fields or tags were accepted. ",
+      "structuralJudgment": "rejected"
+    },
+    {
+      "id": "tags/plain/04-en",
+      "resultDigest": "db43ce9fd159625b2d6c83146dc03c4321977c569057ced38a8ddc94f26a08ba",
+      "completeTagSetRelevant": true,
+      "tags": [
+        {
+          "tag": "passkeys",
+          "relevant": true,
+          "english": true,
+          "evidence": "The article explicitly explains a passkey key pair and relying-party binding."
+        },
+        {
+          "tag": "phishing",
+          "relevant": true,
+          "english": true,
+          "evidence": "Fake-domain signature prevention is the stated threat and article topic."
+        },
+        {
+          "tag": "security",
+          "relevant": true,
+          "english": true,
+          "evidence": "Protection against a fake domain requesting signatures supports this security topic."
+        }
+      ],
+      "description": {
+        "grounded": null,
+        "language": null,
+        "oneSentence": null,
+        "evidence": "No accepted description; structurally rejected responses are never salvaged."
+      },
+      "notes": "Every returned tag is an English topic grounded in the article."
+    },
+    {
+      "id": "tags/plain/04-pl",
+      "resultDigest": "f14c028017cfbbc0905fa20514fed97830e46182aaa6bc4e66fe245a87addc18",
+      "completeTagSetRelevant": false,
+      "tags": [
+        {
+          "tag": "fałszywa domena",
+          "relevant": true,
+          "english": false,
+          "evidence": "Fake domains are discussed, but this tag is Polish rather than English."
+        },
+        {
+          "tag": "passkey",
+          "relevant": true,
+          "english": true,
+          "evidence": "The article explicitly explains a passkey key pair and relying-party binding."
+        },
+        {
+          "tag": "passkey.com",
+          "relevant": false,
+          "english": false,
+          "evidence": "The source names no such domain; this is neither a grounded topic nor an English topic label."
+        },
+        {
+          "tag": "phishing",
+          "relevant": true,
+          "english": true,
+          "evidence": "Fake-domain signature prevention is the stated threat and article topic."
+        },
+        {
+          "tag": "usługa",
+          "relevant": false,
+          "english": false,
+          "evidence": "This Polish word means service and is too generic to classify this article."
+        }
+      ],
+      "description": {
+        "grounded": null,
+        "language": null,
+        "oneSentence": null,
+        "evidence": "No accepted description; structurally rejected responses are never salvaged."
+      },
+      "notes": "The complete set includes Polish tags, an invented domain and an irrelevant generic service label."
+    }
+  ]
+}
