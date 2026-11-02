@@ -1,4 +1,5 @@
 import Defuddle from 'defuddle/full';
+import { removeImagePlaceholders } from '../src/articles/image-placeholders.js';
 
 declare global { interface Window { __potemExtract?: () => unknown } }
 
@@ -15,6 +16,7 @@ window.__potemExtract = () => {
   try {
     const detached = document.implementation.createHTMLDocument('');
     detached.replaceChild(document.documentElement.cloneNode(true), detached.documentElement);
+    removeImagePlaceholders(detached);
     const result = new Defuddle(detached, { url: sourceUrl, markdown: true, useAsync: false }).parse();
     if (location.href !== sourceUrl) return { error: 'navigation', sourceUrl, title: document.title };
     const markdown = typeof result.content === 'string' ? result.content : '';
