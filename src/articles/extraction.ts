@@ -1,6 +1,5 @@
 import { DOMParser, parseHTML } from 'linkedom';
 import type { ArticleDocument } from './metadata';
-import { removeImagePlaceholders } from './image-placeholders';
 
 // The full bundle's Markdown converter expects a DOMParser. Install a fixed,
 // inert parser before loading it; each call creates a separate document.
@@ -22,7 +21,6 @@ export function parseArticleDocument(html: string): ArticleDocument {
 /** Extract from either fetched HTML or an already parsed inert document. */
 export async function extractArticleMarkdown(input: string | ArticleDocument, url: string): Promise<string> {
   const document = typeof input === 'string' ? parseArticleDocument(input) : input;
-  removeImagePlaceholders(document);
   const { default: Defuddle } = await import('defuddle/full');
   const result = new Defuddle(document, { url, markdown: true, useAsync: false, removeHiddenElements: false }).parse();
   const markdown = result.content;
