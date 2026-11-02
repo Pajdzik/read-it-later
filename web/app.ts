@@ -1668,8 +1668,6 @@ $("#reader-read-toggle").addEventListener("click", async () => {
 });
 function setReaderTitle(text: string) {
   $("#reader-title").textContent = text;
-  const compactTitle = $("#reader-toolbar-title");
-  compactTitle.textContent = text;
   $(".reader-toolbar").classList.remove("is-compact");
   resetReaderToolbarScrollState();
 }
@@ -1681,7 +1679,7 @@ function resetReaderToolbarScrollState() {
   readerToolbarUpwardDistance = 0;
   $(".reader-toolbar").classList.remove("is-hidden");
 }
-function updateReaderToolbarTitle() {
+function updateReaderToolbarCompactState() {
   const dialog = $<HTMLDialogElement>("#reader-dialog");
   const title = $("#reader-title");
   const toolbar = $(".reader-toolbar");
@@ -1695,7 +1693,7 @@ function updateReaderToolbarOnScroll() {
   const current = dialog.scrollTop;
   const delta = current - readerToolbarLastScrollTop;
   readerToolbarLastScrollTop = current;
-  updateReaderToolbarTitle();
+  updateReaderToolbarCompactState();
   if (!dialog.open || current <= 1 || !toolbar.classList.contains("is-compact")) {
     readerToolbarUpwardDistance = 0;
     toolbar.classList.remove("is-hidden");
@@ -1753,7 +1751,7 @@ function openReader(article: Article, copy: ArticleCopy, opener?: HTMLElement) {
     showDialog(dialog, title);
   }
   if (!readerIsSameCopy) dialog.scrollTop = 0;
-  updateReaderToolbarTitle();
+  updateReaderToolbarCompactState();
   title.focus({ preventScroll: true });
   restoreReadingPosition(positionContext);
   stopExtractionPolling();
@@ -1793,7 +1791,7 @@ function renderPendingReader(article: Article) {
     showDialog(dialog, title);
   }
   dialog.scrollTop = 0;
-  updateReaderToolbarTitle();
+  updateReaderToolbarCompactState();
   title.focus({ preventScroll: true });
   startExtractionPolling(article);
 }
@@ -1927,7 +1925,7 @@ $("#reader-dialog").addEventListener("scroll", () => {
   updateReaderToolbarOnScroll();
   scheduleReadingPositionSave();
 }, { passive: true });
-const readerTitleResizeObserver = new ResizeObserver(updateReaderToolbarTitle);
+const readerTitleResizeObserver = new ResizeObserver(updateReaderToolbarCompactState);
 readerTitleResizeObserver.observe($("#reader-title"));
 readerTitleResizeObserver.observe($(".reader-toolbar"));
 window.addEventListener("pagehide", saveReadingPosition);
