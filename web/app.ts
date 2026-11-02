@@ -1202,9 +1202,8 @@ function renderDetail(article: Article, restartPolling = true) {
   input.dataset.field = "title";
   input.maxLength = 500;
   label.append(input);
-  const save = el("button", "Save title", "button primary");
+  const save = el("button", "Save", "button primary");
   save.type = "submit";
-  save.textContent = 'Save details';
   const tagLabel = el('label', 'Tags (comma separated)', 'field-label');
   const tagInput = el('input'); tagInput.dataset.field = 'tags';
   tagInput.value = (article.tags ?? []).join(', '); tagInput.defaultValue = tagInput.value;
