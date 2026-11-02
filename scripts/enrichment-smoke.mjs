@@ -76,7 +76,7 @@ export async function enrichmentSmoke(browser, base) {
       const tags = detail.getByRole('textbox', { name: 'Tags (comma separated)', exact: true });
       const description = detail.getByRole('textbox', { name: 'Description', exact: true });
       await page.screenshot({ path: `/tmp/potem-enrichment-editor-${width}.png` });
-      await detail.getByRole('button', { name: 'Save details', exact: true }).click();
+      await detail.getByRole('button', { name: 'Save', exact: true }).click();
       assert.equal(patches.length, 0, 'An unchanged details form must not protect the title or write metadata.');
       await tags.fill('Storage, Databases'); await description.fill('An owner-written description.');
       // Pending jobs retain their polling age and leave an unchanged editor alone.
@@ -127,14 +127,14 @@ export async function enrichmentSmoke(browser, base) {
       await expect(description).toBeFocused();
       assert.deepEqual(await description.evaluate(field => [field.selectionStart, field.selectionEnd]), [3, 10]);
       await expect(detail.getByRole('button', { name: 'Recapture article', exact: true })).toBeDisabled();
-      await detail.getByRole('button', { name: 'Save details', exact: true }).click();
+      await detail.getByRole('button', { name: 'Save', exact: true }).click();
       await expect(tags).toHaveValue('databases, storage');
       assert.equal(articles[0].tagsManuallyEdited, true);
       assert.equal('title' in patches.at(-1), false, 'Editing tags and description must not protect an untouched title.');
       assert.equal(articles[0].descriptionOrigin, 'manual');
       await detail.getByRole('button', { name: 'Clear tags', exact: true }).click();
       await detail.getByRole('button', { name: 'Clear description', exact: true }).click();
-      await detail.getByRole('button', { name: 'Save details', exact: true }).click();
+      await detail.getByRole('button', { name: 'Save', exact: true }).click();
       await expect(tags).toHaveValue(''); await expect(description).toHaveValue('');
       await page.keyboard.press('Escape');
       await page.getByRole('button', { name: 'Clear tag filter', exact: true }).click();
@@ -162,7 +162,7 @@ export async function enrichmentSmoke(browser, base) {
       await page.locator('.article[data-id=enrich03]').getByRole('button', { name: 'More actions', exact: true }).click();
       await page.locator('.article[data-id=enrich03]').getByRole('button', { name: 'Edit', exact: true }).click();
       await tags.fill('databases, security, web');
-      await detail.getByRole('button', { name: 'Save details', exact: true }).click();
+      await detail.getByRole('button', { name: 'Save', exact: true }).click();
       await expect.poll(() => tags.evaluate(field => field.defaultValue)).toBe('databases, security, web');
       assert.equal('title' in patches.at(-1), false);
       articles[2].title = 'Source security headline';
