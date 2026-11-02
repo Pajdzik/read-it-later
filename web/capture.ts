@@ -30,7 +30,11 @@ function capture(potemOrigin: string): void {
     try {
       const Defuddle = window.PotemDefuddle;
       if (!Defuddle) throw new Error("The extractor did not load.");
-      const result = new Defuddle(document, { url: sourceUrl, markdown: true, useAsync: false }).parse();
+      const captureDocument = document.implementation.createHTMLDocument("");
+      captureDocument.replaceChild(document.documentElement.cloneNode(true), captureDocument.documentElement);
+      captureDocument.querySelectorAll('img[data-image-placeholder]:not([data-image-placeholder-media])')
+        .forEach((image) => image.remove());
+      const result = new Defuddle(captureDocument, { url: sourceUrl, markdown: true, useAsync: false }).parse();
       const markdown = result.content || "";
       if (!markdown.trim()) throw new Error("No article text could be extracted.");
       finish(markdown);
