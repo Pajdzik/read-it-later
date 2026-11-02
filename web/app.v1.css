@@ -905,10 +905,9 @@ button {
 }
 .reader-toolbar-inner {
   min-height: 56px;
-  display: grid;
-  grid-template-columns: auto minmax(0, 1fr) auto;
+  display: flex;
+  justify-content: space-between;
   align-items: center;
-  gap: 16px;
 }
 .reader-column {
   width: min(100%, 42rem);
@@ -947,25 +946,6 @@ button {
   overflow: hidden;
   flex-shrink: 0;
   opacity: 1;
-  visibility: visible;
-}
-.reader-toolbar-title {
-  min-width: 0;
-  margin: 0;
-  overflow: hidden;
-  color: var(--ink);
-  font-size: 14px;
-  font-weight: 600;
-  line-height: 20px;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-  opacity: 0;
-  transform: translateY(4px);
-  visibility: hidden;
-}
-.reader-toolbar.is-compact .reader-toolbar-title {
-  opacity: 1;
-  transform: translateY(0);
   visibility: visible;
 }
 .reader-toolbar.is-compact .reader-control-label {
@@ -1363,15 +1343,6 @@ body:has(#reader-dialog[open]) {
   }
   .reader-toolbar.is-compact .reader-control-label {
     transition-delay: 0s, 0s, 140ms;
-  }
-  .reader-toolbar-title {
-    transition:
-      opacity 160ms ease,
-      transform 220ms cubic-bezier(0.2, 0.8, 0.2, 1),
-      visibility 0s linear 220ms;
-  }
-  .reader-toolbar.is-compact .reader-toolbar-title {
-    transition-delay: 60ms, 60ms, 0s;
   }
   .reader-toolbar {
     transition: clip-path 180ms ease;

@@ -426,6 +426,8 @@ try {
   await page.screenshot({ path: "/tmp/potem-article-actions-desktop.png" });
   // Scroll dismisses popovers. Finish it before testing keyboard activation,
   // and prevent focus from queuing another scroll after Enter opens the menu.
+  await page.evaluate(() => new Promise((resolve) =>
+    requestAnimationFrame(() => requestAnimationFrame(resolve))));
   await entryMore.evaluate((button) => button.focus({ preventScroll: true }));
   await expect(entryMore).toBeFocused();
   await page.keyboard.press("Enter");
@@ -939,7 +941,7 @@ try {
   await page.locator("#detail-content .edit-form input[data-field=title]").fill("Failed edit");
   await page
     .locator("#detail-content")
-    .getByRole("button", { name: "Save details" })
+    .getByRole("button", { name: "Save", exact: true })
     .click();
   await page
     .locator("#detail-error")

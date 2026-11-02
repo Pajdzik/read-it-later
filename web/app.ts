@@ -1059,7 +1059,10 @@ async function load(reset = true) {
     return true;
   } catch (e) {
     if (generation !== loadGeneration) return;
-    showNotice((e as Error).message, true);
+    if ($<HTMLDialogElement>("#detail-dialog").open)
+      showDetailError(`Couldn’t refresh the list. ${(e as Error).message}`);
+    else
+      showNotice((e as Error).message, true);
     if (!list.children.length) {
       empty.hidden = false;
       $("#empty h3").textContent = "We couldn’t load your list";
@@ -1116,12 +1119,24 @@ function showDetailError(message: string) {
   }
   error.textContent = message;
 }
+function showDetailStatus(message: string, bad = false) {
+  const status = document.querySelector<HTMLElement>("#detail-status");
+  if (!status) return;
+  status.textContent = message;
+  status.hidden = !message;
+  status.classList.toggle("error", bad);
+}
 function renderDetail(article: Article, restartPolling = true) {
   state.selected = article;
   const root = $("#detail-content");
   root.replaceChildren();
   root.dataset.contentKey = detailContentKey(article);
   const eyebrow = el("p", sourceHost(article.url), "eyebrow");
+  const status = el("p", undefined, "notice");
+  status.id = "detail-status";
+  status.setAttribute("role", "status");
+  status.setAttribute("aria-live", "polite");
+  status.hidden = true;
   const form = el("form", undefined, "edit-form");
   form.addEventListener("submit", async (e) => {
     e.preventDefault();
@@ -1133,6 +1148,12 @@ function renderDetail(article: Article, restartPolling = true) {
       ...(descriptionInput.value !== descriptionInput.defaultValue || descriptionInput.dataset.cleared === 'true' ? { description: descriptionInput.value.trim() || null } : {}),
     };
     if (!Object.keys(patch).length) return;
+    const active = document.activeElement;
+    const focusedField = active instanceof HTMLInputElement || active instanceof HTMLTextAreaElement
+      ? active.dataset.field : undefined;
+    const selection = active instanceof HTMLInputElement || active instanceof HTMLTextAreaElement
+      ? { start: active.selectionStart, end: active.selectionEnd, direction: active.selectionDirection }
+      : null;
     form.dataset.saving = "true";
     try {
       invalidateLoads();
@@ -1153,9 +1174,23 @@ function renderDetail(article: Article, restartPolling = true) {
         setArticleTitle(result.article);
         history.replaceState(readerHistoryState(result.article.id, readerFromList), "", articlePath(result.article));
       }
-      showNotice("Article details updated.");
-      await load();
+      const listRefreshed = await load();
+      showNotice("");
       renderDetail(result.article);
+      showDetailStatus(
+        listRefreshed === false ? "Article details updated. Couldn’t refresh the list." : "Article details updated.",
+        listRefreshed === false,
+      );
+      if (focusedField) {
+        const field = $("#detail-content").querySelector<HTMLInputElement | HTMLTextAreaElement>(
+          `.edit-form [data-field="${CSS.escape(focusedField)}"]`,
+        );
+        if (field) {
+          field.focus({ preventScroll: true });
+          if (selection && selection.start !== null && selection.end !== null)
+            field.setSelectionRange(selection.start, selection.end, selection.direction ?? "none");
+        }
+      }
     } catch (err) {
       showDetailError((err as Error).message);
     } finally { form.dataset.saving = 'false'; }
@@ -1167,9 +1202,8 @@ function renderDetail(article: Article, restartPolling = true) {
   input.dataset.field = "title";
   input.maxLength = 500;
   label.append(input);
-  const save = el("button", "Save title", "button primary");
+  const save = el("button", "Save", "button primary");
   save.type = "submit";
-  save.textContent = 'Save details';
   const tagLabel = el('label', 'Tags (comma separated)', 'field-label');
   const tagInput = el('input'); tagInput.dataset.field = 'tags';
   tagInput.value = (article.tags ?? []).join(', '); tagInput.defaultValue = tagInput.value;
@@ -1255,6 +1289,7 @@ function renderDetail(article: Article, restartPolling = true) {
   root.append(
     eyebrow,
     el("h2", article.title),
+    status,
     ...(article.author ? [el("p", `By ${article.author}`, "muted")] : []),
     ...(article.description ? [el("p", article.description, "detail-description")] : []),
     el("p", `Saved ${dateLabel(article.createdAt)}`, "muted"),
@@ -1668,8 +1703,6 @@ $("#reader-read-toggle").addEventListener("click", async () => {
 });
 function setReaderTitle(text: string) {
   $("#reader-title").textContent = text;
-  const compactTitle = $("#reader-toolbar-title");
-  compactTitle.textContent = text;
   $(".reader-toolbar").classList.remove("is-compact");
   resetReaderToolbarScrollState();
 }
@@ -1681,7 +1714,7 @@ function resetReaderToolbarScrollState() {
   readerToolbarUpwardDistance = 0;
   $(".reader-toolbar").classList.remove("is-hidden");
 }
-function updateReaderToolbarTitle() {
+function updateReaderToolbarCompactState() {
   const dialog = $<HTMLDialogElement>("#reader-dialog");
   const title = $("#reader-title");
   const toolbar = $(".reader-toolbar");
@@ -1695,7 +1728,7 @@ function updateReaderToolbarOnScroll() {
   const current = dialog.scrollTop;
   const delta = current - readerToolbarLastScrollTop;
   readerToolbarLastScrollTop = current;
-  updateReaderToolbarTitle();
+  updateReaderToolbarCompactState();
   if (!dialog.open || current <= 1 || !toolbar.classList.contains("is-compact")) {
     readerToolbarUpwardDistance = 0;
     toolbar.classList.remove("is-hidden");
@@ -1753,7 +1786,7 @@ function openReader(article: Article, copy: ArticleCopy, opener?: HTMLElement) {
     showDialog(dialog, title);
   }
   if (!readerIsSameCopy) dialog.scrollTop = 0;
-  updateReaderToolbarTitle();
+  updateReaderToolbarCompactState();
   title.focus({ preventScroll: true });
   restoreReadingPosition(positionContext);
   stopExtractionPolling();
@@ -1793,7 +1826,7 @@ function renderPendingReader(article: Article) {
     showDialog(dialog, title);
   }
   dialog.scrollTop = 0;
-  updateReaderToolbarTitle();
+  updateReaderToolbarCompactState();
   title.focus({ preventScroll: true });
   startExtractionPolling(article);
 }
@@ -1927,7 +1960,7 @@ $("#reader-dialog").addEventListener("scroll", () => {
   updateReaderToolbarOnScroll();
   scheduleReadingPositionSave();
 }, { passive: true });
-const readerTitleResizeObserver = new ResizeObserver(updateReaderToolbarTitle);
+const readerTitleResizeObserver = new ResizeObserver(updateReaderToolbarCompactState);
 readerTitleResizeObserver.observe($("#reader-title"));
 readerTitleResizeObserver.observe($(".reader-toolbar"));
 window.addEventListener("pagehide", saveReadingPosition);
