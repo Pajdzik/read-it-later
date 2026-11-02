@@ -935,7 +935,7 @@ try {
   await page.locator("#detail-content .edit-form input[data-field=title]").fill("Failed edit");
   await page
     .locator("#detail-content")
-    .getByRole("button", { name: "Save details" })
+    .getByRole("button", { name: "Save", exact: true })
     .click();
   await page
     .locator("#detail-error")
