@@ -423,6 +423,12 @@ try {
   await page.setViewportSize({ width: 1440, height: 1000 });
   await assertControlLayout();
   await page.screenshot({ path: "/tmp/potem-article-actions-desktop.png" });
+  // Focusing the first row can scroll after Show more left the page at its bottom.
+  // The app intentionally closes open action popovers on scroll, so let that
+  // scroll and its event finish before exercising the keyboard interaction.
+  await entryMore.scrollIntoViewIfNeeded();
+  await page.evaluate(() => new Promise((resolve) =>
+    requestAnimationFrame(() => requestAnimationFrame(resolve))));
   await entryMore.focus();
   await page.keyboard.press("Enter");
   await expect(entryMenu).toBeVisible();
