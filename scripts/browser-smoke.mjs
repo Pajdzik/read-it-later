@@ -421,9 +421,13 @@ try {
   };
   const entryReadState = await page.evaluate(async (id) => (await (await fetch(`/api/articles/${id}`)).json()).article.readAt, entryFixture.id);
   await page.setViewportSize({ width: 1440, height: 1000 });
+  await entryMore.scrollIntoViewIfNeeded();
   await assertControlLayout();
   await page.screenshot({ path: "/tmp/potem-article-actions-desktop.png" });
-  await entryMore.focus();
+  // Scroll dismisses popovers. Finish it before testing keyboard activation,
+  // and prevent focus from queuing another scroll after Enter opens the menu.
+  await entryMore.evaluate((button) => button.focus({ preventScroll: true }));
+  await expect(entryMore).toBeFocused();
   await page.keyboard.press("Enter");
   await expect(entryMenu).toBeVisible();
   await page.keyboard.press("Tab");
