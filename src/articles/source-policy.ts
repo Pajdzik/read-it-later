@@ -31,7 +31,7 @@ export function validateSourceTarget(raw: string, env: { APP_ORIGIN?: string } =
     failSourceFetch("unsafe_destination");
   }
   // URL canonicalizes unusual IPv4 spellings before exposing hostname. IPv6 URL literals
-  // remain deliberately rejected; resolved IPv6 destinations are checked by the gateway.
+  // remain deliberately rejected; resolved IPv6 destinations are checked by the native executor.
   if (host.startsWith("[") || host.includes(":")) failSourceFetch("unsafe_destination");
   if (/^\d+(?:\.\d+){3}$/.test(host) && !isPublicIpv4Literal(host)) failSourceFetch("unsafe_destination");
   if (/^(?:0x[\da-f]+|\d+)$/i.test(host)) failSourceFetch("unsafe_destination");

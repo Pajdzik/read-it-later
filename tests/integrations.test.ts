@@ -62,7 +62,8 @@ describe('optional article integrations', () => {
       });
       expect(response.status).toBe(200);
       expect(await response.json()).toMatchObject({ integration: { id: 'github', state: 'saved', url: expect.stringContaining('github.com/Fixture/Archive') } });
-      expect(await (await route(`${articlePath}/github`)).json()).toMatchObject({ backup: { state: 'saved' } });
+      const statuses = await (await route(`${articlePath}/integrations`)).json<{ integrations: Array<{ id: string; state: string }> }>();
+      expect(statuses.integrations.find(item => item.id === 'github')?.state).toBe('saved');
       expect(fetcher).toHaveBeenCalledTimes(2);
       expect(requests).toHaveLength(0);
       expect(JSON.stringify(await (await route('/api/integrations')).json())).not.toContain('server-only-token');

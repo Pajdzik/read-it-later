@@ -4,14 +4,16 @@ import { MAX_IMPORT_BYTES, splitImportBatches, summarizeBackup, validateBackupEn
 
 const stamp = "2026-01-02T03:04:05.000Z";
 function article(id, markdown = "") {
+  id = /^[a-z0-9]{8}$/.test(id) ? id : (/^\d+$/.test(id) ? id.padStart(8, "0") : id.toLowerCase().replace(/[^a-z0-9]/g, "").padEnd(8, "0").slice(0, 8));
   return {
     id, url: `https://example.invalid/${id}`, title: `Ω quoted: \"${id}\"`, author: null, description: null,
+    tags: [], descriptionOrigin: null, tagsManuallyEdited: false,
     createdAt: stamp, updatedAt: stamp, readAt: null,
     ...(markdown ? { copy: { markdown, capturedAt: stamp, source: "paste", revision: `rev-${id}` } } : {}),
   };
 }
-function backup(articles = [], version = 2) {
-  return { version, exportedAt: stamp, articles };
+function backup(articles = []) {
+  return { version: 3, exportedAt: stamp, articles };
 }
 
 test("splits by exact UTF-8 JSON byte size, including escapes and envelope overhead", () => {
@@ -50,13 +52,13 @@ test("rejects malformed Unicode before a copy can lose bytes during restoration"
   assert.throws(() => validateBackupEnvelope(backup([article("surrogate", "body\ud800")])), /Invalid/);
 });
 
-test("accepts empty libraries and preserves version-1 envelopes", () => {
+test("accepts empty JSON v3 libraries and rejects older envelopes", () => {
   assert.deepEqual(splitImportBatches(backup()), []);
-  const v1 = backup([article("legacy")], 1);
-  const [batch] = splitImportBatches(v1);
-  assert.equal(batch.version, 1);
-  assert.deepEqual(batch.articles, v1.articles);
-  assert.equal(validateBackupEnvelope(v1), v1);
+  const current = backup([article("a1b2c3d4")]);
+  assert.equal(validateBackupEnvelope(current), current);
+  assert.throws(() => validateBackupEnvelope({ ...backup([article("a1b2c3d4")]), version: 1 }), /Invalid/);
+  assert.throws(() => splitImportBatches({ ...backup(), version: 1 }), /Invalid/);
+  assert.throws(() => validateBackupEnvelope({ ...backup(), version: 2 }), /Invalid/);
 });
 
 test("rejects authentication fields, unknown envelope fields, and malformed article/copy fields", () => {
@@ -70,8 +72,8 @@ test("rejects authentication fields, unknown envelope fields, and malformed arti
 
 test("summaries retain content-independent counts and byte totals only", () => {
   const input = backup([
-    { ...article("private-id", "Ω\n"), url: "https://secret.invalid/path", title: "private title" },
-    { ...article("read", "body\n"), readAt: stamp, copy: { markdown: "body\n", capturedAt: stamp, source: "upload", revision: "rev-read" } },
+    { ...article("pvtid001", "Ω\n"), url: "https://secret.invalid/path", title: "private title" },
+    { ...article("read0001", "body\n"), readAt: stamp, copy: { markdown: "body\n", capturedAt: stamp, source: "upload", revision: "rev-read" } },
     article("empty-copy-article"),
   ]);
   const summary = summarizeBackup(input);
@@ -80,5 +82,5 @@ test("summaries retain content-independent counts and byte totals only", () => {
     compactJsonBytes: Buffer.byteLength(JSON.stringify(input)), markdownBytes: 8, maximumMarkdownBytes: 5,
   });
   const serialized = JSON.stringify(summary);
-  for (const privateValue of ["private-id", "secret.invalid", "private title", "Ω", "body", "rev-read"]) assert.equal(serialized.includes(privateValue), false);
+  for (const privateValue of ["pvtid001", "secret.invalid", "private title", "Ω", "body", "rev-read"]) assert.equal(serialized.includes(privateValue), false);
 });

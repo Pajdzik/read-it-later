@@ -55,11 +55,11 @@ test('disconnecting a stalled conversion releases the actual HTTP executor', asy
   const realFetch=globalThis.fetch;
   let enter!:()=>void;
   const entered=new Promise<void>(resolve=>{enter=resolve;});
-  let convertCalls=0, gatewayAborted=false;
+  let convertCalls=0, converterAborted=false;
   const replacement=mock.method(globalThis,'fetch',async(input: RequestInfo | URL,init?: RequestInit)=>{
     if(String(input).startsWith('http://potem.convert/')) {
       if(++convertCalls===1) {
-        init?.signal?.addEventListener('abort',()=>{gatewayAborted=true;},{once:true});
+        init?.signal?.addEventListener('abort',()=>{converterAborted=true;},{once:true});
         enter(); return new Promise<Response>(()=>undefined);
       }
       return Response.json({version:1,ok:true,article:{markdown:'# Recovered',metadata:{}}});
@@ -80,7 +80,7 @@ test('disconnecting a stalled conversion releases the actual HTTP executor', asy
         assert.equal(result?.error?.code,'capture_busy');
         await new Promise(resolve=>setTimeout(resolve,5));
       }
-      assert.equal(gatewayAborted,true);
+      assert.equal(converterAborted,true);
       assert.equal(result?.article?.markdown,'# Recovered');
     });
   } finally { replacement.mock.restore(); }

@@ -70,15 +70,15 @@ describe('article HTTP handlers', () => {
     const { article } = await created.json() as { article: { id: string } };
     expect(article.id).toMatch(/^[a-z0-9]{8}$/);
     for (const id of ['550e8400-e29b-41d4-a716-446655440000', 'ABCDef12', 'short', 'ab%2Fcd123']) {
-      for (const suffix of ['', '/copy', '/github', '/extraction'])
+      for (const suffix of ['', '/copy', '/integrations', '/extraction'])
         expect((await route(request(`/api/articles/${id}${suffix}`))).status).toBe(400);
     }
     expect((await route(request('/api/articles/missing1'))).status).toBe(404);
     const exportedAt = '2026-01-01T00:00:00.000Z';
-    const legacy = { version: 2, exportedAt, articles: [{ id: 'legacy-uuid', url: 'https://example.com/legacy', title: 'Legacy', createdAt: exportedAt, updatedAt: exportedAt, readAt: null }] };
+    const legacy = { version: 3, exportedAt, articles: [{ id: 'legacy-uuid', url: 'https://example.com/legacy', title: 'Legacy', createdAt: exportedAt, updatedAt: exportedAt, readAt: null }] };
     const response = await route(request('/api/import', 'POST', legacy));
     expect(response.status).toBe(400);
-    expect(await response.json()).toMatchObject({ error: { message: expect.stringContaining('convert legacy backups') } });
+    expect(await response.json()).toMatchObject({ error: { message: expect.stringContaining('article id must contain eight lowercase letters or digits') } });
     expect(await env.DB.prepare('SELECT count(*) AS count FROM articles').first()).toEqual({ count: 1 });
   });
   it('normalizes only tracking details and keeps the submitted URL unchanged', async () => {
@@ -123,7 +123,7 @@ describe('article HTTP handlers', () => {
   });
 
   it('acknowledges a durable request before fetching and preserves copies on duplicate adds', async () => {
-    const fetcher = vi.fn(async () => await captureFixture('<html><head><title>Extracted article</title><meta name="author" content="Alex"></head><body><nav>Navigation clutter</nav><article><h1>Readable article</h1><p>Keep this <strong>important formatting</strong> and Unicode 📰.</p><pre><code class="language-js">const saved = true;</code></pre><p><a href="/related">Related reading</a></p></article></body></html>'));
+    const fetcher = vi.fn(async () => captureFixture('# Readable article\n\nKeep this **important formatting** and Unicode 📰.\n\n```js\nconst saved = true;\n```\n\n[Related reading](https://source.example.com/related)', { title: 'Extracted article', author: 'Alex' }));
     const enabledEnv: Env = { ...env, BACKGROUND_CAPTURE_ENABLED: 'true', ARTICLE_EXTRACTOR: { fetch: fetcher, connect() { throw new Error('No socket access'); } } };
     const response = (await handleArticles(request('/api/articles', 'POST', { url: 'https://source.example.com/article', captureMarkdown: true }), enabledEnv))!;
     expect(response.status).toBe(201);
@@ -171,7 +171,7 @@ describe('article HTTP handlers', () => {
     expect(retried.status).toBe(200);
     expect(await retried.json()).toMatchObject({ extraction: { state: 'queued', attempts: 0 } });
     expect((await route(request(statusPath + '/retry', 'POST', { url: 'https://other.example' }))).status).toBe(400);
-    fetcher.mockImplementation(async () => await captureFixture('<html><body><article><h1>Retry worked</h1><p>This article is now available to read and preserve.</p></article></body></html>'));
+    fetcher.mockImplementation(async () => captureFixture('# Retry worked\n\nThis article is now available to read and preserve.'));
     await deliverPendingExtractions(enabledEnv);
     expect(await (await route(request(`/api/articles/${data.article.id}/copy`))).json()).toMatchObject({ copy: { markdown: expect.stringContaining('This article is now available') } });
   });
@@ -190,28 +190,22 @@ describe('article HTTP handlers', () => {
     } finally { vi.unstubAllGlobals(); }
   });
 
-  it('acknowledges durable intent even when immediate job materialization fails', async () => {
+  it('rolls back the article and returns a storage error when requested job creation fails', async () => {
     const log = vi.spyOn(console, 'error').mockImplementation(() => {});
-    await env.DB.prepare("CREATE TRIGGER fail_job_enqueue BEFORE INSERT ON article_extraction_jobs BEGIN SELECT RAISE(FAIL, 'fixture enqueue failure'); END").run();
-    let articleId: string;
+    await env.DB.prepare("CREATE TRIGGER fail_job_enqueue BEFORE INSERT ON article_extraction_jobs BEGIN SELECT RAISE(ABORT, 'fixture enqueue failure'); END").run();
     try {
-      const response = await route(request('/api/articles', 'POST', { url: 'https://example.com/enqueue-recovery', captureMarkdown: true }));
-      expect(response.status).toBe(201);
-      const data = await response.json() as { article: { id: string }; extraction: ExtractionStatus };
-      articleId = data.article.id;
-      expect(data.extraction).toMatchObject({ state: 'queued', attempts: 0 });
-      expect(await env.DB.prepare('SELECT extraction_requested_at FROM articles WHERE id = ?').bind(articleId).first()).toMatchObject({ extraction_requested_at: expect.any(String) });
-      expect(log).toHaveBeenCalledTimes(1);
+      const response = await route(request('/api/articles', 'POST', { url: 'https://example.com/enqueue-failure', captureMarkdown: true }));
+      expect(response.status).toBe(503);
+      expect(await response.json()).toMatchObject({ error: { code: 'storage_unavailable' } });
+      expect(await env.DB.prepare('SELECT count(*) AS count FROM articles').first()).toEqual({ count: 0 });
+      expect(await env.DB.prepare('SELECT count(*) AS count FROM article_extraction_jobs').first()).toEqual({ count: 0 });
     } finally {
       await env.DB.prepare('DROP TRIGGER fail_job_enqueue').run();
       log.mockRestore();
     }
-    const enabledEnv: Env = {
-      ...env, BACKGROUND_CAPTURE_ENABLED: 'true',
-      ARTICLE_EXTRACTOR: { fetch: async () => await captureFixture('<article><h1>Recovered</h1><p>A complete preserved article from the durable request.</p></article>'), connect() { throw new Error('No socket access'); } },
-    };
-    await deliverPendingExtractions(enabledEnv);
-    expect(await (await route(request(`/api/articles/${articleId!}/copy`))).json()).toMatchObject({ copy: { markdown: expect.stringContaining('durable request') } });
+    const retry = await route(request('/api/articles', 'POST', { url: 'https://example.com/enqueue-failure', captureMarkdown: true }));
+    expect(retry.status).toBe(201);
+    expect(await retry.json()).toMatchObject({ extraction: { state: 'queued', attempts: 0 } });
   });
 
   it('stores private Markdown copies with atomic revisions and independent article state', async () => {
@@ -303,7 +297,7 @@ describe('article HTTP handlers', () => {
     expect(duplicateAcknowledgment).toEqual({ ok: true, extractionRequested: true });
     const tokenMetadata = await handleArticles(new Request('https://service.example/api/capture', { method: 'POST', headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' }, body: JSON.stringify({ url: 'https://example.com/token-metadata', author: 'Should be rejected' }) }), ownerEnv);
     expect(tokenMetadata?.status).toBe(400);
-    expect(await env.DB.prepare('SELECT extraction_requested_at FROM articles WHERE normalized_url = ?').bind(normalizeArticleUrl('https://example.com/from-phone').normalizedUrl).first()).toMatchObject({ extraction_requested_at: expect.any(String) });
+    expect(await env.DB.prepare('SELECT j.state FROM articles a LEFT JOIN article_extraction_jobs j ON j.article_id=a.id WHERE a.normalized_url = ?').bind(normalizeArticleUrl('https://example.com/from-phone').normalizedUrl).first()).toMatchObject({ state: 'queued' });
     const tokenStatus = await handleArticles(new Request(`https://service.example/api/articles/${privateArticle.id}/extraction`, { headers: { Authorization: `Bearer ${token}` } }), ownerEnv);
     expect(tokenStatus?.status).toBe(401);
     const tokenRetry = await handleArticles(new Request(`https://service.example/api/articles/${privateArticle.id}/extraction/retry`, { method: 'POST', headers: { Authorization: `Bearer ${token}` } }), ownerEnv);
@@ -315,7 +309,7 @@ describe('article HTTP handlers', () => {
     const linkOnlyDuplicate = await handleArticles(new Request('https://service.example/api/capture', { method: 'POST', headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' }, body: JSON.stringify({ url: 'https://example.com/private-capture?gclid=token', captureMarkdown: false }) }), ownerEnv);
     expect(linkOnlyDuplicate?.status).toBe(linkOnly?.status);
     expect(await linkOnlyDuplicate!.json()).toEqual(linkOnlyAcknowledgment);
-    expect(await env.DB.prepare('SELECT extraction_requested_at FROM articles WHERE normalized_url = ?').bind(normalizeArticleUrl('https://example.com/phone-link-only').normalizedUrl).first()).toEqual({ extraction_requested_at: null });
+    expect(await env.DB.prepare('SELECT j.state FROM articles a LEFT JOIN article_extraction_jobs j ON j.article_id=a.id WHERE a.normalized_url = ?').bind(normalizeArticleUrl('https://example.com/phone-link-only').normalizedUrl).first()).toEqual({ state: null });
     const captureCopy = await handleArticles(new Request('https://service.example/api/capture', { method: 'POST', headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' }, body: JSON.stringify({ url: 'https://example.com/from-phone', captureMarkdown: true }) }), ownerEnv);
     expect(captureCopy?.status).toBe(200);
     expect(await captureCopy!.json()).toEqual({ ok: true, extractionRequested: true });
@@ -488,10 +482,14 @@ describe('article HTTP handlers', () => {
   });
 
   it('validates the full import before writing and rolls back a failed batch', async () => {
-    const badDate = { version: 1, exportedAt: '2026-01-01T00:00:00.000Z', articles: [{ id: 'baddate1', url: 'https://example.com/bad', title: 'Bad', createdAt: 'not-date', updatedAt: '2026-01-01T00:00:00.000Z', readAt: null }] };
+    const badDate = { version: 3, exportedAt: '2026-01-01T00:00:00.000Z', articles: [{ id: 'baddate1', url: 'https://example.com/bad', title: 'Bad', createdAt: 'not-date', updatedAt: '2026-01-01T00:00:00.000Z', readAt: null }] };
     expect((await route(request('/api/import', 'POST', badDate))).status).toBe(400);
+    const obsoleteVersion = { ...badDate, version: 2, articles: [{ ...badDate.articles[0], createdAt: badDate.exportedAt }] };
+    const obsoleteResponse = await route(request('/api/import', 'POST', obsoleteVersion));
+    expect(obsoleteResponse.status).toBe(400);
+    expect(await obsoleteResponse.json()).toMatchObject({ error: { message: 'unsupported import version' } });
     await env.DB.prepare(`CREATE TRIGGER fail_backend_import BEFORE INSERT ON articles WHEN NEW.url = 'https://example.com/fail' BEGIN SELECT RAISE(ABORT, 'forced failure'); END`).run();
-    const document = { version: 1, exportedAt: '2026-01-01T00:00:00.000Z', articles: [
+    const document = { version: 3, exportedAt: '2026-01-01T00:00:00.000Z', articles: [
       { id: 'okay0001', url: 'https://example.com/okay', title: 'Okay', createdAt: '2026-01-01T00:00:00.000Z', updatedAt: '2026-01-01T00:00:00.000Z', readAt: null },
       { id: 'fail0001', url: 'https://example.com/fail', title: 'Fail', createdAt: '2026-01-01T00:00:00.000Z', updatedAt: '2026-01-01T00:00:00.000Z', readAt: null },
     ] };
@@ -504,10 +502,10 @@ describe('article HTTP handlers', () => {
   it('validates imported copies before writing and rolls article plus copy back on copy storage failure', async () => {
     const exportedAt = '2026-01-01T00:00:00.000Z';
     const item = { id: 'copyimpt', url: 'https://example.com/copyimpt', title: 'Copy import', createdAt: exportedAt, updatedAt: exportedAt, readAt: null };
-    const invalid = { version: 2, exportedAt, articles: [{ ...item, copy: { markdown: ' ', capturedAt: exportedAt, source: 'paste', revision: 'revision' } }] };
+    const invalid = { version: 3, exportedAt, articles: [{ ...item, copy: { markdown: ' ', capturedAt: exportedAt, source: 'paste', revision: 'revision' } }] };
     expect((await route(request('/api/import', 'POST', invalid))).status).toBe(400);
     await env.DB.prepare(`CREATE TRIGGER fail_copy_import BEFORE INSERT ON article_copies BEGIN SELECT RAISE(ABORT, 'forced copy failure'); END`).run();
-    const document = { version: 2, exportedAt, articles: [{ ...item, copy: { markdown: '# Copy', capturedAt: exportedAt, source: 'paste', revision: 'revision' } }] };
+    const document = { version: 3, exportedAt, articles: [{ ...item, copy: { markdown: '# Copy', capturedAt: exportedAt, source: 'paste', revision: 'revision' } }] };
     expect((await route(request('/api/import', 'POST', document))).status).toBe(503);
     expect(await env.DB.prepare('SELECT id FROM articles WHERE id = ?').bind('copyimpt').first()).toBeNull();
     await env.DB.prepare('DROP TRIGGER fail_copy_import').run();
@@ -532,7 +530,7 @@ describe('article HTTP handlers', () => {
   it('rejects conflicting imported IDs even when another record shares that normalized URL', async () => {
     await env.DB.prepare('INSERT INTO articles(id,url,normalized_url,title,created_at,updated_at,read_at) VALUES(?,?,?,?,?,?,NULL)')
       .bind('ownedid1', 'https://example.com/original', 'https://example.com/original', 'Original', '2026-01-01T00:00:00.000Z', '2026-01-01T00:00:00.000Z').run();
-    const document = { version: 1, exportedAt: '2026-01-01T00:00:00.000Z', articles: [
+    const document = { version: 3, exportedAt: '2026-01-01T00:00:00.000Z', articles: [
       { id: 'otherid1', url: 'https://example.com/original', title: 'Duplicate URL', createdAt: '2026-01-01T00:00:00.000Z', updatedAt: '2026-01-01T00:00:00.000Z', readAt: null },
       { id: 'ownedid1', url: 'https://example.com/different', title: 'ID conflict', createdAt: '2026-01-01T00:00:00.000Z', updatedAt: '2026-01-01T00:00:00.000Z', readAt: null },
     ] };
@@ -542,7 +540,7 @@ describe('article HTTP handlers', () => {
 
   it('skips a concurrent imported URL without overwriting the winning article', async () => {
     const exportedAt = '2026-01-01T00:00:00.000Z';
-    const importDocument = (id: string, title: string) => ({ version: 1, exportedAt, articles: [
+    const importDocument = (id: string, title: string) => ({ version: 3, exportedAt, articles: [
       { id, url: 'https://example.com/race', title, createdAt: exportedAt, updatedAt: exportedAt, readAt: null },
     ] });
     const responses = await Promise.all([
@@ -562,7 +560,7 @@ describe('article HTTP handlers', () => {
     const exportedAt = '2026-01-01T00:00:00.000Z';
     await env.DB.prepare('INSERT INTO articles(id,url,normalized_url,title,created_at,updated_at,read_at) VALUES(?,?,?,?,?,?,NULL)')
       .bind('urlwin01', 'https://example.com/already-saved', 'https://example.com/already-saved', 'Existing title', exportedAt, exportedAt).run();
-    const document = { version: 2, exportedAt, articles: [{ id: 'incoming', url: 'https://example.com/already-saved', title: 'Incoming', createdAt: exportedAt, updatedAt: exportedAt, readAt: null, copy: { markdown: '# Must not attach', capturedAt: exportedAt, source: 'paste', revision: 'incoming-revision' } }] };
+    const document = { version: 3, exportedAt, articles: [{ id: 'incoming', url: 'https://example.com/already-saved', title: 'Incoming', createdAt: exportedAt, updatedAt: exportedAt, readAt: null, copy: { markdown: '# Must not attach', capturedAt: exportedAt, source: 'paste', revision: 'incoming-revision' } }] };
     const result = await route(request('/api/import', 'POST', document));
     expect(await result.json()).toEqual({ imported: 0, skipped: 1 });
     expect(await env.DB.prepare('SELECT article_id FROM article_copies WHERE article_id IN (?,?)').bind('incoming', 'urlwin01').first()).toBeNull();

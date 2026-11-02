@@ -1,6 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { parseArticleMetadata } from "../src/articles/metadata";
-import { parseArticleDocument } from "../src/articles/extraction";
+import { parseArticleDocument, parseArticleMetadata } from "../src/articles/metadata";
 
 describe("article metadata", () => {
   it("reads Open Graph details and a Twitter written-by card", () => {

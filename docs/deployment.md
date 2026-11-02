@@ -1,20 +1,20 @@
 # Cloudflare deployment and operations
 
-For the managed HTML/PDF rollout, private R2 provisioning, new bindings and staging gates, follow [unified ingestion](unified-ingestion.md#rollout-and-validation). Managed conversion is enabled in production; local defaults and staging remain disabled. Older Defuddle/gateway instructions below describe the preceding pipeline.
+## Initial cutover
 
-The base app runs on Workers with Workers Static Assets and D1. Optional automatic capture uses a private Cloudflare Container and requires Workers Paid. Deployment requires your own Cloudflare account and a GitHub OAuth app. Merging a release to `main` runs the production deployment workflow; account subscription activation remains an owner setup step.
+The [fresh D1 prelaunch reset](prelaunch-reset.md) is mandatory before the first release of this schema. It documents the `0001_initial.sql` baseline, new staging and production database names, required matching IDs in both Worker configs, cutover order, and verification. Production CI checks the app and capture database bindings before provisioning or migration and stops with a link to that guide while the IDs are placeholders. Do not apply the new baseline to the retired database.
 
-## Before deployment
+The retired gateway and Worker Defuddle paths are not part of deployment. For historical design and measurement context, see [retired Worker fetch experiments](worker-safe-fetch.md) and the [historical Defuddle benchmark results](worker-extraction-benchmark.md).
 
-1. Use Node 22.12+ and pnpm 12.4.1 and install the dependencies from the committed lockfile.
-2. Run the repository's Cloudflare Worker typecheck, tests and build commands. `pnpm start` aliases the local Wrangler development command `pnpm dev`.
-3. Workers Free supports the base app when background processing is disabled. The checked-in production environment enables the private Container executor and therefore requires Workers Paid; staging remains disabled. Do not deploy an enabled production setting until the staging release checks below pass. Recheck [Worker limits](https://developers.cloudflare.com/workers/platform/limits/) and [D1 pricing](https://developers.cloudflare.com/d1/platform/pricing/). Static asset requests are [free and unlimited](https://developers.cloudflare.com/workers/static-assets/billing-and-limitations/); dynamic requests and D1 operations have shared account quotas.
-4. Create separate staging and production D1 databases with Wrangler. Replace the corresponding database IDs in the configuration; local development uses Wrangler's local storage rather than these remote databases. Never reuse production data for tests.
-5. Set each `APP_ORIGIN` in `wrangler.jsonc` to the exact public origin routed to that Worker. Production uses `https://read.pajdzik.pl`; staging uses its configured Workers subdomain. Register a separate GitHub OAuth app for each environment with homepage `<origin>` and callback `<origin>/auth/github/callback`. For production, the callback must be `https://read.pajdzik.pl/auth/github/callback`; the OAuth start and callback must use the same hostname so the browser sends its state-binding cookie. Set `OWNER_GITHUB_ID` to the owner's immutable numeric GitHub user ID rather than their changeable login.
-6. Store OAuth credentials with `wrangler secret put` for the selected environment. Never commit them or put them in frontend variables. The capture Shortcut needs its own revocable capture token, not these OAuth credentials.
-7. Enable the R2 subscription in the intended Cloudflare account before the workflow provisions PDF storage. See [R2 setup](https://developers.cloudflare.com/r2/get-started/). Cloudflare error `10042` means account activation is required. Apply migrations to the selected remote D1 database, then deploy the capture service, Queue and app in the managed-ingestion release order. Confirm environment/binding names against `wrangler.jsonc` before any command using `--remote`.
+## Requirements and configuration
 
-## Local development and release commands
+- Use Node.js 22.12 or newer and pnpm 12.4.1. Install with `pnpm install --frozen-lockfile`.
+- Use separate Cloudflare D1 databases, Queues, R2 buckets, and capture services for staging and production. The app and its matching capture Worker must reference the same environment D1 UUID.
+- Automatic HTML/PDF capture uses Cloudflare Containers, Workers AI, and private R2 storage. It requires Workers Paid and R2 account activation. The configured Container uses one `basic` instance per environment. This is not a spending cap; review current [Workers](https://developers.cloudflare.com/workers/platform/pricing/), [Containers](https://developers.cloudflare.com/containers/platform/pricing/), [D1](https://developers.cloudflare.com/d1/platform/pricing/), and [R2](https://developers.cloudflare.com/r2/platform/pricing/) usage and limits.
+- Register a separate GitHub OAuth app for each environment. Its callback is `<APP_ORIGIN>/auth/github/callback`. Set `OWNER_GITHUB_ID` to the owner's immutable numeric GitHub ID. Store `GITHUB_CLIENT_ID` and `GITHUB_CLIENT_SECRET` as Wrangler secrets; never place them in frontend variables or commit them. The capture Shortcut uses a separate revocable save token.
+- Production and staging currently have `BACKGROUND_CAPTURE_ENABLED=false` and `MANAGED_CONVERSION_ENABLED=false`. Keep capture disabled until the matching fresh D1 database has been initialized and that environment's capture Worker, AI, R2, Queue, and app bindings have been verified. Enable the two flags together for an environment only after those checks. These checked-in values describe intended configuration, not live deployment state.
+
+## Local development and checks
 
 ```sh
 pnpm install --frozen-lockfile
@@ -23,122 +23,26 @@ pnpm db:migrate:local
 pnpm dev
 ```
 
-The local-only bypass gives the loopback development UI a session without contacting GitHub. For real authentication, disable it and use a matching HTTPS origin and OAuth callback. `.dev.vars` must stay private.
+The local-only auth bypass gives the loopback development UI a session without GitHub. Keep `.dev.vars` private. The disposable local database uses the baseline schema; after local persistence has been initialized with an older schema, use the separate storage path described in the [prelaunch reset guide](prelaunch-reset.md).
 
-```sh
-pnpm check
-pnpm typecheck
-pnpm test
-pnpm build
-pnpm exec playwright install chromium
-pnpm test:browser
-pnpm test:archive
-```
+Before release, run `pnpm check`, `pnpm test`, `pnpm test:capture`, `pnpm check:capture`, and `pnpm build`. `pnpm check:capture` builds the Container image and needs a Docker-compatible CLI and engine. The regular `Checks` workflow runs the full verification suite on pull requests and deploys production only after checks pass on `main`.
 
-The staging and production `APP_ORIGIN` and `OWNER_GITHUB_ID` values are non-secret Worker vars in `wrangler.jsonc`; replace their placeholders before deployment. Set the matching `GITHUB_CLIENT_ID` and `GITHUB_CLIENT_SECRET` as Wrangler secrets for each environment. `DEV_AUTH_BYPASS` must not be set there. Use the Wrangler executable installed by pnpm:
+## Release path
 
-```sh
-pnpm exec wrangler login
-pnpm exec wrangler d1 create read-later-staging
-pnpm exec wrangler d1 create read-later-production
-# Fill the returned IDs, actual origins, and owner's numeric GitHub ID into the matching environment in wrangler.jsonc.
-pnpm exec wrangler secret put GITHUB_CLIENT_ID --env staging
-pnpm exec wrangler secret put GITHUB_CLIENT_SECRET --env staging
-pnpm exec wrangler d1 migrations apply read-later-staging --remote --env staging
-pnpm build:web
-pnpm queue:ensure --env staging --execute
-pnpm exec wrangler deploy --env staging
-```
+The production workflow checks Cloudflare credentials and fresh D1 IDs before it changes remote resources. It then ensures the private PDF bucket exists, applies migrations to `read-later-production-v1`, deploys the private capture Worker, builds website assets, ensures the extraction Queue exists, and deploys the app Worker. The protected GitHub Actions `production` environment needs `CLOUDFLARE_API_TOKEN` and `CLOUDFLARE_ACCOUNT_ID`. The token needs Workers Scripts Edit, Containers Edit, Queues Edit, D1 Edit, and Workers R2 Storage Edit for the intended account/resources. The hosted Ubuntu runner supplies Docker.
 
-Staging validation remains the recommended release path. The owner waived it for the initial managed-conversion activation; see the [production evidence and remaining checks](unified-ingestion.md#production-activation-evidence-october-31-2026). After CI passes on a push to `main`, the `Checks` workflow provisions private PDF storage, applies pending production migrations, deploys the private capture service, ensures the extraction Queue exists, and deploys the app Worker. The GitHub-hosted Ubuntu runner supplies Docker; no local Docker installation is needed for this release path. Configure the repository's `production` Actions environment with `CLOUDFLARE_API_TOKEN` and `CLOUDFLARE_ACCOUNT_ID`; the token needs Workers Scripts Edit, Containers Edit, Queues Edit, D1 Edit, and Workers R2 Storage Edit permissions scoped to the intended account/resources. Workers access must cover both the app and capture Workers. See [Cloudflare token permissions](https://developers.cloudflare.com/fundamentals/api/reference/permissions/). Never run those commands against placeholder IDs. `pnpm build` is a dry run, not a publication. Local authentication bypass must remain absent from staging/production. Do not configure a fail-open route for an authenticated API.
+For staging, create the fresh `read-later-staging-v1` database and set its matching UUID in both Wrangler configs as described in the reset guide. Configure the staging OAuth secrets and origin, then apply the baseline to the `DB` binding, deploy the capture Worker, build the website assets, ensure the staging Queue, and deploy the app Worker. Use Wrangler's environment selection (`--env staging`) for every remote command and verify the selected database name before applying migrations. Do not copy production IDs, queues, buckets, or OAuth credentials into staging.
 
-## Release checklist
+## Queues, capture, and recovery
 
-- [ ] Apply `0008_article_integrations.sql` before releasing optional delivery hooks. Configure `ARTICLE_HOOKS_CONFIG` and the private `ARTICLE_HOOKS` service only for installations using custom destinations; no integration is required for saving. See [optional integrations](integrations.md).
-- [ ] Apply `0007_github_paths.sql` before releasing readable GitHub filenames. For the short-ID testing cutover, migrate retained JSON/Markdown with `pnpm backup:migrate`, then rebuild the disposable article library; the ID format change does not rekey existing rows automatically. After restoring into an existing GitHub destination, use Settings → Find existing GitHub backups before resuming backup writes. Preserve auth/configuration and unrelated repository files. See [article URLs](article-urls.md).
-- [ ] Staging and production bindings are separate and migrations applied to the intended database.
-- [ ] Missing OAuth/owner/origin configuration fails closed.
-- [ ] Anonymous callers cannot list, export, edit or delete library data.
-- [ ] Wrong GitHub identity cannot sign in; the intended owner can.
-- [ ] Save, duplicate save, open original, mark read, reload and mark unread work from desktop.
-- [ ] Capture token works only for saving; revocation is effective.
-- [ ] iOS Shortcut tested on an actual phone, with a success and failure result.
-- [ ] PWA share target tested on an installed app in a supported Android/browser environment.
-- [ ] Export/import round trip verified on a separate database with matching counts/read state.
-- [ ] API/database failure leaves a retryable error and the user's unsaved draft.
-- [ ] Authenticated responses have no-store and are absent from service worker caches.
+The app publishes extraction messages containing only an article ID and generation. D1 remains authoritative for job state, URL, retry deadlines, and leases. Queue consumers process one job at a time per environment. The hourly Cron Trigger recovers expired leases and republishes unfinished jobs after missed notifications. A queue notification failure after the durable save does not undo the save; recovery republishes unfinished work. See [save and recovery contract](prelaunch-reset.md#save-and-recovery-contract) for retry behavior and monitoring.
 
-Record the deployment URL, commit, migration version, date and checks in a release note. Pending phone checks mean mobile release validation is incomplete. A local build and mock OAuth tests do not confirm a real OAuth deployment.
+In staging, verify link-only saves, queued capture, retry, recapture, redirect checks, HTML and PDF preservation, private PDF access, and behavior when the converter or Queue is unavailable. Confirm source fetching rejects unsafe targets and redirects, respects response and time bounds, and connects using the native pinned executor. Review Container, Workers AI, D1, R2, and Queue usage before enabling production capture. Keep article URLs, page contents, cookies, tokens, and OAuth data out of logs.
 
-## Backups and restore
+Use the app's versioned library export for regular personal backups and test restores against a separate fresh database before relying on them. Exports do not include operational job state or authentication records. Keep D1 exports private because they can contain auth tables. For database-level recovery, use Cloudflare's [D1 export](https://developers.cloudflare.com/d1/reference/import-export/) and [Time Travel](https://developers.cloudflare.com/d1/reference/time-travel/); confirm provider retention before treating it as a backup.
 
-Download versioned library JSON regularly through Settings. Exports contain articles and read state, never authentication records. Keep copies outside Cloudflare. Large exports may include concurrent edits across pages: for a consistent personal backup, avoid editing while exporting.
+## Rollback and ongoing operations
 
-Restore first into a separate staging database using Import, reconcile article counts and sample URLs/timestamps/read states, and repeat the import to verify duplicate skipping. Existing URL records are preserved by import; it is not an overwrite/rollback tool. If an export fails midstream, retry it; a partial JSON download is not a valid backup. The browser download waits for the full response body. Imports are limited to 1 MiB and 1,000 records each. Split larger libraries into valid versioned envelopes, retaining all fields and the format version. Never split an individual record.
+Back up before schema changes and use additive migrations for compatible releases. Roll back application code only to a version that understands the deployed schema; do not reverse migrations or delete a database as a rollback step. The fresh baseline is not compatible with the retired database schema, so the previous Worker must not be redeployed against the new database.
 
-Run `pnpm archive:rehearse --backup /absolute/path/export.json --report /absolute/path/report.json` before relying on a backup. This uses separate temporary local databases, validates every restored field and repeated import, and checks restored copy reading/downloading while external requests are blocked. It reads the supplied backup without changing it; its optional report contains only counts, byte measurements, and check results. The helper handles the 1 MiB/1,000-record import bounds automatically during rehearsal and rejects a single record that cannot fit. It supports up to 64 MiB input. See the [rehearsal guide](archive-rehearsal.md). This is local evidence; deployed-origin archive restoration and production storage measurements remain release checks.
-
-For a complete database-level restore or schema migration, use [D1 export](https://developers.cloudflare.com/d1/reference/import-export/) and [Time Travel](https://developers.cloudflare.com/d1/reference/time-travel/). A complete database export also contains auth tables: keep it private and revoke sessions/capture tokens after recovery if exposure is suspected. Provider recovery retention differs by plan; recheck it instead of treating it as permanent backup.
-
-## Rollback and quotas
-
-Back up before destructive schema changes. Deploy additive migrations first and keep the previous Worker compatible. Roll back only to a Worker version that understands the current schema. Do not automatically reverse migrations or delete the database as a rollback step.
-
-Inspect Workers request/error/CPU metrics and D1 storage/row metrics. Do not log article URLs, titles, bodies, cookies, bearer tokens or OAuth codes. D1 index updates count toward rows written; search may scan a small personal library. The atomic capture limiter also writes to D1. Free quota exhaustion is an outage until the relevant quota resets or capacity is freed; do not silently enable a paid plan. Use the UI's retry behavior and keep capture drafts. An operator should revisit query/index choices before scaling beyond one owner.
-
-## Background Markdown extraction
-
-Migration `0006_background_capture.sql` supplies durable intent, title origin, and fenced D1 jobs. The application Worker publishes notifications to its environment-specific `EXTRACTION_QUEUE` and consumes them one at a time. The hourly Cron Trigger (`0 * * * *`, UTC) only repairs and republishes unfinished work. The Container in `capture/` fetches source bytes and parses metadata without database credentials. Its private capture Worker uses D1/R2 bindings and Workers AI for preservation and conversion; it has no public route or OAuth/GitHub credentials. `ARTICLE_EXTRACTOR` binds the app to the matching environment's capture service. Checked-in configuration sets `BACKGROUND_CAPTURE_ENABLED=false` by default and in staging, and `true` in production. This records intended configuration only; it does not verify what is currently deployed. When the flag is false or either the queue or extractor binding is missing, saving continues but background capture does no work.
-
-### Queue delivery and hourly recovery
-
-Queues are isolated as `read-it-later-extraction` (local defaults), `read-it-later-extraction-staging`, and `read-it-later-extraction-production`. The application is both producer and consumer. Messages contain only `{version: 1, articleId, generation}`; the source URL and capture options are read from D1. Save, owner retry, and recapture publish after durable writes using the request execution context. A notification failure does not change the successful save acknowledgment.
-
-Consumers use batch size one, zero batch wait, and concurrency one for the single capture container. The D1 three-attempt limit and 60/300-second backoff remain authoritative. Queue transport failures have ten retries with a 60-second default delay; explicit retries honor D1 deadlines and upstream Retry-After up to one hour. Duplicate deliveries, stale generations, and expired leases retain the existing fences. No separate dead-letter queue is needed: the hourly sweep republishes queued/retrying jobs and repairs missing jobs or expired leases in 50-row pages. A failed publication can wait until the next successful hourly sweep before processing, plus any existing backoff or backlog. The default provider retention applies; D1 intent survives message expiry or transport exhaustion.
-
-Provision queues before app deployment using `pnpm queue:ensure --env staging --execute` (or `production`). It reuses existing queues, creates only after Wrangler explicitly reports a missing queue, and stops on authentication/network failures. `--dry-run` (also the default) describes the operation without contacting Cloudflare. The main production workflow and the legacy paused capture-stack workflow provision the selected queue before deploying the app. CI credentials need account-scoped **Queues Edit** in addition to the existing deployment permissions. Local simulation needs no remote queue.
-
-Run `pnpm types` after binding changes. Tests use publication stubs plus explicit queue deliveries against real local D1. In staging, verify a save becomes ready without triggering cron; retry and recapture publish their current generations; failed publication is repaired by the next hourly sweep; and concurrent saves reach the container sequentially. Local Queues does not emulate consumer concurrency, so a local pass does not establish remote serialization. Keep staging D1 and queue isolated from production.
-
-Worker logs record dispatch failures, delivery retries, job outcomes, and recovery counts using article IDs and generations, without URLs or contents. Custom logs are enabled, automatic invocation logs are disabled, and query strings are redacted from logs and traces to protect share URLs, search text, and OAuth parameters. Traces are sampled at 1%. Monitor queue backlog age, exhausted transport deliveries, and recovery counts after release. An empty queue causes no consumer invocations; scheduled checks fall from 43,200 to 720 per 30-day month. Queue operations, CPU, D1 and Container usage still count toward account allowances; this does not guarantee a lower bill.
-
-For rollback, redeploy the previous application code and configuration with its minute cron. The D1 schema and job rows remain compatible. Pause capture before any incompatible executor rollback. Pending notifications can be left in the queue; D1 remains authoritative and the old scheduler can process unfinished jobs.
-
-### Cost and capacity
-
-This executor requires [Workers Paid](https://developers.cloudflare.com/workers/platform/pricing/), starting at $5 USD/month. [Container pricing](https://developers.cloudflare.com/containers/platform/pricing/) currently includes 25 GiB-hours of memory, 375 vCPU-minutes, and 200 GB-hours of disk monthly, shared across the account. The configured `basic` instance has 1 GiB memory, 1/4 vCPU, and 4 GB disk; maximum instances is one per environment, with a 30-second idle timeout. No container starts on an empty cron tick. CPU is billed for actual use; provisioned memory and disk are billed while awake, including idle time. Other Workers/Durable Objects/D1/logging usage and account workloads also count.
-
-For planning, 30 captures/day × 30 days × 45 seconds awake per isolated capture is 11.25 GiB-hours and 45 GB-hours of disk. The conservative assumption of full 1/4-vCPU utilization throughout is 168.75 vCPU-minutes. Those Container figures fit the included allowance; the expected total for a small personal library is approximately $5/month before tax and other workloads. At 100 captures/day under the same assumptions, Container overage is approximately $0.34/month. These are estimates, not a spending cap; cold starts, retries, staging, and continuous backlog change the result. Measure staging and review account usage after activation. Sleeping limits idle expense; it does not impose a dollar limit.
-
-### Build and deploy the executor first
-
-The normal production release builds the image in GitHub Actions. Docker runs on the hosted Ubuntu runner, so Docker Desktop is optional for contributors. Local image building and Wrangler's full Container dry run require a local Docker-compatible engine. From the repository root:
-
-```sh
-pnpm typecheck
-pnpm test
-pnpm test:capture
-pnpm check:capture
-```
-
-The native tests use a real Node extraction thread and deterministic DNS fixtures; Worker tests exercise the private response protocol and fenced D1 completion. Neither suite contacts arbitrary article origins. `pnpm build` validates the base app separately. CI runs these capture checks and the full image dry run on pushes and pull requests without deployment credentials. Production publishing runs only on a push to `main` after verification passes, using the protected `production` environment's Cloudflare secrets.
-
-1. Confirm Workers Paid is acceptable for the selected account; do not silently change billing. Replace staging origins in both Wrangler configurations and use an isolated staging D1 database.
-2. Deploy the private executor before an app version that refers to it. Its `workers_dev` and `preview_urls` settings are false. Keep it without routes or custom domains. Do not attach private-network bindings, catch-all outbound interception, or application secrets to the Container. The static `potem.convert` handler accesses D1/R2 and Workers AI outside the Container. Native DNS must produce real destination addresses, and native sockets must retain numeric destination pinning.
-
-```sh
-pnpm exec wrangler deploy --config capture/wrangler.jsonc --env staging
-pnpm build:web
-pnpm queue:ensure --env staging --execute
-pnpm exec wrangler deploy --env staging
-```
-
-The first executor deployment can need several minutes for provisioning. The production workflow provisions private PDF storage and applies additive D1 migrations before deploying the executor, then provisions the Queue and deploys the app. If executor deployment fails, the app deployment does not run; additive migrations remain applied. A standalone app deployment command still does not update the executor. The commands above are an optional manual staging path; they require Docker on the machine running them, while the normal production CI path does not require Docker on your computer. The checked-in production flag is already true, so do not deploy that production config until the separate activation gate passes. Live deployment state is not established by this repository configuration.
-
-3. While the flag is still false, validate deployment configuration and private-only access. Temporarily enable staging capture to test real queue processing and hourly recovery against controlled public, blocked, redirected, dual-stack, mixed public/private DNS, rebinding, oversized, truncated, and slow-stream sources. Check original-host TLS validation and absence of third-party extraction requests. Record cold-start latency, worst-case HTML conversion time/memory, and account usage. The 5-second conversion limit needs measurement on the 1/4-vCPU instance; local desktop speed does not establish this fit.
-4. Verify transient backoff, generation/lease fencing, manual-copy priority, edited-title protection, and reader polling. The app's 90-second service deadline is shorter than the two-minute lease. An expired result cannot commit, even if an executor survives cancellation. Copies remain create-only.
-5. After all staging evidence passes, deploy the production executor using `--config capture/wrangler.jsonc --env production`, then the app with `--env production`. The checked-in production config already sets `BACKGROUND_CAPTURE_ENABLED=true`; keep it false if the release gate has not passed. Confirm a real queue capture before calling activation complete. Do not interpret a successful token save as extraction success.
-
-To pause, set the app flag to `false` and deploy the normal app configuration. This retains articles, intents, copies, and jobs. Already accepted intents resume at the next hourly recovery sweep when enabled; terminal jobs still need manual retry. Deleting an article cancels its job through the foreign key. Import/restore does not restore jobs or fetch links. Disable the flag before rolling the executor back to an incompatible protocol; the app has no ordinary-fetch fallback.
-
-If the configured owner ID changes, revoke existing sessions and capture tokens as part of the change; these records are for the single library rather than separate user accounts.
+Monitor Worker errors/CPU, Queue backlog age and retries, D1 storage/rows, R2 objects, and Container/Workers AI use after release. Remove obsolete PDF objects only after D1 references and pending jobs are confirmed. Recheck account pricing and limits when workloads, plans, or Cloudflare products change.

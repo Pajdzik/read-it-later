@@ -2,9 +2,9 @@ import type { Article, ArticleCopy, Env, IntegrationStatus } from '../contracts'
 import { digest } from '../auth/core';
 import { getArticle, getArticleCopy } from '../articles/repository';
 import { IntegrationError, type ArticleIntegration, type SavedArticle } from './types';
+import { readDeliveryReceipt, writeDeliveryReceipt } from './delivery-receipts';
 
 type HookConfiguration = { id: string; name: string; destination: string; description: string };
-type Delivery = { content_hash: string; delivered_at: string };
 
 /** Read state and updatedAt are deliberately absent: reading is not a new delivery. */
 function snapshot({ article, copy }: SavedArticle) {
@@ -48,9 +48,7 @@ export function hookIntegrations(env: Env): ArticleIntegration[] {
       destinationKey: JSON.stringify([hook.id, hook.destination, hook.description]),
       ...(!env.ARTICLE_HOOKS ? { message: 'The article hooks service is not connected.' } : {}),
     };
-    const previous = (id: string) => env.DB.prepare(`SELECT content_hash,delivered_at FROM article_integration_deliveries
-      WHERE article_id = ? AND integration_id = ? AND destination_key = ?`)
-      .bind(id, hook.id, configuration.destinationKey).first<Delivery>();
+    const previous = (id: string) => readDeliveryReceipt(env.DB, id, hook.id, configuration.destinationKey);
     const status = async (article: Article, copy: ArticleCopy | null): Promise<IntegrationStatus> => {
       const last = await previous(article.id);
       const hash = copy ? await digest(JSON.stringify(snapshot({ article, copy }))) : null;
@@ -85,12 +83,7 @@ export function hookIntegrations(env: Env): ArticleIntegration[] {
           } catch {
             throw new IntegrationError(502, 'integration_delivery_failed', `${hook.name} could not confirm delivery. Your saved copy remains in Potem; retry to check this delivery again.`);
           }
-          await env.DB.prepare(`INSERT INTO article_integration_deliveries
-            (article_id,integration_id,destination_key,content_hash,delivered_at)
-            SELECT ?,?,?,?,? WHERE EXISTS (SELECT 1 FROM articles WHERE id = ?)
-            ON CONFLICT(article_id,integration_id,destination_key) DO UPDATE SET
-              content_hash=excluded.content_hash,delivered_at=excluded.delivered_at`)
-            .bind(saved.article.id, hook.id, configuration.destinationKey, contentHash, new Date().toISOString(), saved.article.id).run();
+          await writeDeliveryReceipt(env.DB, saved.article.id, hook.id, configuration.destinationKey, contentHash, new Date().toISOString());
         }
         const article = await getArticle(env.DB, saved.article.id);
         if (!article) throw new IntegrationError(409, 'revision_conflict', 'The article was deleted during delivery. The destination may retain its copy.');

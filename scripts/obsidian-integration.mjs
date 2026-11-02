@@ -132,9 +132,9 @@ async function main() {
   try {
     await waitReady(base, worker);
     const preexisting = {
-      version: 2, exportedAt: "2026-01-02T03:04:05.000Z", articles: [{
+      version: 3, exportedAt: "2026-01-02T03:04:05.000Z", articles: [{
         id: "exist001", url: "https://example.invalid/keep?utm_source=prior", title: "Preserved existing title",
-        author: "Existing author", description: "Existing description", createdAt: "2020-01-01T00:00:00.000Z",
+        author: "Existing author", description: "Existing description", tags: ["existing"], descriptionOrigin: "manual", tagsManuallyEdited: true, createdAt: "2020-01-01T00:00:00.000Z",
         updatedAt: "2021-02-03T04:05:06.000Z", readAt: "2022-03-04T05:06:07.000Z",
         copy: { markdown: "Existing bytes Ω\n", capturedAt: "2026-01-02T03:04:05.000Z", source: "paste", revision: "existing-revision" },
       }],

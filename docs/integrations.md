@@ -10,7 +10,7 @@ The browser extension defaults to Review mode. Options → **Optional integratio
 
 `src/integrations/types.ts` defines `ArticleIntegration`: public configuration, saved-copy status, and `deliver({article, copy})`. `src/integrations/registry.ts` discovers providers and checks the requested saved revision and destination identity before delivery. The UI discovers providers through the API and contains no provider-specific publishing flow.
 
-The GitHub adapter retains the existing writer, path reservations, readable filenames, conflict protection, and backup receipts. Existing `GITHUB_BACKUP_*` configuration works without a data migration of those records. GitHub appears only when its repository and token are configured. See [GitHub Markdown](github-markdown.md) for repository setup and recovery. The legacy `/api/github` and `/api/articles/:id/github` endpoints remain available to existing clients.
+GitHub writes each article to `<folder>/<article-id>.md`, validates remote ownership before replacement, and shares the same destination-scoped receipt table as hooks. Existing `GITHUB_BACKUP_*` configuration continues to work. GitHub appears only when its repository and token are configured. See [GitHub Markdown](github-markdown.md) for repository setup and recovery.
 
 ## Custom delivery hooks
 
@@ -66,7 +66,7 @@ The same `deliveryId` is sent in `Idempotency-Key`. It is stable for a destinati
 
 Return `200`, `201`, or `204` only after successful delivery or durable, deduplicated acceptance. The UI's “sent” status records this acceptance; device arrival is the receiver's responsibility. Long-running conversion/email work belongs in the receiver's durable queue. Potem awaits the hook request with a 10-second deadline, ignores its response body, rejects redirects and other statuses (including `202`), and records a receipt only after confirmation. Failures require an explicit retry. An in-flight article change produces an `outdated` status. Deleting an article removes its receipts, while external copies remain at their destinations.
 
-Apply migration `0008_article_integrations.sql` before deploying. It stores hook receipts with a cascading article foreign key; it does not alter existing GitHub tables or export/import formats.
+Initialize the fresh database with `0001_initial.sql` before deploying; see [prelaunch reset](prelaunch-reset.md). It stores destination-scoped receipts for GitHub and hooks with cascading article foreign keys; it does not change export/import formats.
 
 ## API
 

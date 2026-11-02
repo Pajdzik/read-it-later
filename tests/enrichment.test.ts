@@ -6,9 +6,10 @@ import { buildEnrichmentPrompt, completeEnrichment, enrichmentStatuses, isEnrich
   MAX_MARKDOWN_BYTES, plainMarkdown,
   type EnrichmentInput } from '../src/articles/enrichment';
 import { normalizeTags } from '../src/articles/tags';
-import { deleteArticle, getArticle, getArticleCopy, listArticles, saveArticle, saveArticleCopy, updateArticle } from '../src/articles/repository';
+import { deleteArticle, getArticle, getArticleCopy, listArticles, saveArticle, saveArticleCopy, updateArticle,
+  type SaveArticleInput } from '../src/articles/repository';
 import { handleArticles } from '../src/articles/handler';
-import { claimExtractionJob, completeExtractionJob, enqueueExtractionJob } from '../src/articles/jobs';
+import { claimExtractionJob, completeExtractionJob } from '../src/articles/jobs';
 import { consumeExtractionBatch } from '../src/articles/processor';
 import { createMessageBatch } from 'cloudflare:test';
 
@@ -19,9 +20,12 @@ function configured(run = vi.fn(async () => response()), daily = '100'): Env {
   return { ...testEnv, ARTICLE_ENRICHMENT_ENABLED: 'true', ARTICLE_ENRICHMENT_DAILY_LIMIT: daily,
     AI: { run } };
 }
-async function add(n = '1', options = {}) {
-  return (await saveArticle(testEnv.DB, { url: `https://example.com/${n}`, normalizedUrl: `https://example.com/${n}`,
-    title: 'Understanding database indexes', enrichmentRequested: true, ...options })).article;
+async function add(n = '1', options: Partial<SaveArticleInput> = {}) {
+  return (await saveArticle(testEnv.DB, { ...options,
+    url: `https://example.com/${n}`, normalizedUrl: `https://example.com/${n}`,
+    title: options.title ?? 'Understanding database indexes', titleOrigin: options.titleOrigin ?? 'supplied',
+    enrichmentRequested: options.enrichmentRequested ?? true,
+  })).article;
 }
 async function copy(id: string, markdown = '# Indexing\n\n- B-tree indexes speed up database lookups.\n- Query planning chooses an index.', revision = 'copy-one', expected: string | null = null) {
   await saveArticleCopy(testEnv.DB, id, { markdown, revision, capturedAt: NOW, source: 'paste' }, expected);
@@ -108,11 +112,12 @@ describe('durable enrichment', () => {
   it('waits for capture, then uses a saved copy without a second fetch or external publishing', async () => {
     const article = await add('capture', { extractionRequested: true });
     const run = vi.fn(async () => response()), env = configured(run);
+    const externalFetch = vi.spyOn(globalThis, 'fetch').mockImplementation(() => { throw new Error('Enrichment must not publish externally'); });
     await processEnrichmentMessage(env, message(article.id)); expect(run).not.toHaveBeenCalled();
     await copy(article.id); await processEnrichmentMessage(env, message(article.id));
     expect(run).toHaveBeenCalledTimes(1);
     expect((await getArticleCopy(testEnv.DB, article.id))!.revision).toBe('copy-one');
-    expect(await testEnv.DB.prepare('SELECT COUNT(*) AS n FROM article_github_backups').first()).toMatchObject({ n: 0 });
+    expect(externalFetch).not.toHaveBeenCalled();
   });
   it('waits for reviewed browser Markdown instead of racing the link save', async () => {
     const article = await add('clip', { enrichAfterCopy: true });
@@ -136,7 +141,8 @@ describe('durable enrichment', () => {
     await processEnrichmentMessage(env, message(empty.id));
     expect(await job(empty.id)).toMatchObject({ state: 'skipped', error_code: 'insufficient_content' });
     const article = await add('failed', { extractionRequested: true });
-    await enqueueExtractionJob(testEnv.DB, article.id);
+    expect(await testEnv.DB.prepare('SELECT article_id FROM article_extraction_jobs WHERE article_id=?').bind(article.id).first())
+      .toEqual({ article_id: article.id });
     await testEnv.DB.prepare("UPDATE article_extraction_jobs SET state='failed' WHERE article_id=?").bind(article.id).run();
     await processEnrichmentMessage(env, message(article.id)); expect(run).toHaveBeenCalledTimes(1);
   });
@@ -244,7 +250,8 @@ describe('tag API and portable metadata', () => {
   }
   it('tag-only edits leave a queued fallback title eligible for extraction', async () => {
     const a = await add('fallback', { title: 'example.com/fallback', titleOrigin: 'fallback', extractionRequested: true });
-    await enqueueExtractionJob(testEnv.DB, a.id);
+    expect(await testEnv.DB.prepare('SELECT article_id FROM article_extraction_jobs WHERE article_id=?').bind(a.id).first())
+      .toEqual({ article_id: a.id });
     expect((await route(`/api/articles/${a.id}`, 'PATCH', { tags: ['databases'] }))!.status).toBe(200);
     const claimed = await claimExtractionJob(testEnv.DB, NOW);
     expect(claimed).not.toBeNull();

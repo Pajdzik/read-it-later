@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { test, mock } from "node:test";
-import { fetchSourcePage } from "../../src/articles/source-fetch";
+import { fetchSourceDocument } from "../../src/articles/source-fetch";
 import { executeCapture, extractInThread } from "../executor";
 import { EXECUTOR_TIMEOUT_MS } from '../../src/articles/capture-limits';
 import { CAPTURE_TIMEOUT_MS } from '../../src/articles/capture-protocol';
@@ -11,17 +11,16 @@ test("slow metadata stays inside the bounded thread and subsequent extraction st
   const url = "https://news.example.com/article";
   // This valid, bounded page previously blocked the server thread for over 20 seconds.
   const html = `<html><head><title>Article</title><meta name="description" content="${"<".repeat(250_000)}"></head><body><article><p>Saved article.</p></article></body></html>`;
-  const source = await fetchSourcePage(url, {
-    BACKGROUND_CAPTURE_ENABLED: "true",
-    ARTICLE_FETCHER: { fetch: async () => new Response(html, { headers: { "Content-Type": "text/html" } }) },
+  const source = await fetchSourceDocument(url, {
+    fetchHop: async () => new Response(html, { headers: { "Content-Type": "text/html" } }),
   });
-  assert.deepEqual(source, { html, url });
+  assert.deepEqual(source, { kind: "html", html, url });
 
   let heartbeats = 0;
   const interval = setInterval(() => { heartbeats++; }, 20);
   const started = Date.now();
   try {
-    await assert.rejects(extractInThread(source.html, source.url, threadUrl), { code: "conversion_failed" });
+    await assert.rejects(extractInThread(source.kind === "html" ? source.html : "", source.url, threadUrl), { code: "conversion_failed" });
     assert.ok(Date.now() - started >= 4_500, "the thread deadline terminates metadata parsing");
     assert.ok(heartbeats > 0, "the server event loop remains responsive during parsing");
   } finally { clearInterval(interval); }
@@ -31,7 +30,7 @@ test("slow metadata stays inside the bounded thread and subsequent extraction st
   assert.equal(article.description, "A readable article after the timeout.");
 });
 
-test('executor bounds an unresponsive conversion gateway even when it ignores abort', async () => {
+test('executor bounds an unresponsive converter service even when it ignores abort', async () => {
   let cancelled=false;
   const replacement=mock.method(globalThis,'fetch',async (_input: RequestInfo | URL, init?: RequestInit)=>{
     init?.signal?.addEventListener('abort',()=>{cancelled=true;},{once:true});

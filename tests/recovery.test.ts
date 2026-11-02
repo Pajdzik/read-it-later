@@ -2,7 +2,7 @@ import { env } from 'cloudflare:workers';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import type { Env } from '../src/contracts';
 import { handleArticles } from '../src/articles/handler';
-import { claimExtractionJob, completeExtractionJob, enqueueExtractionJob, failExtractionJob, getExtractionStatus, reconcileExtractionJobs, retryExtractionJob } from '../src/articles/jobs';
+import { claimExtractionJob, completeExtractionJob, failExtractionJob, getExtractionStatus, reconcileExtractionJobs, retryExtractionJob } from '../src/articles/jobs';
 import { requestRecapture, undoRecapture } from '../src/articles/recovery';
 import { deleteArticle, getArticle, getArticleCopy, saveArticle, saveArticleCopy, updateArticle } from '../src/articles/repository';
 import { deliverPendingExtractions, extractionQueueStub } from './extraction-queue-fixture';
@@ -15,7 +15,7 @@ const result = { markdown: '# Recovered 📰', metadata: { title: 'Source title'
 const oldCopy = { markdown: '# Original', capturedAt: time(-1000), source: 'upload' as const, revision: 'original-revision' };
 
 async function seed(copy = true) {
-  const { article } = await saveArticle(env.DB, { url: 'https://example.com/recovery', normalizedUrl: 'https://example.com/recovery', title: 'Owner title', author: 'Owner author', description: 'Owner description' });
+  const { article } = await saveArticle(env.DB, { url: 'https://example.com/recovery', normalizedUrl: 'https://example.com/recovery', title: 'Owner title', titleOrigin: 'supplied', author: 'Owner author', description: 'Owner description' });
   await updateArticle(env.DB, article.id, { title: 'Owner title', read: true }, time(-100));
   if (copy) await saveArticleCopy(env.DB, article.id, oldCopy, null);
   return article.id;
@@ -80,8 +80,8 @@ describe('per-article capture recovery', () => {
 
   it('does not supersede an active initial capture', async () => {
     const id = await seed(false);
-    await env.DB.prepare('UPDATE articles SET extraction_requested_at=? WHERE id=?').bind(time(), id).run();
-    await enqueueExtractionJob(env.DB, id, time());
+    await saveArticle(env.DB, { url: 'https://example.com/recovery', normalizedUrl: 'https://example.com/recovery', title: 'Owner title', titleOrigin: 'supplied', extractionRequested: true });
+    await env.DB.prepare('UPDATE article_extraction_jobs SET next_attempt_at=? WHERE article_id=?').bind(time(), id).run();
     expect(await requestRecapture(env.DB, id, null, false, time())).toBe('capture_active');
     expect(await claimExtractionJob(env.DB, time())).toMatchObject({ kind: 'initial', generation: 1 });
   });
@@ -225,8 +225,8 @@ describe('per-article capture recovery', () => {
 
   it('can retry a completed job whose copy disappeared', async () => {
     const id = await seed(false);
-    await env.DB.prepare('UPDATE articles SET extraction_requested_at=? WHERE id=?').bind(time(), id).run();
-    await enqueueExtractionJob(env.DB, id, time());
+    await saveArticle(env.DB, { url: 'https://example.com/recovery', normalizedUrl: 'https://example.com/recovery', title: 'Owner title', titleOrigin: 'supplied', extractionRequested: true });
+    await env.DB.prepare('UPDATE article_extraction_jobs SET next_attempt_at=? WHERE article_id=?').bind(time(), id).run();
     const job = (await claimExtractionJob(env.DB, time()))!;
     await completeExtractionJob(env.DB, job, result, time(10));
     await env.DB.prepare('DELETE FROM article_copies WHERE article_id=?').bind(id).run();
@@ -239,7 +239,7 @@ describe('per-article capture recovery', () => {
     // The processor uses real time to finish, so give this job a current lease.
     const now = new Date().toISOString();
     await requestRecapture(env.DB, id, oldCopy.revision, false, now);
-    const fetcher = vi.fn(async () => await captureFixture('<article><h1>Recovered</h1><p>Preserved article content from a fixture extractor.</p></article>'));
+    const fetcher = vi.fn(async () => captureFixture('# Recovered\n\nPreserved article content from a fixture extractor.'));
     const processorEnv: Env = { ...env, BACKGROUND_CAPTURE_ENABLED: 'false', ARTICLE_EXTRACTOR: { fetch: fetcher, connect() { throw new Error('unused'); } } as Fetcher };
     await deliverPendingExtractions(processorEnv, now);
     expect(fetcher).not.toHaveBeenCalled();
@@ -253,9 +253,9 @@ describe('per-article capture recovery', () => {
     const id = await seed();
     const article = (await getArticle(env.DB, id))!;
     const githubEnv: Env = { ...env, GITHUB_BACKUP_REPOSITORY: 'owner/repository', GITHUB_BACKUP_BRANCH: 'main', GITHUB_BACKUP_PATH: 'Articles', GITHUB_BACKUP_TOKEN: 'fixture-token' };
-    await env.DB.prepare(`INSERT INTO article_github_backups(article_id,repository,branch,path,content_hash,backed_up_at)
-      VALUES(?,'owner/repository','main','Articles/original.md',?,?)`)
-      .bind(id, await digest(articleMarkdown(article, oldCopy)), time(-50)).run();
+    await env.DB.prepare(`INSERT INTO article_integration_deliveries(article_id,integration_id,destination_key,content_hash,delivered_at)
+      VALUES(?,'github',?,?,?)`)
+      .bind(id, JSON.stringify(['owner/repository', 'main', 'Articles']), await digest(articleMarkdown(article, oldCopy)), time(-50)).run();
     const network = vi.spyOn(globalThis, 'fetch').mockImplementation(() => { throw new Error('Recovery must not publish'); });
     expect(await getGitHubBackupStatus(githubEnv, article, oldCopy)).toMatchObject({ state: 'saved' });
     await completeExtractionJob(env.DB, await start(id), result, time(10));
@@ -269,7 +269,6 @@ describe('per-article capture recovery', () => {
 
 describe('recovery HTTP boundaries', () => {
   beforeEach(() => {
-    // HTTP handlers and direct job helpers must share the fixture clock.
     vi.useFakeTimers({ toFake: ['Date'] });
     vi.setSystemTime(new Date(time()));
   });

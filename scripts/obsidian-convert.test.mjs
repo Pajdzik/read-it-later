@@ -5,6 +5,7 @@ import os from "node:os";
 import path from "node:path";
 import { convertVault, MAX_COPY_BYTES, MAX_MARKDOWN_TOTAL_BYTES, MAX_SOURCE_FILE_BYTES, parseExplicitDate } from "./obsidian-convert.ts";
 import { MAX_BACKUP_BYTES, MAX_IMPORT_BYTES, MAX_IMPORT_ITEMS, validateBackupEnvelope } from "./archive-backup.ts";
+import { createShortIdMapper } from "./short-id.ts";
 
 const fixedNow = new Date("2026-10-02T09:00:00.000Z");
 async function setup(t) {
@@ -84,6 +85,23 @@ test("retains valid short IDs supplied by Obsidian frontmatter", async t => {
   await write(vault, "article.md", `---\nsource: https://example.com/short-id\nid: k7m2q9x4\nread: false\n---\n# Body\n`);
   const result = await convert(vault, output);
   assert.equal(result.batches[0].articles[0].id, "k7m2q9x4");
+});
+
+test("maps no-ID provisional identities before per-record checks and reserves later supplied IDs", async t => {
+  const { vault, output } = await setup(t);
+  const url = "https://example.com/no-id";
+  const generated = createShortIdMapper()(`obsidian:${url}`);
+  await write(vault, "a-no-id.md", markdown({ source: url, title: "Generated identity" }));
+  await write(vault, "b-oversized-import.md", markdown({ source: "https://example.com/oversized", body: "\0".repeat(200_000) }));
+  await write(vault, "c-reserved-later.md", markdown({ source: "https://example.com/reserved", title: "Supplied identity" }).replace("read: \"false\"", `id: ${JSON.stringify(generated)}\nread: \"false\"`));
+  const { report, batches } = await convert(vault, output);
+  assert.equal(report.eligible, 2);
+  assert.equal(report.excluded, 1);
+  assert.equal(report.outcomes.find(item => item.path === "b-oversized-import.md").reasons[0], "import_record_too_large");
+  const records = batches.flatMap(batch => batch.articles);
+  assert.equal(records.find(item => item.url === url).id === generated, false);
+  assert.equal(records.find(item => item.url.endsWith("/reserved")).id, generated);
+  assert.match(records.find(item => item.url === url).id, /^[a-z0-9]{8}$/);
 });
 
 test("tracking duplicates use the first sorted path", async t => {

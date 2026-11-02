@@ -4,7 +4,8 @@ import { lstat, mkdir, open, readdir, realpath, rm, stat, writeFile } from "node
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { normalizeSourceUrl } from "./obsidian-convert.ts";
-import { createShortIdMapper } from "./short-id.ts";
+import { isPortableShortId, validatePortableArticle } from "../src/articles/portable-format.ts";
+import { normalizeTags } from "../src/articles/validation.ts";
 import { MAX_BACKUP_BYTES, splitImportBatches, validateBackupEnvelope, type BackupArticle, type BackupEnvelope } from "./archive-backup.ts";
 
 export const MAX_SOURCE_FILE_BYTES = 1024 * 1024;
@@ -96,7 +97,7 @@ export function parseGitHubMarkdown(input: string | Uint8Array): ParsedMarkdown 
     const literal = match[2]!;
     if (key === "potem_backup_version") {
       if (Object.hasOwn(values, key)) fail("duplicate_frontmatter_field");
-      if (literal !== "1" && literal !== "2") fail("unsupported_backup_version");
+      if (literal !== "2") fail("unsupported_backup_version");
       values[key] = Number(literal);
       continue;
     }
@@ -112,14 +113,11 @@ export function parseGitHubMarkdown(input: string | Uint8Array): ParsedMarkdown 
     const code = field === "savedAt" ? "saved_at" : field === "capturedAt" ? "captured_at" : field;
     fail(`missing_${code}`);
   }
-  if (values.potem_backup_version === 1 && ['tags','descriptionOrigin','tagsManuallyEdited'].some(k => Object.hasOwn(values,k))) fail('unknown_frontmatter_field');
-  if (values.potem_backup_version === 2) {
-    for (const field of ['tags','descriptionOrigin','tagsManuallyEdited']) if (!Object.hasOwn(values,field)) fail('missing_enrichment_metadata');
-    if (!Array.isArray(values.tags) || values.tags.length > 10 || values.tags.some(t => typeof t !== 'string' || !t.trim() || [...t].length > 40 || /[\p{Cc}\p{Cs}<>]/u.test(t))) fail('invalid_tags');
-    if (![null,'manual','extracted','generated'].includes(values.descriptionOrigin as string | null) || typeof values.tagsManuallyEdited !== 'boolean') fail('invalid_enrichment_metadata');
-  }
+  for (const field of ['tags','descriptionOrigin','tagsManuallyEdited']) if (!Object.hasOwn(values,field)) fail('missing_enrichment_metadata');
+  try { normalizeTags(values.tags); } catch { fail('invalid_tags'); }
+  if (![null,'manual','extracted','generated'].includes(values.descriptionOrigin as string | null) || typeof values.tagsManuallyEdited !== 'boolean') fail('invalid_enrichment_metadata');
   const body = source.slice(bodyStart);
-  if (typeof values.id !== "string" || !values.id || values.id.length > 128) fail("invalid_id");
+  if (!isPortableShortId(values.id)) fail("invalid_id");
   if (typeof values.title !== "string" || !values.title.trim() || values.title.length > 500) fail("invalid_title");
   if (typeof values.url !== "string" || !values.url || values.url !== values.url.trim() || byteLength(values.url) > 8192) fail("invalid_url");
   if (!(values.author === null || (typeof values.author === "string" && !!values.author.trim() && values.author.length <= 200))) fail("invalid_author");
@@ -135,7 +133,7 @@ export function parseGitHubMarkdown(input: string | Uint8Array): ParsedMarkdown 
   return {
     item: {
       id: values.id, url: values.url, title: values.title, author: values.author, description: values.description,
-      ...(values.potem_backup_version === 2 ? { tags: values.tags as string[], descriptionOrigin: values.descriptionOrigin as BackupArticle['descriptionOrigin'], tagsManuallyEdited: values.tagsManuallyEdited as boolean } : {}),
+      tags: values.tags as string[], descriptionOrigin: values.descriptionOrigin as BackupArticle['descriptionOrigin'], tagsManuallyEdited: values.tagsManuallyEdited as boolean,
       createdAt: values.savedAt, updatedAt: values.savedAt, readAt: null,
       copy: { markdown: body, capturedAt: values.capturedAt, source: values.source, revision: values.revision },
     },
@@ -214,6 +212,8 @@ async function readCandidate(root: string, candidate: Candidate, consumed: { byt
 
 function validateItem(parsed: ParsedMarkdown, exportedAt: string): void {
   const one = { version: 3, exportedAt, articles: [parsed.item] };
+  try { validatePortableArticle(parsed.item); }
+  catch { fail("invalid_portable_record"); }
   try { validateBackupEnvelope(one); }
   catch { fail("invalid_portable_record"); }
   try { splitImportBatches(one, { maxBytes: MAX_IMPORT_BYTES, maxItems: MAX_IMPORT_ITEMS }); }
@@ -241,14 +241,12 @@ export async function convertGitHubMarkdown(sourcePath: string, outputPath: stri
   const eligible: BackupArticle[] = [];
   const urlWinners = new Map<string, string>();
   const idWinners = new Map<string, { path: string; normalizedUrl: string }>();
-  const sourceIds = new Set<string>();
   const consumed = { bytes: 0 };
   for (const candidate of scan.candidates) {
     let parsed: ParsedMarkdown;
     try {
       const bytes = await readCandidate(source, candidate, consumed);
       parsed = parseGitHubMarkdown(bytes);
-      sourceIds.add(parsed.item.id);
       validateItem(parsed, exportedAt);
     } catch (error) {
       if (failure(error)?.fatal) throw error;
@@ -270,8 +268,6 @@ export async function convertGitHubMarkdown(sourcePath: string, outputPath: stri
     eligible.push(parsed.item);
     outcomes.push({ path: candidate.relative, outcome: "eligible", reasons: [], warnings: ["read_state_not_backed_up"] });
   }
-  const mapId = createShortIdMapper(sourceIds);
-  for (const item of eligible) item.id = mapId(item.id);
   const envelope: BackupEnvelope = { version: 3, exportedAt, articles: eligible };
   validateBackupEnvelope(envelope);
   if (byteLength(JSON.stringify(envelope)) > MAX_BACKUP_BYTES) fail("portable_backup_size_limit_exceeded");

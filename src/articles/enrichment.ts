@@ -16,7 +16,7 @@ export function enrichmentModelInput(prompt: string): AiModels[typeof ENRICHMENT
 const encoder = new TextEncoder();
 const active = "('queued','retry_wait','deferred')";
 const ready = `(EXISTS(SELECT 1 FROM article_copies c WHERE c.article_id=a.id)
-  OR (a.enrichment_wait_for_copy=0 AND (a.extraction_requested_at IS NULL
+  OR (a.enrichment_wait_for_copy=0 AND (NOT EXISTS(SELECT 1 FROM article_extraction_jobs pending WHERE pending.article_id=a.id)
   OR EXISTS(SELECT 1 FROM article_extraction_jobs x WHERE x.article_id=a.id AND x.state IN ('succeeded','failed')))))`;
 const snapshot = `json_array(a.title,a.title_origin,a.description,a.description_origin,a.tags_manual)`;
 

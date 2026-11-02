@@ -4,7 +4,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import type { Env, ExtractionMessage } from '../src/contracts';
 import worker from '../src/worker';
 import { processExtractionMessage, recoverExtractionJobs } from '../src/articles/processor';
-import { claimExtractionJob, enqueueExtractionJob, getExtractionStatus, retryExtractionJob } from '../src/articles/jobs';
+import { claimExtractionJob, getExtractionStatus, retryExtractionJob } from '../src/articles/jobs';
 import { publishExtraction } from '../src/articles/extraction-queue';
 import { saveArticleCopy } from '../src/articles/repository';
 import { extractionQueueStub } from './extraction-queue-fixture';
@@ -22,12 +22,16 @@ function configured(overrides: Partial<Env> = {}) {
   };
   return { bindings, queue, fetcher };
 }
-async function intent(id = 'job00001', materialize = true) {
-  await env.DB.prepare(`INSERT INTO articles
-    (id,url,normalized_url,title,created_at,updated_at,extraction_requested_at,title_origin)
-    VALUES (?,?,?,?,?,?,?,'fallback')`)
-    .bind(id, `https://source.example/${id}`, `https://source.example/${id}`, 'Fallback', NOW, NOW, NOW).run();
-  if (materialize) await enqueueExtractionJob(env.DB, id, NOW);
+async function intent(id = 'job00001') {
+  await env.DB.batch([
+    env.DB.prepare(`INSERT INTO articles
+      (id,url,normalized_url,title,created_at,updated_at,title_origin)
+      VALUES (?,?,?,?,?,?,'fallback')`)
+      .bind(id, `https://source.example/${id}`, `https://source.example/${id}`, 'Fallback', NOW, NOW),
+    env.DB.prepare(`INSERT INTO article_extraction_jobs
+      (article_id,generation,state,attempts,next_attempt_at,created_at,updated_at)
+      VALUES (?,1,'queued',0,?,?,?)`).bind(id, NOW, NOW, NOW),
+  ]);
 }
 async function deliver(bindings: Env, body: unknown, attempts = 1) {
   const batch = createMessageBatch('read-it-later-extraction', [{ id: 'notification', timestamp: new Date(NOW), body, attempts }]);
@@ -206,8 +210,8 @@ describe('queue driven extraction', () => {
     expect(queue.messages.map(entry => entry.body)).toEqual([message()]);
   });
 
-  it('recovers missing jobs and republishes more than fifty entries once each without extracting', async () => {
-    for (let i = 0; i < 125; i++) await intent(`r${String(i).padStart(7, '0')}`, false);
+  it('republishes more than fifty durable jobs once each without extracting', async () => {
+    for (let i = 0; i < 125; i++) await intent(`r${String(i).padStart(7, '0')}`);
     const { bindings, queue, fetcher } = configured();
     await worker.scheduled(createScheduledController({ cron: '0 * * * *' }), bindings);
     expect(queue.binding.sendBatch.mock.calls.map(([batch]) => Array.from(batch).length)).toEqual([50, 50, 25]);

@@ -6,6 +6,7 @@ import { syncBuiltinESMExports } from "node:module";
 import type { AddressInfo } from "node:net";
 import { test } from "node:test";
 import { pinnedFetch } from "../pinned-fetch";
+import { executeCapture } from "../executor";
 
 test("native HTTP failures reject safely and leave the executor able to fetch again", async t => {
   let status = 600;
@@ -33,6 +34,30 @@ test("native HTTP failures reject safely and leave the executor able to fetch ag
     const response = await fetchSource();
     assert.equal(response.status, 200);
     assert.equal(await response.text(), "<html><body>Saved article.</body></html>");
+  } finally {
+    t.mock.restoreAll();
+    syncBuiltinESMExports();
+    server.closeAllConnections();
+    await new Promise<void>(resolve => server.close(() => resolve()));
+  }
+});
+
+test("the source-hop deadline aborts the executor's native socket", { timeout: 10_000 }, async t => {
+  const server = http.createServer(() => { /* Deliberately never send headers. */ });
+  server.listen(0, "127.0.0.1");
+  await once(server, "listening");
+  const port = (server.address() as AddressInfo).port;
+  const nativeRequest = http.request;
+  let sourceSignal: AbortSignal | undefined;
+  t.mock.method(dns, "lookup", async () => [{ address: "1.1.1.1", family: 4 }]);
+  t.mock.method(http, "request", (options: RequestOptions, callback: (response: IncomingMessage) => void) => {
+    sourceSignal = options.signal;
+    return nativeRequest({ ...options, hostname: "127.0.0.1", port }, callback);
+  });
+  syncBuiltinESMExports();
+  try {
+    await assert.rejects(executeCapture("http://news.example.com/article", "https://read.example.com"), { code: "timeout", retryable: true });
+    assert.equal(sourceSignal?.aborted, true, "the hop signal must reach the native transport");
   } finally {
     t.mock.restoreAll();
     syncBuiltinESMExports();

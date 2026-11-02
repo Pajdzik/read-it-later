@@ -8,14 +8,13 @@ export type ArticleStatus = "unread" | "read" | "all";
 export interface SaveArticleInput {
   url: string;
   normalizedUrl: string;
-  title?: string;
-  fallbackTitle?: string;
+  title: string;
   author?: string;
   description?: string;
   extractionRequested?: boolean;
   enrichmentRequested?: boolean;
   enrichAfterCopy?: boolean;
-  titleOrigin?: "fallback" | "supplied" | "extracted" | "protected";
+  titleOrigin: "fallback" | "supplied";
 }
 
 export interface ListArticlesInput {
@@ -176,60 +175,45 @@ export async function saveArticle(
   input: SaveArticleInput,
 ): Promise<{ article: Article; duplicate: boolean; metadataUpdated: boolean }> {
   const now = new Date().toISOString();
-  const insertTitle = input.title?.trim() || input.fallbackTitle?.trim() || input.url;
-  const titleOrigin = input.titleOrigin ?? (input.title?.trim() ? "supplied" : "fallback");
-  const allowDuplicateMetadataTitle = input.fallbackTitle !== undefined || input.titleOrigin === "extracted";
-  const extractionRequestedAt = input.extractionRequested ? now : null;
-  const before = await db.prepare("SELECT id,title,author,description,created_at,updated_at,read_at FROM articles WHERE normalized_url = ?")
-    .bind(input.normalizedUrl).first<Record<string, unknown>>();
+  const insertTitle = input.title.trim();
   for (let attempt = 0; attempt < 5; attempt++) {
     const id = newArticleId();
     const insert = db.prepare(
-      `INSERT INTO articles (id,url,normalized_url,title,author,description,created_at,updated_at,read_at,extraction_requested_at,title_origin,enrichment_requested_at,description_origin,enrichment_wait_for_copy)
-       VALUES (?,?,?,?,?,?,?,?,NULL,?,?,?,?,?) ON CONFLICT(normalized_url) DO NOTHING ON CONFLICT(id) DO NOTHING`,
-    ).bind(id, input.url, input.normalizedUrl, insertTitle, input.author ?? null, input.description ?? null, now, now, extractionRequestedAt, titleOrigin, input.enrichmentRequested ? now : null, input.description ? "manual" : null, input.enrichAfterCopy ? 1 : 0);
-    // Duplicate metadata only fills empty fields. For older callers that still pass
-    // fallbackTitle, a matching unprotected title can be upgraded to page metadata.
+      `INSERT INTO articles (id,url,normalized_url,title,author,description,created_at,updated_at,read_at,title_origin,enrichment_requested_at,description_origin,enrichment_wait_for_copy)
+       VALUES (?,?,?,?,?,?,?,?,NULL,?,?,?,?) ON CONFLICT(normalized_url) DO NOTHING ON CONFLICT(id) DO NOTHING`,
+    ).bind(id, input.url, input.normalizedUrl, insertTitle, input.author ?? null, input.description ?? null, now, now, input.titleOrigin, input.enrichmentRequested ? now : null, input.description ? "manual" : null, input.enrichAfterCopy ? 1 : 0);
     const updateDuplicate = db.prepare(`UPDATE articles SET
-        title = CASE WHEN ? AND title_origin != 'protected' AND
-          (title_origin = 'fallback' OR title = ?) AND ? != '' THEN ? ELSE title END,
-        title_origin = CASE WHEN ? AND title_origin != 'protected' AND
-          (title_origin = 'fallback' OR title = ?) AND ? != '' THEN 'extracted' ELSE title_origin END,
         author = COALESCE(author, ?),
         description = CASE WHEN description_origin IS NOT 'manual' THEN COALESCE(description, ?) ELSE description END,
         description_origin = CASE WHEN description IS NULL AND description_origin IS NOT 'manual' AND ? IS NOT NULL THEN 'manual' ELSE description_origin END,
-        extraction_requested_at = CASE WHEN ? AND NOT EXISTS (
-          SELECT 1 FROM article_copies c WHERE c.article_id = articles.id
-        ) AND NOT EXISTS (
-          SELECT 1 FROM article_extraction_jobs j WHERE j.article_id = articles.id AND j.state = 'failed'
-        ) THEN COALESCE(extraction_requested_at, ?) ELSE extraction_requested_at END,
-        updated_at = CASE WHEN
-          (? AND title_origin != 'protected' AND (title_origin = 'fallback' OR title = ?) AND ? != '' AND title != ?) OR
-          (author IS NULL AND ? IS NOT NULL) OR (description IS NULL AND ? IS NOT NULL)
-          THEN ? ELSE updated_at END
-      WHERE normalized_url = ? AND changes() = 0`)
-      .bind(allowDuplicateMetadataTitle ? 1 : 0, input.fallbackTitle ?? "", input.title?.trim() ?? "", input.title?.trim() ?? "",
-        allowDuplicateMetadataTitle ? 1 : 0, input.fallbackTitle ?? "", input.title?.trim() ?? "",
-        input.author ?? null, input.description ?? null, input.description ?? null,
-        input.extractionRequested ? 1 : 0, now,
-        allowDuplicateMetadataTitle ? 1 : 0, input.fallbackTitle ?? "", input.title?.trim() ?? "", input.title?.trim() ?? "",
-        input.author ?? null, input.description ?? null, now,
-        input.normalizedUrl);
-    const enrichment = db.prepare(`INSERT INTO article_enrichment_jobs(article_id,next_attempt_at,created_at,updated_at)
+        updated_at = ?
+      WHERE normalized_url = ? AND changes() = 0
+        AND ((author IS NULL AND ? IS NOT NULL) OR (description IS NULL AND description_origin IS NOT 'manual' AND ? IS NOT NULL))`)
+      .bind(input.author ?? null, input.description ?? null, input.description ?? null, now, input.normalizedUrl,
+        input.author ?? null, input.description ?? null);
+    const statements = [insert, updateDuplicate];
+    if (input.extractionRequested) {
+      // Resolve by URL inside the transaction: an ID collision must never queue
+      // work for the unrelated article occupying the generated ID.
+      statements.push(db.prepare(`INSERT INTO article_extraction_jobs
+          (article_id,generation,state,attempts,next_attempt_at,created_at,updated_at)
+        SELECT a.id,1,'queued',0,?,?,? FROM articles a
+        WHERE a.normalized_url = ?
+          AND NOT EXISTS (SELECT 1 FROM article_copies c WHERE c.article_id = a.id)
+          AND NOT EXISTS (SELECT 1 FROM article_extraction_jobs j WHERE j.article_id = a.id)
+        ON CONFLICT(article_id) DO NOTHING`)
+        .bind(now, now, now, input.normalizedUrl));
+    }
+    if (input.enrichmentRequested) statements.push(db.prepare(`INSERT INTO article_enrichment_jobs(article_id,next_attempt_at,created_at,updated_at)
       SELECT id,?,?,? FROM articles WHERE id=? AND normalized_url=? AND enrichment_requested_at=? ON CONFLICT DO NOTHING`)
-      .bind(now, now, now, id, input.normalizedUrl, now);
-    const [result] = await db.batch([insert, updateDuplicate, enrichment]);
+      .bind(now, now, now, id, input.normalizedUrl, now));
+    const [result, metadataResult] = await db.batch(statements);
     const existing = await db.prepare("SELECT id,url,title,author,description,description_origin,tags_manual,created_at,updated_at,read_at,title_origin FROM articles WHERE normalized_url = ?")
       .bind(input.normalizedUrl).first<Record<string, unknown>>();
     if (!existing) continue; // The ID was occupied; retry only that conflict.
     const [current] = await hydrateTags(db, [mapArticle(existing)!]);
     if (result.meta.changes) return { article: current, duplicate: false, metadataUpdated: false };
-    const metadataUpdated = !!before && (
-      String(before.title) !== current.title ||
-      (before.author == null && current.author !== null) ||
-      (before.description == null && current.description !== null)
-    );
-    return { article: current, duplicate: true, metadataUpdated };
+    return { article: current, duplicate: true, metadataUpdated: (metadataResult.meta.changes ?? 0) > 0 };
   }
   throw new Error("Could not allocate an article ID. Please retry.");
 }

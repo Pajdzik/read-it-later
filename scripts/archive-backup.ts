@@ -1,4 +1,5 @@
 import { Buffer } from "node:buffer";
+import { isPortableTimestamp, validatePortableArticle } from "../src/articles/portable-format.ts";
 
 export const MAX_BACKUP_BYTES = 64 * 1024 * 1024;
 export const MAX_IMPORT_BYTES = 1024 * 1024;
@@ -27,7 +28,7 @@ export type BackupArticle = {
 };
 
 export type BackupEnvelope = {
-  version: 1 | 2 | 3;
+  version: 3;
   exportedAt: string;
   articles: BackupArticle[];
 };
@@ -52,45 +53,22 @@ function record(value: unknown, allowed: readonly string[], required: readonly s
   return object;
 }
 
-function timestamp(value: unknown): value is string {
-  return typeof value === "string" && /^\d{4}-\d\d-\d\dT\d\d:\d\d:\d\d\.\d{3}Z$/.test(value) &&
-    Number.isFinite(Date.parse(value)) && new Date(value).toISOString() === value;
-}
+const timestamp = isPortableTimestamp;
 
 /** Validate the portable envelope and all persisted fields without retaining auth data. */
 export function validateBackupEnvelope(input: unknown): BackupEnvelope {
   const backup = record(input, ["version", "exportedAt", "articles"], ["version", "exportedAt", "articles"], "backup");
-  if ((backup.version !== 1 && backup.version !== 2 && backup.version !== 3) || !timestamp(backup.exportedAt) || !Array.isArray(backup.articles)) {
+  if (backup.version !== 3 || !timestamp(backup.exportedAt) || !Array.isArray(backup.articles)) {
     throw new Error("Invalid backup.");
   }
   if (Buffer.byteLength(JSON.stringify(input), "utf8") > MAX_BACKUP_BYTES) throw new Error("Invalid backup.");
   const articles = backup.articles;
-  const seenIds = new Set();
+  const seenIds = new Set<string>();
   for (const candidate of articles) {
-    const item = record(candidate, ["id", "url", "title", "author", "description", "createdAt", "updatedAt", "readAt", ...(backup.version !== 1 ? ["copy"] : []), ...(backup.version === 3 ? ["tags", "descriptionOrigin", "tagsManuallyEdited"] : [])], ["id", "url", "title", "createdAt", "updatedAt", "readAt"], "article");
-    if (typeof item.id !== "string" || !item.id || item.id.length > 128 || seenIds.has(item.id) ||
-      typeof item.url !== "string" || !item.url || item.url.length > 8192 ||
-      typeof item.title !== "string" || !item.title.trim() || item.title.length > 500 ||
-      !timestamp(item.createdAt) || !timestamp(item.updatedAt) || !(item.readAt === null || timestamp(item.readAt)) ||
-      !(item.author === undefined || item.author === null || (typeof item.author === "string" && !!item.author.trim() && item.author.length <= 200)) ||
-      !(item.description === undefined || item.description === null || (typeof item.description === "string" && !!item.description.trim() && item.description.length <= 500))) {
-      throw new Error("Invalid backup.");
-    }
-    if (backup.version === 3) {
-      if (item.tags !== undefined && (!Array.isArray(item.tags) || item.tags.length > 10 || item.tags.some(tag => typeof tag !== 'string' || !tag.trim() || [...tag].length > 40 || /[\p{Cc}\p{Cs}<>]/u.test(tag)))) throw new Error('Invalid backup tags.');
-      if (item.descriptionOrigin !== undefined && ![null, 'manual', 'extracted', 'generated'].includes(item.descriptionOrigin as string | null)) throw new Error('Invalid description origin.');
-      if (item.descriptionOrigin !== undefined && ((item.description && item.descriptionOrigin === null) || (!item.description && item.descriptionOrigin && item.descriptionOrigin !== 'manual') || item.descriptionOrigin === 'generated' && typeof item.description === 'string' && [...item.description].length > 280)) throw new Error('Invalid description origin.');
-      if (item.tagsManuallyEdited !== undefined && typeof item.tagsManuallyEdited !== 'boolean') throw new Error('Invalid tag protection.');
-    }
+    try { validatePortableArticle(candidate); } catch { throw new Error("Invalid backup."); }
+    const item = candidate as BackupArticle;
+    if (seenIds.has(item.id)) throw new Error("Invalid backup.");
     seenIds.add(item.id);
-    if (item.copy !== undefined) {
-      const copy = record(item.copy, ["markdown", "capturedAt", "source", "revision"], ["markdown", "capturedAt", "source", "revision"], "copy");
-      if (typeof copy.markdown !== "string" || !copy.markdown.trim() ||
-        Buffer.byteLength(copy.markdown, "utf8") > 262144 || !timestamp(copy.capturedAt) ||
-        (copy.source !== "paste" && copy.source !== "upload") || typeof copy.revision !== "string" ||
-        !/^[A-Za-z0-9_-]{1,128}$/.test(copy.revision)) throw new Error("Invalid backup.");
-      if (new TextDecoder("utf-8", { fatal: true }).decode(Buffer.from(copy.markdown, "utf8")) !== copy.markdown) throw new Error("Invalid backup.");
-    }
   }
   return input as BackupEnvelope;
 }
