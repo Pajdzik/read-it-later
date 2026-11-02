@@ -44,6 +44,16 @@ export async function managedConversion(request: Request, env: ManagedEnv): Prom
       if (pdf) {
         try { const { objectKey: _key, ...summary } = await stagePdf(env, bytes, sourceUrl); originalPdf = summary; }
         catch { throw new SourceFetchError('pdf_storage_unavailable', true); }
+      } else {
+        // Some sites put tiny data-URI placeholders beside their real media.
+        // Cloudflare's HTML-to-Markdown converter picks those placeholders as
+        // images, so remove only the decorative nodes before conversion.
+        const html = new HTMLRewriter().on('img[data-image-placeholder]', {
+          element(image) {
+            if (!image.hasAttribute('data-image-placeholder-media')) image.remove();
+          },
+        }).transform(new Response(bytes, { headers: { 'Content-Type': 'text/html; charset=utf-8' } }));
+        bytes = new Uint8Array(await html.arrayBuffer());
       }
     }
     let timer: ReturnType<typeof setTimeout>;
