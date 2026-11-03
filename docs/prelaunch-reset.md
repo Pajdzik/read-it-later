@@ -2,8 +2,9 @@
 
 This revision starts a new schema with `migrations/0001_initial.sql`. It does not
 upgrade the previous database. The app and capture Worker must use the same fresh
-D1 database. The checked-in staging and production IDs are deliberately unset;
-production CI stops before modifying resources until both bindings are configured.
+D1 database. Production bindings point to the fresh `read-later-production-v1`
+database. Staging IDs remain unset. Production CI checks that both Workers use
+the same fresh database before modifying resources.
 
 The reset discards the old library, sessions, capture tokens, operational jobs,
 archive sessions, and delivery receipts. Keep the existing database until the new

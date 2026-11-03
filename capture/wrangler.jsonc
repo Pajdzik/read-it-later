@@ -120,7 +120,7 @@
         {
           "binding": "DB",
           "database_name": "read-later-production-v1",
-          "database_id": "replace-with-fresh-production-d1-database-id",
+          "database_id": "a2f7180f-7369-44a2-895f-18e9becd9af0",
           "migrations_dir": "../migrations"
         }
       ]
