@@ -106,8 +106,8 @@
         "GITHUB_BACKUP_REPOSITORY": "Pajdzik/Kamilpedia",
         "GITHUB_BACKUP_BRANCH": "main",
         "GITHUB_BACKUP_PATH": "Articles",
-        "BACKGROUND_CAPTURE_ENABLED": "false",
-        "MANAGED_CONVERSION_ENABLED": "false",
+        "BACKGROUND_CAPTURE_ENABLED": "true",
+        "MANAGED_CONVERSION_ENABLED": "true",
         "ARTICLE_ENRICHMENT_ENABLED": "false",
         "ARTICLE_ENRICHMENT_DAILY_LIMIT": "100"
       },
