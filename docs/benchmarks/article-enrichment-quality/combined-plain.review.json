@@ -1,0 +1,255 @@
+{
+  "reportDigest": "50bc20b759f5ce145d94c66a48590723a90e4bade408575a3fdc873160c9a1e2",
+  "reviewerType": "agent",
+  "reviewer": "Codex",
+  "reviewedAt": "2026-11-02T04:38:53.597Z",
+  "method": "Agent inspected the complete response, complete tag set, request and supplied source text; no keyword-based acceptance or second-model judging calls.",
+  "judgments": [
+    {
+      "id": "combined/plain/01-en",
+      "resultDigest": "b52ecb86a5816f8307191c3b2aec6e840213ed66bbd89698dc38a158d80fad04",
+      "completeTagSetRelevant": false,
+      "tags": [],
+      "description": {
+        "grounded": null,
+        "language": null,
+        "oneSentence": null,
+        "evidence": "No accepted description; structurally rejected responses are never salvaged."
+      },
+      "notes": "Rejected the whole response: the complete raw set has 6 tags, exceeding five; the description has 3 sentence segments. No fields or tags were accepted. ",
+      "structuralJudgment": "rejected"
+    },
+    {
+      "id": "combined/plain/01-pl",
+      "resultDigest": "bfafebb9ae1df954952afe7f7d549ff4816e159db4923cc9c15cc53e8e93589f",
+      "completeTagSetRelevant": false,
+      "tags": [],
+      "description": {
+        "grounded": null,
+        "language": null,
+        "oneSentence": null,
+        "evidence": "No accepted description; structurally rejected responses are never salvaged."
+      },
+      "notes": "Rejected the whole response: the complete response is not a single parseable JSON value (truncation, fences or malformed syntax). No fields or tags were accepted. ",
+      "structuralJudgment": "rejected"
+    },
+    {
+      "id": "combined/plain/04-en",
+      "resultDigest": "0de184d913d23db61285bee63e9cb5c36bd772b4d22105cdf89846b11de899fb",
+      "completeTagSetRelevant": true,
+      "tags": [
+        {
+          "tag": "authentication",
+          "relevant": true,
+          "english": true,
+          "evidence": "The article describes an authenticator, credentials and signatures."
+        },
+        {
+          "tag": "passkey",
+          "relevant": true,
+          "english": true,
+          "evidence": "The article explicitly explains a passkey key pair and relying-party binding."
+        },
+        {
+          "tag": "phishing",
+          "relevant": true,
+          "english": true,
+          "evidence": "Fake-domain signature prevention is the stated threat and article topic."
+        },
+        {
+          "tag": "security",
+          "relevant": true,
+          "english": true,
+          "evidence": "Protection against a fake domain requesting signatures supports this security topic."
+        }
+      ],
+      "description": {
+        "grounded": true,
+        "language": "en",
+        "oneSentence": false,
+        "evidence": "The effective description is the unchanged meaningful paragraph from this same source; key storage, authenticator and relying-party facts appear verbatim."
+      },
+      "notes": "Every returned tag is an English topic grounded in the article. Description generation was not requested; the preserved extracted paragraph may contain multiple sentences."
+    },
+    {
+      "id": "combined/plain/04-pl",
+      "resultDigest": "43c3cbc9b3bbd964ea88b126b408f36581212326fa9ef4b51e75771591f451c0",
+      "completeTagSetRelevant": false,
+      "tags": [
+        {
+          "tag": "passkey",
+          "relevant": true,
+          "english": true,
+          "evidence": "The article explicitly explains a passkey key pair and relying-party binding."
+        },
+        {
+          "tag": "password",
+          "relevant": false,
+          "english": true,
+          "evidence": "The supplied article does not discuss password authentication; this adds an unsupported neighboring topic."
+        },
+        {
+          "tag": "phishing",
+          "relevant": true,
+          "english": true,
+          "evidence": "Fake-domain signature prevention is the stated threat and article topic."
+        }
+      ],
+      "description": {
+        "grounded": true,
+        "language": "pl",
+        "oneSentence": false,
+        "evidence": "The effective description is the unchanged meaningful paragraph from this same source; key storage, authenticator and relying-party facts appear verbatim."
+      },
+      "notes": "Reviewed the entire set: at least one tag is unrelated, too vague, unsupported or not English. Description generation was not requested; the preserved extracted paragraph may contain multiple sentences."
+    },
+    {
+      "id": "combined/plain-examples/01-en",
+      "resultDigest": "d1f936d0f2f8755b9fb88870c196284d35be01455d548bcda44161ca6dfd3f82",
+      "completeTagSetRelevant": false,
+      "tags": [],
+      "description": {
+        "grounded": null,
+        "language": null,
+        "oneSentence": null,
+        "evidence": "No accepted description; structurally rejected responses are never salvaged."
+      },
+      "notes": "Rejected the whole response: the complete response is not a single parseable JSON value (truncation, fences or malformed syntax). No fields or tags were accepted. ",
+      "structuralJudgment": "rejected"
+    },
+    {
+      "id": "combined/plain-examples/01-pl",
+      "resultDigest": "2efa0f945eb062263f2d940d373ba996c52162ff510cf35fc9dbef3bcd6b2d01",
+      "completeTagSetRelevant": false,
+      "tags": [],
+      "description": {
+        "grounded": null,
+        "language": null,
+        "oneSentence": null,
+        "evidence": "No accepted description; structurally rejected responses are never salvaged."
+      },
+      "notes": "Rejected the whole response: the description has 4 sentence segments. No fields or tags were accepted. ",
+      "structuralJudgment": "rejected"
+    },
+    {
+      "id": "combined/plain-examples/04-en",
+      "resultDigest": "79a4974da65189b6ea394c77980947e84b46aef8baa993bf7c434bff603f7b75",
+      "completeTagSetRelevant": false,
+      "tags": [],
+      "description": {
+        "grounded": null,
+        "language": null,
+        "oneSentence": null,
+        "evidence": "No accepted description; structurally rejected responses are never salvaged."
+      },
+      "notes": "Rejected the whole response: the description has 3 sentence segments; a non-null description was returned when generation was forbidden. No fields or tags were accepted. ",
+      "structuralJudgment": "rejected"
+    },
+    {
+      "id": "combined/plain-examples/04-pl",
+      "resultDigest": "8d790ae24e7b06363c9e52e1594c8a840ba0155be85631913a107aa82d91c6b5",
+      "completeTagSetRelevant": false,
+      "tags": [
+        {
+          "tag": "passkeys",
+          "relevant": true,
+          "english": true,
+          "evidence": "The article explicitly explains a passkey key pair and relying-party binding."
+        },
+        {
+          "tag": "passwords",
+          "relevant": false,
+          "english": true,
+          "evidence": "The supplied article does not discuss password authentication; this adds an unsupported neighboring topic."
+        },
+        {
+          "tag": "phishing",
+          "relevant": true,
+          "english": true,
+          "evidence": "Fake-domain signature prevention is the stated threat and article topic."
+        },
+        {
+          "tag": "security",
+          "relevant": true,
+          "english": true,
+          "evidence": "Protection against a fake domain requesting signatures supports this security topic."
+        }
+      ],
+      "description": {
+        "grounded": true,
+        "language": "pl",
+        "oneSentence": false,
+        "evidence": "The effective description is the unchanged meaningful paragraph from this same source; key storage, authenticator and relying-party facts appear verbatim."
+      },
+      "notes": "Reviewed the entire set: at least one tag is unrelated, too vague, unsupported or not English. Description generation was not requested; the preserved extracted paragraph may contain multiple sentences."
+    },
+    {
+      "id": "combined/plain-english-example/01-en",
+      "resultDigest": "6bc3c10789ceaf264a48eaf11306dbb22e8bf91a735235a093ffc73f605709df",
+      "completeTagSetRelevant": false,
+      "tags": [],
+      "description": {
+        "grounded": null,
+        "language": null,
+        "oneSentence": null,
+        "evidence": "No accepted description; structurally rejected responses are never salvaged."
+      },
+      "notes": "Rejected the whole response: the complete response is not a single parseable JSON value (truncation, fences or malformed syntax). No fields or tags were accepted. ",
+      "structuralJudgment": "rejected"
+    },
+    {
+      "id": "combined/plain-english-example/01-pl",
+      "resultDigest": "24b33a17357f76d14f72974d106669dea0e2d8131bbd5e16797eb3671d5052a8",
+      "completeTagSetRelevant": false,
+      "tags": [],
+      "description": {
+        "grounded": null,
+        "language": null,
+        "oneSentence": null,
+        "evidence": "No accepted description; structurally rejected responses are never salvaged."
+      },
+      "notes": "Rejected the whole response: the description has 2 sentence segments. No fields or tags were accepted. ",
+      "structuralJudgment": "rejected"
+    },
+    {
+      "id": "combined/plain-english-example/04-en",
+      "resultDigest": "b90be21445aa6294defd05e73b8a69736900dd370a90bb5f7986963a71dc90b0",
+      "completeTagSetRelevant": true,
+      "tags": [
+        {
+          "tag": "passkeys",
+          "relevant": true,
+          "english": true,
+          "evidence": "The article explicitly explains a passkey key pair and relying-party binding."
+        },
+        {
+          "tag": "phishing",
+          "relevant": true,
+          "english": true,
+          "evidence": "Fake-domain signature prevention is the stated threat and article topic."
+        }
+      ],
+      "description": {
+        "grounded": true,
+        "language": "en",
+        "oneSentence": false,
+        "evidence": "The effective description is the unchanged meaningful paragraph from this same source; key storage, authenticator and relying-party facts appear verbatim."
+      },
+      "notes": "Every returned tag is an English topic grounded in the article. Description generation was not requested; the preserved extracted paragraph may contain multiple sentences."
+    },
+    {
+      "id": "combined/plain-english-example/04-pl",
+      "resultDigest": "55f758a2e09f31f484ff88f00d865637bc5b7e69db05ee52f116a50168b7d8f4",
+      "completeTagSetRelevant": false,
+      "tags": [],
+      "description": {
+        "grounded": null,
+        "language": null,
+        "oneSentence": null,
+        "evidence": "No accepted description; structurally rejected responses are never salvaged."
+      },
+      "notes": "Rejected the whole response: the description has 3 sentence segments; a non-null description was returned when generation was forbidden. No fields or tags were accepted. ",
+      "structuralJudgment": "rejected"
+    }
+  ]
+}

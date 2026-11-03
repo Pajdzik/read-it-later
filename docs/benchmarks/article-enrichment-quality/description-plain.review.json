@@ -1,0 +1,65 @@
+{
+  "reportDigest": "dfbd4126646d7467df0d91d7ac3dd341e5de14f43d6860d63d75b108c4733dab",
+  "reviewerType": "agent",
+  "reviewer": "Codex",
+  "reviewedAt": "2026-11-02T04:38:53.594Z",
+  "method": "Agent inspected the complete response, complete tag set, request and supplied source text; no keyword-based acceptance or second-model judging calls.",
+  "judgments": [
+    {
+      "id": "description/plain/01-en",
+      "resultDigest": "0c957a3a6a2fdd0464b0c9546e301995dd84cfd9b2b8af1611165c9c3afe5f9e",
+      "completeTagSetRelevant": false,
+      "tags": [],
+      "description": {
+        "grounded": null,
+        "language": null,
+        "oneSentence": null,
+        "evidence": "No accepted description; structurally rejected responses are never salvaged."
+      },
+      "notes": "Rejected the whole response: the description has 3 sentence segments. No fields or tags were accepted. ",
+      "structuralJudgment": "rejected"
+    },
+    {
+      "id": "description/plain/01-pl",
+      "resultDigest": "99efa7edcb8e1df1eddd6ccb62ea00e563ca17f7d585f11712e19f89178eb366",
+      "completeTagSetRelevant": false,
+      "tags": [],
+      "description": {
+        "grounded": null,
+        "language": null,
+        "oneSentence": null,
+        "evidence": "No accepted description; structurally rejected responses are never salvaged."
+      },
+      "notes": "Rejected the whole response: the complete response is not a single parseable JSON value (truncation, fences or malformed syntax). No fields or tags were accepted. ",
+      "structuralJudgment": "rejected"
+    },
+    {
+      "id": "description/plain/04-en",
+      "resultDigest": "7a2dd9ec24f9730a5387eaf55102d0e2db1ea5c67dec1ed362a839c7eee950a9",
+      "completeTagSetRelevant": false,
+      "tags": [],
+      "description": {
+        "grounded": null,
+        "language": null,
+        "oneSentence": null,
+        "evidence": "No accepted description; structurally rejected responses are never salvaged."
+      },
+      "notes": "Rejected the whole response: the description has 3 sentence segments. No fields or tags were accepted. ",
+      "structuralJudgment": "rejected"
+    },
+    {
+      "id": "description/plain/04-pl",
+      "resultDigest": "e2f6a0ef711001ce95656ab7dfdad38dc3d4869ea26fcb0c124c92c0333e9d73",
+      "completeTagSetRelevant": false,
+      "tags": [],
+      "description": {
+        "grounded": null,
+        "language": null,
+        "oneSentence": null,
+        "evidence": "No accepted description; structurally rejected responses are never salvaged."
+      },
+      "notes": "Rejected the whole response: the description has 3 sentence segments. No fields or tags were accepted. ",
+      "structuralJudgment": "rejected"
+    }
+  ]
+}

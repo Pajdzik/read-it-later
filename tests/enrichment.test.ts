@@ -1,9 +1,9 @@
 import { env as testEnv } from 'cloudflare:workers';
 import { beforeEach, afterEach, describe, expect, it, vi } from 'vitest';
 import type { Env, EnrichmentMessage } from '../src/contracts';
-import { buildEnrichmentPrompt, completeEnrichment, enrichmentStatuses, isEnrichmentMessage, markdownLead,
+import { buildEnrichmentMessages, completeEnrichment, enrichmentStatuses, isEnrichmentMessage, markdownLead,
   enrichmentModelInput, MAX_PROMPT_BYTES, parseEnrichmentOutput, processEnrichmentMessage, recoverEnrichmentJobs, reserveEnrichmentAttempt,
-  MAX_MARKDOWN_BYTES, plainMarkdown,
+  MAX_MARKDOWN_BYTES, plainMarkdown, canGenerateDescription, relevantExistingTags, enrichmentPromptBytes,
   type EnrichmentInput } from '../src/articles/enrichment';
 import { normalizeTags } from '../src/articles/tags';
 import { deleteArticle, getArticle, getArticleCopy, listArticles, saveArticle, saveArticleCopy, updateArticle,
@@ -49,6 +49,39 @@ describe('bounded enrichment text', () => {
     expect(() => parseEnrichmentOutput({ response: '```json\n{"tags":[],"description":null}\n```' })).toThrow();
     expect(() => parseEnrichmentOutput({ response: '{"tags":[],"description":null,"unexpected":true}' })).toThrow();
   });
+  it('rejects every malformed result without salvaging fields, tags or a first object', () => {
+    for (const response of [
+      '{"tags":["sql"],"description":null', '{"tags":["sql"]}',
+      '{"tags":[],"description":null} {"tags":[],"description":null}',
+      'Here is JSON: {"tags":[],"description":null}',
+      JSON.stringify({ tags: ['sql', ' SQL '], description: null }),
+      JSON.stringify({ tags: Array(6).fill('sql'), description: null }),
+      JSON.stringify({ tags: ['bad\u2028tag'], description: null }),
+      JSON.stringify({ tags: ['sql'], description: 'One sentence. Another sentence.' }),
+      JSON.stringify({ tags: ['sql'], description: 'First line.\nSecond line.' }),
+      JSON.stringify({ tags: ['sql'], description: 'One sentence.\u2028Another sentence.' }),
+    ]) expect(() => parseEnrichmentOutput({ response })).toThrow();
+    expect(() => parseEnrichmentOutput({ response: JSON.stringify({ tags: ['sql'], description: 'A factual sentence.' }) }, false)).toThrow();
+  });
+  it('selects at most five relevant whole-word tags without popular unrelated padding', () => {
+    const input: EnrichmentInput = { title: 'Air travel and database indexes', title_origin: 'supplied', description: null,
+      description_origin: null, tags_manual: 0, markdown: '- Database indexes organize keys and speed up query planning.', revision: 'r', baseline: '[]' };
+    expect(relevantExistingTags(input, ['ai', 'security', 'database indexes', 'air travel', 'query planning']))
+      .toEqual(['database indexes', 'air travel', 'query planning']);
+    expect(relevantExistingTags(input, ['security', 'astronomy'])).toEqual([]);
+    expect(relevantExistingTags(input, ['air','travel','database','indexes','query','planning'])).toHaveLength(5);
+  });
+  it('requires grounded prose for generation and counts examples in the complete prompt budget', () => {
+    const input: EnrichmentInput = { title: 'Database indexes', title_origin: 'supplied', description: null,
+      description_origin: null, tags_manual: 0, markdown: '# A very long heading about database indexes and the query planner with no article text.', revision: 'r', baseline: '[]' };
+    expect(canGenerateDescription(input)).toBe(false);
+    expect(buildEnrichmentMessages(input, [])[0].content).toContain('Description: null.');
+    input.markdown = '- Indeksy pozwalają wyszukiwać wiersze bez przeglądania całej tabeli.';
+    expect(canGenerateDescription(input)).toBe(true);
+    input.description_origin = 'manual'; expect(canGenerateDescription(input)).toBe(false);
+    const messages = buildEnrichmentMessages(input, []);
+    expect(() => enrichmentModelInput([...messages, { role: 'assistant', content: 'x'.repeat(MAX_PROMPT_BYTES) }])).toThrow('prompt_too_large');
+  });
   it('finds prose without returning frontmatter, headings, code, navigation, or cookie notices', () => {
     const prose = 'Database indexes make targeted lookups faster, while adding a cost to every write.';
     expect(markdownLead(`---\nsecret: ignored\n---\n# Title\n\n\`\`\`sql\nSELECT 1\n\`\`\`\n\n${prose}`)).toBe(prose);
@@ -75,12 +108,12 @@ describe('bounded enrichment text', () => {
   it('bounds the complete JSON-escaped prompt and keeps Unicode intact', () => {
     const input: EnrichmentInput = { title: '雪'.repeat(500), title_origin: 'supplied', description: null, description_origin: null,
       tags_manual: 0, markdown: '"\\📰'.repeat(20000), revision: 'r', baseline: '[]' };
-    const prompt = buildEnrichmentPrompt(input, Array(200).fill('雪'.repeat(40)));
-    expect(new TextEncoder().encode(prompt).length).toBeLessThanOrEqual(MAX_PROMPT_BYTES);
+    const prompt = buildEnrichmentMessages(input, Array(200).fill('雪'.repeat(40)));
+    expect(enrichmentPromptBytes(prompt)).toBeLessThanOrEqual(MAX_PROMPT_BYTES);
     const request = enrichmentModelInput(prompt);
     expect(request.messages?.reduce((n, m) => n + new TextEncoder().encode(m.content).length, 0)).toBeLessThanOrEqual(MAX_PROMPT_BYTES);
-    expect(new TextDecoder('utf-8', { fatal: true }).decode(new TextEncoder().encode(prompt))).toBe(prompt);
-    expect(prompt).toContain('untrusted data');
+    expect(new TextDecoder('utf-8', { fatal: true }).decode(new TextEncoder().encode(JSON.stringify(prompt)))).toBe(JSON.stringify(prompt));
+    expect(prompt[0].content).toContain('untrusted data');
   });
 });
 
@@ -162,8 +195,32 @@ describe('durable enrichment', () => {
     await processEnrichmentMessage(configured(run), message(article.id));
     expect(await getArticle(testEnv.DB, article.id)).toMatchObject({ descriptionOrigin: 'generated', description: 'Indeksy przyspieszają wyszukiwanie danych w bazie.' });
     expect(run).toHaveBeenCalledTimes(1);
-    const link = await add('link'); await processEnrichmentMessage(configured(run), message(link.id));
+    const link = await add('link'); await processEnrichmentMessage(configured(), message(link.id));
     expect((await getArticle(testEnv.DB, link.id))!.description).toBeNull();
+  });
+  it('fails unwanted generated descriptions on link-only saves without a second request', async () => {
+    const article = await add('unwanted');
+    const run = vi.fn(async () => ({ response: JSON.stringify({ tags: ['databases'], description: 'Invented from the title.' }) }));
+    await processEnrichmentMessage(configured(run), message(article.id));
+    expect(run).toHaveBeenCalledTimes(1);
+    expect(await getArticle(testEnv.DB, article.id)).toMatchObject({ description: null, tags: [] });
+    expect(await job(article.id)).toMatchObject({ state: 'failed', error_code: 'invalid_output', attempts: 1 });
+  });
+  it('fingerprints the entire request and logs failed-call usage without source text', async () => {
+    const article = await add('accounting');
+    const info = vi.spyOn(console, 'info').mockImplementation(() => {});
+    const run = vi.fn(async (..._args: unknown[]) => ({ response: 'private source text is not JSON', usage: { prompt_tokens: 111, completion_tokens: 192 } }));
+    await processEnrichmentMessage(configured(run), message(article.id));
+    const [model, request] = run.mock.calls[0];
+    expect(model).toBe('@cf/meta/llama-3.2-1b-instruct');
+    expect(request).toMatchObject({ max_tokens: 192, temperature: 0, stream: false });
+    const hash = [...new Uint8Array(await crypto.subtle.digest('SHA-256', new TextEncoder().encode(`${model}\n${JSON.stringify(request)}`)))]
+      .map(b => b.toString(16).padStart(2, '0')).join('');
+    expect(await job(article.id)).toMatchObject({ input_fingerprint: hash });
+    const logged = info.mock.calls.map(([line]) => JSON.parse(String(line))).find(event => event.event === 'enrichment_output_invalid');
+    expect(logged).toMatchObject({ articleId: article.id, attempt: 1, inputTokens: 111, outputTokens: 192 });
+    expect(JSON.stringify(logged)).not.toContain('private source text');
+    expect(await usage()).toBe(1);
   });
   it('honors manual edits and deliberate clearing while inference is in flight', async () => {
     const article = await add(); await copy(article.id);

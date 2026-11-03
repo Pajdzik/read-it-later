@@ -1,0 +1,30 @@
+{
+  "passed": false,
+  "relevantTagSets": 1,
+  "language": {
+    "en": {
+      "total": 6,
+      "valid": 1,
+      "relevant": 1
+    },
+    "pl": {
+      "total": 6,
+      "valid": 0,
+      "relevant": 0
+    }
+  },
+  "reasons": [
+    "combined/minimal/01-en:invalid_output",
+    "combined/minimal/01-pl:invalid_output",
+    "combined/minimal/04-en:invalid_output",
+    "combined/minimal/04-pl:invalid_output",
+    "combined/vocabulary/01-en:invalid_output",
+    "combined/vocabulary/01-pl:invalid_output",
+    "combined/vocabulary/04-en:invalid_output",
+    "combined/vocabulary/04-pl:invalid_output",
+    "combined/examples/01-en:description_quality",
+    "combined/examples/01-pl:invalid_output",
+    "combined/examples/04-en:invalid_output",
+    "combined/examples/04-pl:invalid_output"
+  ]
+}

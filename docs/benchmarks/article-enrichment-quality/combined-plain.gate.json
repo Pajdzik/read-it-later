@@ -1,0 +1,28 @@
+{
+  "passed": false,
+  "relevantTagSets": 2,
+  "language": {
+    "en": {
+      "total": 6,
+      "valid": 2,
+      "relevant": 2
+    },
+    "pl": {
+      "total": 6,
+      "valid": 2,
+      "relevant": 0
+    }
+  },
+  "reasons": [
+    "combined/plain/01-en:invalid_output",
+    "combined/plain/01-pl:invalid_output",
+    "combined/plain/04-pl:tag_quality",
+    "combined/plain-examples/01-en:invalid_output",
+    "combined/plain-examples/01-pl:invalid_output",
+    "combined/plain-examples/04-en:invalid_output",
+    "combined/plain-examples/04-pl:tag_quality",
+    "combined/plain-english-example/01-en:invalid_output",
+    "combined/plain-english-example/01-pl:invalid_output",
+    "combined/plain-english-example/04-pl:invalid_output"
+  ]
+}

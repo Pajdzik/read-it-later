@@ -1,0 +1,20 @@
+{
+  "passed": false,
+  "relevantTagSets": 2,
+  "language": {
+    "en": {
+      "total": 2,
+      "valid": 2,
+      "relevant": 2
+    },
+    "pl": {
+      "total": 2,
+      "valid": 1,
+      "relevant": 0
+    }
+  },
+  "reasons": [
+    "tags/plain/01-pl:invalid_output",
+    "tags/plain/04-pl:tag_quality"
+  ]
+}

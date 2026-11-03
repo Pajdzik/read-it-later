@@ -1,0 +1,177 @@
+{
+  "reportDigest": "cd079247f1cd9e289d9ce7f76572e32021172042a65cb42ed85831813067709b",
+  "reviewerType": "agent",
+  "reviewer": "Codex",
+  "reviewedAt": "2026-11-02T04:38:53.581Z",
+  "method": "Agent inspected the complete response, complete tag set, request and supplied source text; no keyword-based acceptance or second-model judging calls.",
+  "judgments": [
+    {
+      "id": "description/minimal/01-en",
+      "resultDigest": "e18384fd79bbe889f84389ea1b5ad05625fcfbd957037f2cf0dbc9c832fd9354",
+      "completeTagSetRelevant": false,
+      "tags": [],
+      "description": {
+        "grounded": null,
+        "language": null,
+        "oneSentence": null,
+        "evidence": "No accepted description; structurally rejected responses are never salvaged."
+      },
+      "notes": "Rejected the whole response: unexpected/missing fields: received title, description, existingTags, articleText, required description; the description has 0 sentence segments. No fields or tags were accepted. The rewritten articleText also claims indexes ensure accuracy and consistency, unsupported by the supplied text.",
+      "structuralJudgment": "rejected"
+    },
+    {
+      "id": "description/minimal/01-pl",
+      "resultDigest": "9a39cc74c6b3f5c0fd3428ee35af35fbd9ae79b42088218640ef68b6a16a05a9",
+      "completeTagSetRelevant": false,
+      "tags": [],
+      "description": {
+        "grounded": null,
+        "language": null,
+        "oneSentence": null,
+        "evidence": "No accepted description; structurally rejected responses are never salvaged."
+      },
+      "notes": "Rejected the whole response: unexpected/missing fields: received title, description, existingTags, articleText, required description; the description has 0 sentence segments. No fields or tags were accepted. The rewritten articleText claims index independence and safety, neither established by the source.",
+      "structuralJudgment": "rejected"
+    },
+    {
+      "id": "description/minimal/04-en",
+      "resultDigest": "a740294d0a76a35054362e583a803a0b3b95422ed8691a9e7b425efc08d3cbd3",
+      "completeTagSetRelevant": false,
+      "tags": [],
+      "description": {
+        "grounded": null,
+        "language": null,
+        "oneSentence": null,
+        "evidence": "No accepted description; structurally rejected responses are never salvaged."
+      },
+      "notes": "Rejected the whole response: unexpected/missing fields: received title, description, existingTags, articleText, required description; the description has 3 sentence segments. No fields or tags were accepted. ",
+      "structuralJudgment": "rejected"
+    },
+    {
+      "id": "description/minimal/04-pl",
+      "resultDigest": "d7725cbe4beed41047ae982f3e2de72a9463340db9b4692e886c809fcb41c0e5",
+      "completeTagSetRelevant": false,
+      "tags": [],
+      "description": {
+        "grounded": null,
+        "language": null,
+        "oneSentence": null,
+        "evidence": "No accepted description; structurally rejected responses are never salvaged."
+      },
+      "notes": "Rejected the whole response: unexpected/missing fields: received title, description, existingTags, articleText, required description; the description has 0 sentence segments. No fields or tags were accepted. ",
+      "structuralJudgment": "rejected"
+    },
+    {
+      "id": "description/vocabulary/01-en",
+      "resultDigest": "21bdfc3417c3012c335552bc709972f0f7cf294c07562887da5161e6a79f78e9",
+      "completeTagSetRelevant": false,
+      "tags": [],
+      "description": {
+        "grounded": null,
+        "language": null,
+        "oneSentence": null,
+        "evidence": "No accepted description; structurally rejected responses are never salvaged."
+      },
+      "notes": "Rejected the whole response: unexpected/missing fields: received title, description, existingTags, articleText, required description; the description has 0 sentence segments. No fields or tags were accepted. The response adds applications, full-text/hash-index claims and design assertions absent from the source.",
+      "structuralJudgment": "rejected"
+    },
+    {
+      "id": "description/vocabulary/01-pl",
+      "resultDigest": "ff1154465b67ae559d515a4fdcafe6a730628689c4d2a00f6ba4d6a13dcdcf3a",
+      "completeTagSetRelevant": false,
+      "tags": [],
+      "description": {
+        "grounded": null,
+        "language": null,
+        "oneSentence": null,
+        "evidence": "No accepted description; structurally rejected responses are never salvaged."
+      },
+      "notes": "Rejected the whole response: unexpected/missing fields: received title, description, existingTags, articleText, required description; the description has 0 sentence segments. No fields or tags were accepted. ",
+      "structuralJudgment": "rejected"
+    },
+    {
+      "id": "description/vocabulary/04-en",
+      "resultDigest": "fd32dcdc3075d3ae2df30ff209cb40f7d7a501945d6e3ac71ae52bb6795d4e27",
+      "completeTagSetRelevant": false,
+      "tags": [],
+      "description": {
+        "grounded": null,
+        "language": null,
+        "oneSentence": null,
+        "evidence": "No accepted description; structurally rejected responses are never salvaged."
+      },
+      "notes": "Rejected the whole response: unexpected/missing fields: received title, description, existingTags, articleText, required description; the description has 0 sentence segments. No fields or tags were accepted. ",
+      "structuralJudgment": "rejected"
+    },
+    {
+      "id": "description/vocabulary/04-pl",
+      "resultDigest": "73f3deb938e4c45e51a0856fca837d93a99d550d44748305c55047a4fe90857c",
+      "completeTagSetRelevant": false,
+      "tags": [],
+      "description": {
+        "grounded": null,
+        "language": null,
+        "oneSentence": null,
+        "evidence": "No accepted description; structurally rejected responses are never salvaged."
+      },
+      "notes": "Rejected the whole response: unexpected/missing fields: received title, description, existingTags, articleText, required description; the description has 0 sentence segments. No fields or tags were accepted. The rewritten articleText is English despite a Polish source, and changes the authentication mechanism.",
+      "structuralJudgment": "rejected"
+    },
+    {
+      "id": "description/examples/01-en",
+      "resultDigest": "a9edc31b370a01fef31bf32d3d94e2d80a3c8e9fcc30d38eab1e1911efbb2bd0",
+      "completeTagSetRelevant": false,
+      "tags": [],
+      "description": {
+        "grounded": null,
+        "language": null,
+        "oneSentence": null,
+        "evidence": "No accepted description; structurally rejected responses are never salvaged."
+      },
+      "notes": "Rejected the whole response: unexpected/missing fields: received description, existingTags, articleText, required description. No fields or tags were accepted. The response rewrites English articleText into Polish and introduces columns; required description is null.",
+      "structuralJudgment": "rejected"
+    },
+    {
+      "id": "description/examples/01-pl",
+      "resultDigest": "6991490356a5d5238366918bfeb562fce073ae9987580046eb2731072711de5d",
+      "completeTagSetRelevant": false,
+      "tags": [],
+      "description": {
+        "grounded": null,
+        "language": null,
+        "oneSentence": null,
+        "evidence": "No accepted description; structurally rejected responses are never salvaged."
+      },
+      "notes": "Rejected the whole response: unexpected/missing fields: received title, description, existingTags, articleText, required description. No fields or tags were accepted. ",
+      "structuralJudgment": "rejected"
+    },
+    {
+      "id": "description/examples/04-en",
+      "resultDigest": "c59905bac89b9a366ee2a5cba7bc4b34cfec78daea331cd2d14f1ef8c8e2fb1c",
+      "completeTagSetRelevant": false,
+      "tags": [],
+      "description": {
+        "grounded": null,
+        "language": null,
+        "oneSentence": null,
+        "evidence": "No accepted description; structurally rejected responses are never salvaged."
+      },
+      "notes": "Rejected the whole response: the description has 3 sentence segments. No fields or tags were accepted. ",
+      "structuralJudgment": "rejected"
+    },
+    {
+      "id": "description/examples/04-pl",
+      "resultDigest": "68fb1324b5f9848bf69b078e77e372f7863bf3d1f094901fdc059b18f52e256e",
+      "completeTagSetRelevant": false,
+      "tags": [],
+      "description": {
+        "grounded": null,
+        "language": null,
+        "oneSentence": null,
+        "evidence": "No accepted description; structurally rejected responses are never salvaged."
+      },
+      "notes": "Rejected the whole response: unexpected/missing fields: received title, description, existingTags, articleText, required description. No fields or tags were accepted. ",
+      "structuralJudgment": "rejected"
+    }
+  ]
+}

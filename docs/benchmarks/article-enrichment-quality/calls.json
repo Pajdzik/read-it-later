@@ -1,0 +1,426 @@
+{
+  "task": "article-enrichment-quality",
+  "maximum": 100,
+  "calls": [
+    {
+      "number": 1,
+      "reservedAt": "2026-11-02T04:29:49.323Z",
+      "id": "tags/minimal/01-en",
+      "report": ".wrangler/enrichment-tags.json",
+      "requestDigest": "c7e72a394a27f79dd2797e0f33c3571a5b4ece93467f7010d725909ea4b0ff7b"
+    },
+    {
+      "number": 2,
+      "reservedAt": "2026-11-02T04:29:50.761Z",
+      "id": "tags/minimal/01-pl",
+      "report": ".wrangler/enrichment-tags.json",
+      "requestDigest": "66b6cccca281c3e1815b21448a738ad0faf870d92e68c59e0dd0dbbb399e95fe"
+    },
+    {
+      "number": 3,
+      "reservedAt": "2026-11-02T04:29:51.916Z",
+      "id": "tags/minimal/04-en",
+      "report": ".wrangler/enrichment-tags.json",
+      "requestDigest": "ebd8f5d4dc174083f1e64963ee9a4597b7714a044f9923ea931f9995436ba594"
+    },
+    {
+      "number": 4,
+      "reservedAt": "2026-11-02T04:29:52.567Z",
+      "id": "tags/minimal/04-pl",
+      "report": ".wrangler/enrichment-tags.json",
+      "requestDigest": "3867125199f39edbcd26f29f38201240a81ae2471aecb4693b06754c4fd8c9d8"
+    },
+    {
+      "number": 5,
+      "reservedAt": "2026-11-02T04:29:53.448Z",
+      "id": "tags/vocabulary/01-en",
+      "report": ".wrangler/enrichment-tags.json",
+      "requestDigest": "8ec60a666a435849fb3e4ca355269d5b6d355be145c0903df181840757b5acbf"
+    },
+    {
+      "number": 6,
+      "reservedAt": "2026-11-02T04:29:54.546Z",
+      "id": "tags/vocabulary/01-pl",
+      "report": ".wrangler/enrichment-tags.json",
+      "requestDigest": "66b6cccca281c3e1815b21448a738ad0faf870d92e68c59e0dd0dbbb399e95fe"
+    },
+    {
+      "number": 7,
+      "reservedAt": "2026-11-02T04:29:55.906Z",
+      "id": "tags/vocabulary/04-en",
+      "report": ".wrangler/enrichment-tags.json",
+      "requestDigest": "52753cc620aa039782a24a4f9af40fbf90cbfbb98b3ac4e3435f265597338f8f"
+    },
+    {
+      "number": 8,
+      "reservedAt": "2026-11-02T04:29:56.659Z",
+      "id": "tags/vocabulary/04-pl",
+      "report": ".wrangler/enrichment-tags.json",
+      "requestDigest": "54d7537e828c83d93b1ee508550541e5b318aecbb3ff2585959ee0884bbb142c"
+    },
+    {
+      "number": 9,
+      "reservedAt": "2026-11-02T04:29:57.495Z",
+      "id": "tags/examples/01-en",
+      "report": ".wrangler/enrichment-tags.json",
+      "requestDigest": "7d6c34703bbed4e84b9dd0d1017866edba98a0606a66dc7fe2e9870ef7d90ec6"
+    },
+    {
+      "number": 10,
+      "reservedAt": "2026-11-02T04:29:57.886Z",
+      "id": "tags/examples/01-pl",
+      "report": ".wrangler/enrichment-tags.json",
+      "requestDigest": "050d9821da289e2407524ac827e8f99c4c6d95130d0a7a0664a3e6eb652263d0"
+    },
+    {
+      "number": 11,
+      "reservedAt": "2026-11-02T04:29:58.188Z",
+      "id": "tags/examples/04-en",
+      "report": ".wrangler/enrichment-tags.json",
+      "requestDigest": "f76b353b695a7725acac177efee3874fcd175a71b6e2b87ffd43a4edba7948a6"
+    },
+    {
+      "number": 12,
+      "reservedAt": "2026-11-02T04:29:58.592Z",
+      "id": "tags/examples/04-pl",
+      "report": ".wrangler/enrichment-tags.json",
+      "requestDigest": "a1657588e150138331f95259d7d3867ae418754eb568274b144ca5241aa01481"
+    },
+    {
+      "number": 13,
+      "reservedAt": "2026-11-02T04:30:08.700Z",
+      "id": "description/minimal/01-en",
+      "report": ".wrangler/enrichment-description.json",
+      "requestDigest": "27b0b4b0e07accb91f0eff77b98d1a7c99ddf39c393b7773ca3c8dda9c412162"
+    },
+    {
+      "number": 14,
+      "reservedAt": "2026-11-02T04:30:09.522Z",
+      "id": "description/minimal/01-pl",
+      "report": ".wrangler/enrichment-description.json",
+      "requestDigest": "6b26894ecdb35d8fb0fced4ab5ebe587c5caf036cf3cef7ddddb7e65429206eb"
+    },
+    {
+      "number": 15,
+      "reservedAt": "2026-11-02T04:30:12.431Z",
+      "id": "description/minimal/04-en",
+      "report": ".wrangler/enrichment-description.json",
+      "requestDigest": "e2bce401f00bce2a076af4c82725edff0b6a2f6d8d1bee4edeab7ca394e6fab4"
+    },
+    {
+      "number": 16,
+      "reservedAt": "2026-11-02T04:30:13.462Z",
+      "id": "description/minimal/04-pl",
+      "report": ".wrangler/enrichment-description.json",
+      "requestDigest": "c0c961f4a4b3a7f091398d07c457c381296f070acb2990c474b14ad14fbc1ee2"
+    },
+    {
+      "number": 17,
+      "reservedAt": "2026-11-02T04:30:14.819Z",
+      "id": "description/vocabulary/01-en",
+      "report": ".wrangler/enrichment-description.json",
+      "requestDigest": "30a797641ab442e4dd6b2feea5c52b6906625327d820ccecc8b324f8929297c6"
+    },
+    {
+      "number": 18,
+      "reservedAt": "2026-11-02T04:30:15.947Z",
+      "id": "description/vocabulary/01-pl",
+      "report": ".wrangler/enrichment-description.json",
+      "requestDigest": "7f38e012dfa3eb1d20cdf6e97416ea1f5f7e9936f7bbd68d104fbed1bd8a5165"
+    },
+    {
+      "number": 19,
+      "reservedAt": "2026-11-02T04:30:17.401Z",
+      "id": "description/vocabulary/04-en",
+      "report": ".wrangler/enrichment-description.json",
+      "requestDigest": "ac879a8493dd8c40b02aaa4207ba5eb887fd37b6ac01c31bb882aaec4cd32b16"
+    },
+    {
+      "number": 20,
+      "reservedAt": "2026-11-02T04:30:18.062Z",
+      "id": "description/vocabulary/04-pl",
+      "report": ".wrangler/enrichment-description.json",
+      "requestDigest": "792294389ef0b6e9a9ca347d1e78ea094c080502eb278bee96b3d17bffba0ef4"
+    },
+    {
+      "number": 21,
+      "reservedAt": "2026-11-02T04:30:18.644Z",
+      "id": "description/examples/01-en",
+      "report": ".wrangler/enrichment-description.json",
+      "requestDigest": "99a129e9b462c1aef2be660533da96cfc90d8c8ff6c61c1f109b585448d9afb3"
+    },
+    {
+      "number": 22,
+      "reservedAt": "2026-11-02T04:30:19.314Z",
+      "id": "description/examples/01-pl",
+      "report": ".wrangler/enrichment-description.json",
+      "requestDigest": "64dca833c4e3d6f21689275d72c39d6cf7d8de0eff9be2f39f3d6f41ab0df7da"
+    },
+    {
+      "number": 23,
+      "reservedAt": "2026-11-02T04:30:20.222Z",
+      "id": "description/examples/04-en",
+      "report": ".wrangler/enrichment-description.json",
+      "requestDigest": "e0e2353e9c63834eec5afb0b48f99ccd8f95cbc141f5c102fa83261256494483"
+    },
+    {
+      "number": 24,
+      "reservedAt": "2026-11-02T04:30:20.757Z",
+      "id": "description/examples/04-pl",
+      "report": ".wrangler/enrichment-description.json",
+      "requestDigest": "dbbd91ce01db07050c54e90936fa2b3cecfc123d1b2b785755f2927c80a2c671"
+    },
+    {
+      "number": 25,
+      "reservedAt": "2026-11-02T04:30:57.274Z",
+      "id": "combined/minimal/01-en",
+      "report": ".wrangler/enrichment-combined.json",
+      "requestDigest": "b5893dcd12cdd6175b41265fb330a613cde79facb2c57663c8a6514f3d791723"
+    },
+    {
+      "number": 26,
+      "reservedAt": "2026-11-02T04:30:58.523Z",
+      "id": "combined/minimal/01-pl",
+      "report": ".wrangler/enrichment-combined.json",
+      "requestDigest": "c9ad6c916782d61e1bd7a4bf3de3b0b5edf258065abfd34c568709333c91da77"
+    },
+    {
+      "number": 27,
+      "reservedAt": "2026-11-02T04:30:59.197Z",
+      "id": "combined/minimal/04-en",
+      "report": ".wrangler/enrichment-combined.json",
+      "requestDigest": "7c277cfb790b2172991e1f1bee22d1a4c922d998878e901e9f471fffec211a89"
+    },
+    {
+      "number": 28,
+      "reservedAt": "2026-11-02T04:30:59.843Z",
+      "id": "combined/minimal/04-pl",
+      "report": ".wrangler/enrichment-combined.json",
+      "requestDigest": "e4eca4cef02fbeeed3ceb9aae1f35771570f46111968e0be5497214c5e9276c1"
+    },
+    {
+      "number": 29,
+      "reservedAt": "2026-11-02T04:31:00.950Z",
+      "id": "combined/vocabulary/01-en",
+      "report": ".wrangler/enrichment-combined.json",
+      "requestDigest": "d5b60ee6ced0bcdeb9935d3e89bc288fe2d85d3bc968830cca494ec9dc5c4416"
+    },
+    {
+      "number": 30,
+      "reservedAt": "2026-11-02T04:31:02.338Z",
+      "id": "combined/vocabulary/01-pl",
+      "report": ".wrangler/enrichment-combined.json",
+      "requestDigest": "c9ad6c916782d61e1bd7a4bf3de3b0b5edf258065abfd34c568709333c91da77"
+    },
+    {
+      "number": 31,
+      "reservedAt": "2026-11-02T04:31:02.968Z",
+      "id": "combined/vocabulary/04-en",
+      "report": ".wrangler/enrichment-combined.json",
+      "requestDigest": "eefe53268087874580c843f002ac5a1a0b1387963c9d7748aca829cdd2ed2494"
+    },
+    {
+      "number": 32,
+      "reservedAt": "2026-11-02T04:31:03.772Z",
+      "id": "combined/vocabulary/04-pl",
+      "report": ".wrangler/enrichment-combined.json",
+      "requestDigest": "520ca0edde8c467a3c8518a3da838fabb6cdd1d2830b2618d77671084b8e10b6"
+    },
+    {
+      "number": 33,
+      "reservedAt": "2026-11-02T04:31:04.854Z",
+      "id": "combined/examples/01-en",
+      "report": ".wrangler/enrichment-combined.json",
+      "requestDigest": "75d8183e3d6fc74ca78fb9575bc16813d4b9713c6b9ec55d0eed222f03b3829e"
+    },
+    {
+      "number": 34,
+      "reservedAt": "2026-11-02T04:31:05.382Z",
+      "id": "combined/examples/01-pl",
+      "report": ".wrangler/enrichment-combined.json",
+      "requestDigest": "8437bb66b647a3299352be3cd709182830fcc950b853d3a7a1226ae9acd538ac"
+    },
+    {
+      "number": 35,
+      "reservedAt": "2026-11-02T04:31:06.292Z",
+      "id": "combined/examples/04-en",
+      "report": ".wrangler/enrichment-combined.json",
+      "requestDigest": "d426cd74b85fd068979e4ac96fbebb52f2ae05986e21e4b7c59c966de3631112"
+    },
+    {
+      "number": 36,
+      "reservedAt": "2026-11-02T04:31:06.898Z",
+      "id": "combined/examples/04-pl",
+      "report": ".wrangler/enrichment-combined.json",
+      "requestDigest": "55f9a4b60445beaca48b117cfb6a553b3d2d2d17e842e46a5a09a24441fa2c80"
+    },
+    {
+      "number": 37,
+      "reservedAt": "2026-11-02T04:32:25.466Z",
+      "id": "tags/plain/01-en",
+      "report": ".wrangler/enrichment-tags-plain.json",
+      "requestDigest": "fd84d06224d376ccf4bb29375f4d687aea2a0c3bb994e5e0867ec0f7650a883f"
+    },
+    {
+      "number": 38,
+      "reservedAt": "2026-11-02T04:32:26.114Z",
+      "id": "tags/plain/01-pl",
+      "report": ".wrangler/enrichment-tags-plain.json",
+      "requestDigest": "5d80156df6d8a69bcda972ee43d7f0e1d352f32274ccb647727fae2b6d6ef3dd"
+    },
+    {
+      "number": 39,
+      "reservedAt": "2026-11-02T04:32:26.603Z",
+      "id": "tags/plain/04-en",
+      "report": ".wrangler/enrichment-tags-plain.json",
+      "requestDigest": "576dc9a89a97bc81632296c6ced5a5578937da942dee71a9f9dc20d1000a04cc"
+    },
+    {
+      "number": 40,
+      "reservedAt": "2026-11-02T04:32:26.994Z",
+      "id": "tags/plain/04-pl",
+      "report": ".wrangler/enrichment-tags-plain.json",
+      "requestDigest": "eac1c406b999a1c976e072bfc4be4ab178deaac7e2d9268ab0ba86e1f7071b3b"
+    },
+    {
+      "number": 41,
+      "reservedAt": "2026-11-02T04:32:53.020Z",
+      "id": "description/plain/01-en",
+      "report": ".wrangler/enrichment-description-plain.json",
+      "requestDigest": "8bb67d05ca5d58bc7a5be8baeb25c8daa9e3af0c4170afc18bda6a6599054883"
+    },
+    {
+      "number": 42,
+      "reservedAt": "2026-11-02T04:32:53.996Z",
+      "id": "description/plain/01-pl",
+      "report": ".wrangler/enrichment-description-plain.json",
+      "requestDigest": "71017e283ecdbcbfc08da64144353dff138d141d808fd81fbcdf3e7b6ede1715"
+    },
+    {
+      "number": 43,
+      "reservedAt": "2026-11-02T04:32:54.653Z",
+      "id": "description/plain/04-en",
+      "report": ".wrangler/enrichment-description-plain.json",
+      "requestDigest": "fd556d2fe81429c62ef74e9ba39dfe5f215e5163e567536ae8d0a3fc4a5f11b6"
+    },
+    {
+      "number": 44,
+      "reservedAt": "2026-11-02T04:32:55.167Z",
+      "id": "description/plain/04-pl",
+      "report": ".wrangler/enrichment-description-plain.json",
+      "requestDigest": "bc1052fe0f98a2c91fcc14037d779ad0feb5ccdf9be4373a56f939830fb18c67"
+    },
+    {
+      "number": 45,
+      "reservedAt": "2026-11-02T04:33:18.495Z",
+      "id": "combined/plain/01-en",
+      "report": ".wrangler/enrichment-combined-plain.json",
+      "requestDigest": "e8d6c30442c3f77db847abcf5be85dfe6650ef1938a7098d2dee79b28aa3d3c3"
+    },
+    {
+      "number": 46,
+      "reservedAt": "2026-11-02T04:33:19.483Z",
+      "id": "combined/plain/01-pl",
+      "report": ".wrangler/enrichment-combined-plain.json",
+      "requestDigest": "e57dd71e0604d5de4e40187871f848736abe4cc23c5c6c3be226c4410640ed4b"
+    },
+    {
+      "number": 47,
+      "reservedAt": "2026-11-02T04:33:20.377Z",
+      "id": "combined/plain/04-en",
+      "report": ".wrangler/enrichment-combined-plain.json",
+      "requestDigest": "4e07c09152ca66d0344e3722fd7bbd2937ddc4edb97c4aca4360a7359993aecf"
+    },
+    {
+      "number": 48,
+      "reservedAt": "2026-11-02T04:33:20.789Z",
+      "id": "combined/plain/04-pl",
+      "report": ".wrangler/enrichment-combined-plain.json",
+      "requestDigest": "551f4bb5824157462fb1fd14b74ec34845258ae0ebc7acbdc96a0527a36f9c5c"
+    },
+    {
+      "number": 49,
+      "reservedAt": "2026-11-02T04:33:21.208Z",
+      "id": "combined/plain-examples/01-en",
+      "report": ".wrangler/enrichment-combined-plain.json",
+      "requestDigest": "25559624eda0131ec588c571a00a41ee5619ac8d2045580c122817e5096bc008"
+    },
+    {
+      "number": 50,
+      "reservedAt": "2026-11-02T04:33:22.700Z",
+      "id": "combined/plain-examples/01-pl",
+      "report": ".wrangler/enrichment-combined-plain.json",
+      "requestDigest": "4670fa64e6612b018fe9223008f032db2cd8f9330808907f26a136d2aa2204f2"
+    },
+    {
+      "number": 51,
+      "reservedAt": "2026-11-02T04:33:23.528Z",
+      "id": "combined/plain-examples/04-en",
+      "report": ".wrangler/enrichment-combined-plain.json",
+      "requestDigest": "f846e2840ff3d22519d71f0a2bd09fa388c4ccb5714c6f46bc52c65c970fa0cb"
+    },
+    {
+      "number": 52,
+      "reservedAt": "2026-11-02T04:33:24.055Z",
+      "id": "combined/plain-examples/04-pl",
+      "report": ".wrangler/enrichment-combined-plain.json",
+      "requestDigest": "42378f69342a97d35c231b527353b213257c78ba21c54d4e0904858ff4af2a95"
+    },
+    {
+      "number": 53,
+      "reservedAt": "2026-11-02T04:33:24.481Z",
+      "id": "combined/plain-english-example/01-en",
+      "report": ".wrangler/enrichment-combined-plain.json",
+      "requestDigest": "dfd8e9c6bdf09d8cec6da2387cea26dfd02a837c9ecfdc658efd097e67593b18"
+    },
+    {
+      "number": 54,
+      "reservedAt": "2026-11-02T04:33:25.688Z",
+      "id": "combined/plain-english-example/01-pl",
+      "report": ".wrangler/enrichment-combined-plain.json",
+      "requestDigest": "9fab16b28c7b28cbce32ea645060a125feab134e1f6d26dca23a8f0e356afcf6"
+    },
+    {
+      "number": 55,
+      "reservedAt": "2026-11-02T04:33:26.327Z",
+      "id": "combined/plain-english-example/04-en",
+      "report": ".wrangler/enrichment-combined-plain.json",
+      "requestDigest": "bad929855d1a713e9c3edbca77ad3fc047df552e2738a69ed5524fe11145491f"
+    },
+    {
+      "number": 56,
+      "reservedAt": "2026-11-02T04:33:26.639Z",
+      "id": "combined/plain-english-example/04-pl",
+      "report": ".wrangler/enrichment-combined-plain.json",
+      "requestDigest": "150ab8cc32a2032bb0a6ae3ebd1e43488ef563a8507993f690c419e40308f58b"
+    },
+    {
+      "number": 57,
+      "reservedAt": "2026-11-02T04:34:43.958Z",
+      "id": "combined/production/01-en",
+      "report": ".wrangler/enrichment-production-probe.json",
+      "requestDigest": "e8d6c30442c3f77db847abcf5be85dfe6650ef1938a7098d2dee79b28aa3d3c3"
+    },
+    {
+      "number": 58,
+      "reservedAt": "2026-11-02T04:34:44.800Z",
+      "id": "combined/production/01-pl",
+      "report": ".wrangler/enrichment-production-probe.json",
+      "requestDigest": "e57dd71e0604d5de4e40187871f848736abe4cc23c5c6c3be226c4410640ed4b"
+    },
+    {
+      "number": 59,
+      "reservedAt": "2026-11-02T04:34:45.531Z",
+      "id": "combined/production/04-en",
+      "report": ".wrangler/enrichment-production-probe.json",
+      "requestDigest": "4e07c09152ca66d0344e3722fd7bbd2937ddc4edb97c4aca4360a7359993aecf"
+    },
+    {
+      "number": 60,
+      "reservedAt": "2026-11-02T04:34:46.145Z",
+      "id": "combined/production/04-pl",
+      "report": ".wrangler/enrichment-production-probe.json",
+      "requestDigest": "551f4bb5824157462fb1fd14b74ec34845258ae0ebc7acbdc96a0527a36f9c5c"
+    }
+  ]
+}
