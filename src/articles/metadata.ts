@@ -2,6 +2,11 @@ import { parseHTML } from 'linkedom';
 
 export type ArticleDocument = ReturnType<typeof parseHTML>["document"];
 
+/** Parse source HTML into the inert document used by the production metadata parser. */
+export function parseArticleDocument(html: string): ArticleDocument {
+  return parseHTML(html).document;
+}
+
 const MAX_TITLE = 500;
 const MAX_AUTHOR = 200;
 const MAX_DESCRIPTION = 500;
@@ -18,7 +23,7 @@ function clean(value: string | undefined, limit: number): string | undefined {
 }
 
 export function parseArticleMetadata(input: string | ArticleDocument): ArticleMetadata {
-  const document = typeof input === "string" ? parseHTML(input).document : input;
+  const document = typeof input === "string" ? parseArticleDocument(input) : input;
   const meta = new Map<string, string>();
   for (const element of document.querySelectorAll("meta")) {
     const key = (element.getAttribute("property") || element.getAttribute("name") || "").toLowerCase();

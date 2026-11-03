@@ -10,10 +10,9 @@ import {
   normalizeArticleUrl, parseObject, readJson, ValidationError, validateTitle,
 } from './validation.js';
 import { isResponse, requireSession, validateCaptureToken } from '../auth/core.js';
-import { enqueueExtractionJob, getExtractionStatus, getExtractionStatuses, retryExtractionJob } from './jobs.js';
+import { getExtractionStatus, getExtractionStatuses, retryExtractionJob } from './jobs.js';
 import { scheduleExtraction } from './extraction-queue';
 import { isBackgroundCapturePaused } from './capture-client.js';
-import { getGitHubBackupConfiguration, getGitHubBackupStatus, GitHubBackupError, reconcileGitHubBackupPaths, saveGitHubBackup } from './github.js';
 import { isArticleId } from './identity.js';
 import { deliverArticle, integrationConfigurations, integrationStatuses } from '../integrations/registry';
 import { IntegrationError } from '../integrations/types';
@@ -31,8 +30,8 @@ const storageError = { status: 503, code: 'storage_unavailable', message: 'The s
 export async function handleArticles(request: Request, env: Env, ctx?: ExecutionContext): Promise<Response | null> {
   const url = new URL(request.url); const method = request.method.toUpperCase();
   if (url.pathname === '/api/capture' && method === 'POST') return capture(request, env, ctx);
-  const isArticlePath = url.pathname === '/api/articles' || /^\/api\/articles\/[^/]+(?:\/pdf|\/copy|\/github|\/integrations(?:\/[a-z][a-z0-9-]{0,47})?|\/extraction(?:\/(?:retry|recapture|undo))?)?$/.test(url.pathname);
-  if (!url.pathname.startsWith('/api/archive') && !isArticlePath && !['/api/export', '/api/import', '/api/github', '/api/github/reconcile', '/api/integrations', '/api/tags'].includes(url.pathname)) return null;
+  const isArticlePath = url.pathname === '/api/articles' || /^\/api\/articles\/[^/]+(?:\/pdf|\/copy|\/integrations(?:\/[a-z][a-z0-9-]{0,47})?|\/extraction(?:\/(?:retry|recapture|undo))?)?$/.test(url.pathname);
+  if (!url.pathname.startsWith('/api/archive') && !isArticlePath && !['/api/export', '/api/import', '/api/integrations', '/api/tags'].includes(url.pathname)) return null;
   const needsWrite = method !== 'GET';
   let session: Awaited<ReturnType<typeof requireSession>>;
   try { session = await requireSession(request, env, needsWrite); } catch (error) { return exceptionResponse(error, 'articles.auth', storageError); }
@@ -59,11 +58,6 @@ export async function handleArticles(request: Request, env: Env, ctx?: Execution
         return jsonResponse(await deliverArticle(env, id, integrationRoute[2], input.expectedRevision, input.expectedDestinationKey));
       }
       return fail(405, 'method_not_allowed', 'This integration action is not supported.');
-    }
-    if (url.pathname === '/api/github' && method === 'GET') return jsonResponse({ github: getGitHubBackupConfiguration(env) });
-    if (url.pathname === '/api/github/reconcile' && method === 'POST') {
-      if (request.body) parseObject(await readJson(request), []);
-      return jsonResponse(await reconcileGitHubBackupPaths(env));
     }
     if (url.pathname === '/api/articles' && method === 'POST') return await createArticle(request, env, false, ctx);
     if (url.pathname === '/api/articles' && method === 'GET') return await listRoute(url, env);
@@ -120,31 +114,6 @@ export async function handleArticles(request: Request, env: Env, ctx?: Execution
         return jsonResponse({ extraction: await getExtractionStatus(env.DB, id, isBackgroundCapturePaused(env)) });
       }
     }
-    const githubRoute = /^\/api\/articles\/([^/]+)\/github$/.exec(url.pathname);
-    if (githubRoute) {
-      let id: string;
-      try { id = decodeURIComponent(githubRoute[1]); } catch { return fail(400, 'invalid_request', 'Article ID is invalid.'); }
-      if (!isArticleId(id)) return fail(400, 'invalid_request', 'Article ID must contain eight lowercase letters or digits.');
-      if (method === 'GET') {
-        const article = await getArticle(env.DB, id);
-        if (!article) return fail(404, 'not_found', 'Article not found.');
-        return jsonResponse({ backup: await getGitHubBackupStatus(env, article, await getArticleCopy(env.DB, id)) });
-      }
-      if (method === 'POST') {
-        const input = parseObject(await readJson(request), ['expectedRevision', 'expectedDestination'], ['expectedRevision']);
-        if (typeof input.expectedRevision !== 'string' || !/^[A-Za-z0-9_-]{1,128}$/.test(input.expectedRevision)) throw new ValidationError('expectedRevision must be a valid saved copy revision');
-        let expectedDestination: { repository: string; branch: string; folder: string } | undefined;
-        if (input.expectedDestination !== undefined) {
-          const destination = parseObject(input.expectedDestination, ['repository', 'branch', 'folder'], ['repository', 'branch', 'folder']);
-          if (typeof destination.repository !== 'string' || typeof destination.branch !== 'string' || typeof destination.folder !== 'string' ||
-              destination.repository.length > 140 || destination.branch.length > 255 || destination.folder.length > 512) {
-            throw new ValidationError('expectedDestination is invalid');
-          }
-          expectedDestination = { repository: destination.repository, branch: destination.branch, folder: destination.folder };
-        }
-        return jsonResponse(await saveGitHubBackup(env, id, input.expectedRevision, expectedDestination));
-      }
-    }
     const detail = /^\/api\/articles\/([^/]+)$/.exec(url.pathname);
     if (detail) {
       let id: string;
@@ -172,7 +141,7 @@ export async function handleArticles(request: Request, env: Env, ctx?: Execution
     }
     return null;
   } catch (error) {
-    if (error instanceof GitHubBackupError || error instanceof IntegrationError) return fail(error.status, error.code, error.message);
+    if (error instanceof IntegrationError) return fail(error.status, error.code, error.message);
     return exceptionResponse(error, 'articles.request', storageError);
   }
 }
@@ -214,13 +183,7 @@ async function createArticle(request: Request, env: Env, tokenCapture = false, c
     ...normalized, title, author: author ?? undefined, description: description ?? undefined, extractionRequested, enrichmentRequested: enrichmentEnabled(env), enrichAfterCopy: input.enrichAfterCopy === true,
     titleOrigin: suppliedTitle ? 'supplied' : 'fallback',
   });
-  if (extractionRequested) {
-    try {
-      await enqueueExtractionJob(env.DB, result.article.id);
-      await scheduleExtraction(env, result.article.id, ctx);
-    }
-    catch { logUnexpectedError('articles.extraction_enqueue'); }
-  }
+  if (extractionRequested) await scheduleExtraction(env, result.article.id, ctx);
   if (!result.duplicate) await scheduleEnrichment(env, result.article.id, ctx);
   // Capture tokens can confirm that work was accepted, but cannot learn
   // whether a URL already exists or inspect any stored article metadata.

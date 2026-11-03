@@ -3,7 +3,7 @@ import { MAX_ARCHIVE_METADATA_BYTES } from '../src/archive/limits';
 
 interface PdfInfo { id: string; articleId: string; checksum: string; bytes: number; capturedAt: string; sourceUrl: string }
 export interface CheckedArchive {
-  library: { version: 2 | 3; exportedAt: string; articles: Array<Record<string, unknown>> };
+  library: { version: 3; exportedAt: string; articles: Array<Record<string, unknown>> };
   pdfs: PdfInfo[];
   entries: Map<string, ZipEntry>;
 }
@@ -12,7 +12,7 @@ export async function inspectArchive(file: File, progress: (text: string) => voi
   const entries = await readZipDirectory(file);
   const library = JSON.parse(new TextDecoder('utf-8', { fatal: true }).decode(await readZipEntry(file, entries.get('library.json')!)));
   const manifest = JSON.parse(new TextDecoder('utf-8', { fatal: true }).decode(await readZipEntry(file, entries.get('manifest.json')!)));
-  if ((library.version !== 2 && library.version !== 3) || typeof library.exportedAt !== 'string' || !Array.isArray(library.articles) || library.articles.length > 100_000 ||
+  if (library.version !== 3 || typeof library.exportedAt !== 'string' || !Array.isArray(library.articles) || library.articles.length > 100_000 ||
       manifest.version !== 1 || !Array.isArray(manifest.pdfs) || manifest.pdfs.length > library.articles.length) throw new Error('Invalid archive metadata');
   const ids = new Set<string>();
   for (const article of library.articles) {

@@ -421,15 +421,15 @@ try {
   };
   const entryReadState = await page.evaluate(async (id) => (await (await fetch(`/api/articles/${id}`)).json()).article.readAt, entryFixture.id);
   await page.setViewportSize({ width: 1440, height: 1000 });
+  await entryMore.scrollIntoViewIfNeeded();
   await assertControlLayout();
   await page.screenshot({ path: "/tmp/potem-article-actions-desktop.png" });
-  // Focusing the first row can scroll after Show more left the page at its bottom.
-  // The app intentionally closes open action popovers on scroll, so let that
-  // scroll and its event finish before exercising the keyboard interaction.
-  await entryMore.scrollIntoViewIfNeeded();
+  // Scroll dismisses popovers. Finish it before testing keyboard activation,
+  // and prevent focus from queuing another scroll after Enter opens the menu.
   await page.evaluate(() => new Promise((resolve) =>
     requestAnimationFrame(() => requestAnimationFrame(resolve))));
-  await entryMore.focus();
+  await entryMore.evaluate((button) => button.focus({ preventScroll: true }));
+  await expect(entryMore).toBeFocused();
   await page.keyboard.press("Enter");
   await expect(entryMenu).toBeVisible();
   await page.keyboard.press("Tab");

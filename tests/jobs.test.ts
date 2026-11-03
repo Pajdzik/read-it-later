@@ -3,7 +3,6 @@ import { beforeEach, describe, expect, it } from "vitest";
 import {
   claimExtractionJob,
   completeExtractionJob,
-  enqueueExtractionJob,
   failExtractionJob,
   getExtractionStatus,
   getExtractionStatuses,
@@ -18,48 +17,46 @@ const url = "https://example.com/article";
 async function clear() {
   await env.DB.prepare("DELETE FROM articles").run();
   await env.DB.prepare("DROP TRIGGER IF EXISTS fail_job_finish").run();
-  await env.DB.prepare("DROP TRIGGER IF EXISTS fail_intent_update").run();
+  await env.DB.prepare("DROP TRIGGER IF EXISTS fail_job_enqueue").run();
 }
 
 async function requestedArticle(title?: string) {
-  return saveArticle(env.DB, {
+  const saved = await saveArticle(env.DB, {
     url,
     normalizedUrl: url,
-    title,
+    title: title ?? url,
     extractionRequested: true,
     titleOrigin: title ? "supplied" : "fallback",
   });
+  await env.DB.prepare("UPDATE article_extraction_jobs SET next_attempt_at=?,created_at=?,updated_at=? WHERE article_id=? AND state='queued' AND attempts=0")
+    .bind(baseTime, baseTime, baseTime, saved.article.id).run();
+  return saved;
 }
 
 describe("D1 background extraction jobs", () => {
   beforeEach(clear);
 
-  it("keeps a save intent durable across a crash before job materialization", async () => {
+  it("creates a durable job in the article save transaction", async () => {
     const saved = await requestedArticle();
     expect(await getExtractionStatus(env.DB, saved.article.id)).toMatchObject({ state: "queued", attempts: 0 });
-    expect(await claimExtractionJob(env.DB, baseTime)).toBeNull();
-
-    await enqueueExtractionJob(env.DB, saved.article.id, baseTime);
-    const job = await claimExtractionJob(env.DB, baseTime);
-    expect(job).toMatchObject({ articleId: saved.article.id, attempts: 1, generation: 1 });
-    expect(await getExtractionStatus(env.DB, saved.article.id)).toMatchObject({ state: "running", attempts: 1 });
+    expect(await claimExtractionJob(env.DB, baseTime)).toMatchObject({ articleId: saved.article.id, attempts: 1, generation: 1 });
   });
 
-  it("rolls back duplicate metadata changes if the durable intent write fails", async () => {
-    const saved = await saveArticle(env.DB, { url, normalizedUrl: url, title: "Saved title" });
-    await env.DB.prepare(`CREATE TRIGGER fail_intent_update BEFORE UPDATE OF extraction_requested_at ON articles
-      WHEN NEW.extraction_requested_at IS NOT NULL BEGIN SELECT RAISE(ABORT, 'forced intent failure'); END`).run();
+  it("rolls back duplicate metadata changes if initial job creation fails", async () => {
+    const saved = await saveArticle(env.DB, { url, normalizedUrl: url, title: "Saved title", titleOrigin: "supplied" });
+    await env.DB.prepare(`CREATE TRIGGER fail_job_enqueue BEFORE INSERT ON article_extraction_jobs BEGIN SELECT RAISE(ABORT, 'forced job failure'); END`).run();
     await expect(saveArticle(env.DB, {
       url,
       normalizedUrl: url,
+      title: "Ignored", titleOrigin: "supplied",
       author: "Should roll back",
       extractionRequested: true,
     })).rejects.toThrow();
-    expect(await env.DB.prepare("SELECT title,author,extraction_requested_at FROM articles WHERE id = ?")
-      .bind(saved.article.id).first()).toEqual({ title: "Saved title", author: null, extraction_requested_at: null });
+    expect(await env.DB.prepare("SELECT title,author FROM articles WHERE id = ?")
+      .bind(saved.article.id).first()).toEqual({ title: "Saved title", author: null });
   });
 
-  it("preserves a duplicate article's title, identity, and read state while reusing its intent", async () => {
+  it("preserves a duplicate article's title, identity, and read state while reusing its job", async () => {
     const first = await requestedArticle("First title");
     await updateArticle(env.DB, first.article.id, { read: true }, baseTime);
     const duplicate = await saveArticle(env.DB, {
@@ -76,7 +73,6 @@ describe("D1 background extraction jobs", () => {
       readAt: baseTime,
       createdAt: first.article.createdAt,
     });
-    await enqueueExtractionJob(env.DB, first.article.id, baseTime);
     const count = await env.DB.prepare("SELECT count(*) AS count FROM article_extraction_jobs WHERE article_id = ?")
       .bind(first.article.id).first<{ count: number }>();
     expect(count?.count).toBe(1);
@@ -93,7 +89,6 @@ describe("D1 background extraction jobs", () => {
     });
     expect(await env.DB.prepare("SELECT title,title_origin FROM articles WHERE id = ?").bind(first.article.id).first())
       .toEqual({ title: url, title_origin: "fallback" });
-    await enqueueExtractionJob(env.DB, first.article.id, baseTime);
     const job = await claimExtractionJob(env.DB, baseTime);
     await completeExtractionJob(env.DB, job!, { markdown: "copy", metadata: { title: "Extracted title" } }, "2026-10-06T10:00:10.000Z");
     expect(await env.DB.prepare("SELECT title,title_origin FROM articles WHERE id = ?").bind(first.article.id).first())
@@ -102,7 +97,6 @@ describe("D1 background extraction jobs", () => {
 
   it("allows exactly one winner from concurrent atomic claims", async () => {
     const saved = await requestedArticle();
-    await enqueueExtractionJob(env.DB, saved.article.id, baseTime);
     const claims = await Promise.all([
       claimExtractionJob(env.DB, baseTime),
       claimExtractionJob(env.DB, baseTime),
@@ -113,7 +107,6 @@ describe("D1 background extraction jobs", () => {
 
   it("uses bounded backoff and exhausts attempts recovered from expired leases", async () => {
     const saved = await requestedArticle();
-    await enqueueExtractionJob(env.DB, saved.article.id, baseTime);
     let job = await claimExtractionJob(env.DB, baseTime);
     expect(job?.attempts).toBe(1);
     await reconcileExtractionJobs(env.DB, "2026-10-06T10:02:00.000Z");
@@ -140,7 +133,6 @@ describe("D1 background extraction jobs", () => {
 
   it("backs off transient failures, bounds retry-after, and fences an expired lease", async () => {
     const saved = await requestedArticle();
-    await enqueueExtractionJob(env.DB, saved.article.id, baseTime);
     const oldJob = await claimExtractionJob(env.DB, baseTime);
     await failExtractionJob(env.DB, oldJob!, { code: "network_timeout", retryable: true, retryAfterSeconds: 10000 }, baseTime);
     expect(await getExtractionStatus(env.DB, saved.article.id)).toMatchObject({
@@ -156,7 +148,6 @@ describe("D1 background extraction jobs", () => {
 
   it("fences old generations and enforces the explicit retry cooldown", async () => {
     const saved = await requestedArticle();
-    await enqueueExtractionJob(env.DB, saved.article.id, baseTime);
     const oldJob = await claimExtractionJob(env.DB, baseTime);
     await failExtractionJob(env.DB, oldJob!, { code: "unsupported_content", retryable: false }, baseTime);
     expect(await retryExtractionJob(env.DB, saved.article.id, "2026-10-06T10:00:59.999Z")).toBe("cooldown");
@@ -171,7 +162,6 @@ describe("D1 background extraction jobs", () => {
 
   it("manual copy atomically satisfies a job and wins a race with background completion", async () => {
     const saved = await requestedArticle();
-    await enqueueExtractionJob(env.DB, saved.article.id, baseTime);
     const job = await claimExtractionJob(env.DB, baseTime);
     const manual = { markdown: "manual", capturedAt: "2026-10-06T10:00:30.000Z", source: "paste" as const, revision: "manual-rev" };
     expect(await saveArticleCopy(env.DB, saved.article.id, { ...manual, revision: "rejected" }, "wrong-revision")).toBe("conflict");
@@ -189,7 +179,6 @@ describe("D1 background extraction jobs", () => {
   it("preserves owner title and read state while applying permitted extracted metadata", async () => {
     const saved = await requestedArticle();
     await updateArticle(env.DB, saved.article.id, { title: "Owner title", read: true }, "2026-10-06T10:00:10.000Z");
-    await enqueueExtractionJob(env.DB, saved.article.id, baseTime);
     const job = await claimExtractionJob(env.DB, baseTime);
     await completeExtractionJob(env.DB, job!, {
       markdown: "# Article",
@@ -205,14 +194,12 @@ describe("D1 background extraction jobs", () => {
 
   it("cascades deletion and rolls back copy insertion if completion cannot finish", async () => {
     const deleted = await requestedArticle();
-    await enqueueExtractionJob(env.DB, deleted.article.id, baseTime);
     const deletedJob = await claimExtractionJob(env.DB, baseTime);
     await deleteArticle(env.DB, deleted.article.id);
     await completeExtractionJob(env.DB, deletedJob!, { markdown: "late", metadata: {} }, "2026-10-06T10:00:10.000Z");
     expect(await env.DB.prepare("SELECT 1 FROM article_copies WHERE article_id = ?").bind(deleted.article.id).first()).toBeNull();
 
     const rollback = await requestedArticle("Rollback");
-    await enqueueExtractionJob(env.DB, rollback.article.id, baseTime);
     const job = await claimExtractionJob(env.DB, baseTime);
     await env.DB.prepare(`CREATE TRIGGER fail_job_finish BEFORE UPDATE OF state ON article_extraction_jobs
       WHEN NEW.state = 'succeeded' BEGIN SELECT RAISE(ABORT, 'forced rollback'); END`).run();
@@ -223,14 +210,12 @@ describe("D1 background extraction jobs", () => {
 
   it("reports compact batch statuses and keeps terminal failures on repeated requests", async () => {
     const failed = await requestedArticle();
-    await enqueueExtractionJob(env.DB, failed.article.id, baseTime);
     const job = await claimExtractionJob(env.DB, baseTime);
     await failExtractionJob(env.DB, job!, { code: "http_forbidden", retryable: false }, baseTime);
     await requestedArticle();
     const statuses = await getExtractionStatuses(env.DB, [failed.article.id, "absent"], true);
     expect(statuses.get(failed.article.id)).toMatchObject({ state: "failed", attempts: 1, paused: true });
     expect(statuses.has("absent")).toBe(false);
-    await enqueueExtractionJob(env.DB, failed.article.id, "2026-10-07T00:00:00.000Z");
     expect(await getExtractionStatus(env.DB, failed.article.id)).toMatchObject({ state: "failed", attempts: 1 });
   });
 });

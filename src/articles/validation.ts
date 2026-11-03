@@ -78,3 +78,14 @@ export async function readJson(request: Request, maxBytes = MAX_BODY_BYTES): Pro
 export class BodyTooLargeError extends Error {
   constructor(message = 'request body is too large') { super(message); this.name = 'BodyTooLargeError'; }
 }
+
+export function normalizeTags(value: unknown, maximum = 10): string[] {
+  if (!Array.isArray(value) || value.length > maximum) throw new ValidationError(`tags must be an array of at most ${maximum} tags`);
+  const tags = value.map(tag => {
+    if (typeof tag !== 'string' || /[\p{Cc}\p{Cs}<>]/u.test(tag)) throw new ValidationError('tags must contain plain text');
+    const normalized = tag.normalize('NFKC').toLowerCase().replace(/\s+/gu, ' ').trim();
+    if (!normalized || [...normalized].length > 40) throw new ValidationError('each tag must contain 1–40 characters');
+    return normalized;
+  });
+  return [...new Set(tags)].sort();
+}

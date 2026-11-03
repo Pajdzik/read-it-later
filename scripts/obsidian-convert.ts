@@ -6,6 +6,7 @@ import { fileURLToPath } from "node:url";
 import { Alias, isAlias, isMap, parseDocument } from "yaml";
 import { MAX_BACKUP_BYTES, splitImportBatches, validateBackupEnvelope, type BackupArticle, type BackupEnvelope } from "./archive-backup.ts";
 import { createShortIdMapper } from "./short-id.ts";
+import { isPortableShortId, validatePortableArticle } from "../src/articles/portable-format.ts";
 
 export const MAX_SOURCE_FILE_BYTES = 1024 * 1024;
 export const MAX_MARKDOWN_TOTAL_BYTES = 64 * 1024 * 1024;
@@ -337,7 +338,8 @@ export async function convertVault(sourcePath: string, outputPath: string, { now
   const scan = await walkVault(source);
   const outcomes: ObsidianOutcome[] = [];
   const eligible: BackupArticle[] = [];
-  const sourceIds = new Set<string>();
+  const parsedCandidates: Array<{ candidate: VaultCandidate; parsed: ParsedMarkdown }> = [];
+  const parseFailures: Array<{ candidate: VaultCandidate; reason: string }> = [];
   const winners = new Map();
   let readCount = 0;
   let unreadCount = 0;
@@ -376,16 +378,24 @@ export async function convertVault(sourcePath: string, outputPath: string, { now
         bytes = buffer.subarray(0, bytesRead);
       } finally { await handle.close(); }
       parsed = parseMarkdownFile(candidate.relative, bytes, info.mtimeMs);
-      sourceIds.add(parsed.item.id);
     } catch (error) {
       if (isFatalError(error)) throw error;
-      outcomes.push({ path: candidate.relative, outcome: "excluded", reasons: [reportReason(error)], warnings: [], dateSource: null });
+      parseFailures.push({ candidate, reason: reportReason(error) });
       continue;
     }
+    parsedCandidates.push({ candidate, parsed });
+  }
+  // Reserve supplied short IDs from every parsed file before assigning any
+  // provisional obsidian:<url> identities. This keeps generated IDs stable
+  // even when a conflicting supplied ID appears later in sorted order.
+  const mapId = createShortIdMapper(parsedCandidates.map(({ parsed }) => parsed.item.id).filter(isPortableShortId));
+  for (const { candidate, parsed } of parsedCandidates) {
+    parsed.item.id = mapId(parsed.item.id);
     try {
-      validateBackupEnvelope({ version: 2, exportedAt: now.toISOString(), articles: [parsed.item] });
+      validatePortableArticle(parsed.item);
+      validateBackupEnvelope({ version: 3, exportedAt: now.toISOString(), articles: [parsed.item] });
     } catch { outcomes.push({ path: candidate.relative, outcome: "excluded", reasons: ["invalid_portable_record"], warnings: parsed.warnings, dateSource: parsed.dateSource }); continue; }
-    try { splitImportBatches({ version: 2, exportedAt: now.toISOString(), articles: [parsed.item] }); }
+    try { splitImportBatches({ version: 3, exportedAt: now.toISOString(), articles: [parsed.item] }); }
     catch { outcomes.push({ path: candidate.relative, outcome: "excluded", reasons: ["import_record_too_large"], warnings: parsed.warnings, dateSource: parsed.dateSource }); continue; }
     const winner = winners.get(parsed.normalizedUrl);
     if (winner) {
@@ -398,9 +408,9 @@ export async function convertVault(sourcePath: string, outputPath: string, { now
     if (parsed.item.copy) copyCount++; else linkOnlyCount++;
     outcomes.push({ path: candidate.relative, outcome: "eligible", reasons: [], warnings: parsed.warnings, dateSource: parsed.dateSource });
   }
-  const mapId = createShortIdMapper(sourceIds);
-  for (const item of eligible) item.id = mapId(item.id);
-  const envelope: BackupEnvelope = { version: 2, exportedAt: now.toISOString(), articles: eligible };
+  outcomes.push(...parseFailures.map(({ candidate, reason }) => ({ path: candidate.relative, outcome: "excluded" as const, reasons: [reason], warnings: [], dateSource: null })));
+  outcomes.sort((a, b) => comparePath(a.path, b.path));
+  const envelope: BackupEnvelope = { version: 3, exportedAt: now.toISOString(), articles: eligible };
   validateBackupEnvelope(envelope);
   const portableBytes = utf8Length(JSON.stringify(envelope));
   if (portableBytes > MAX_BACKUP_BYTES) fail("portable_backup_size_limit_exceeded");

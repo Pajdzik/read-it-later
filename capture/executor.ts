@@ -63,10 +63,8 @@ export async function executeCapture(url: string, appOrigin: string, originalPdf
   const run=async()=>{
     if(originalPdfId)return convert('stored-pdf',{method:'POST',headers:{'X-Pdf-Id':originalPdfId,'X-Source-Url':encodeURIComponent(url)}});
     const source=await fetchSourceDocument(url,{
-      APP_ORIGIN:appOrigin,BACKGROUND_CAPTURE_ENABLED:'true',
-      ARTICLE_FETCHER:{fetch:(input,init)=>pinnedFetch(String(input),{
-        ...init,signal:init.signal ? AbortSignal.any([init.signal,controller.signal]) : controller.signal,
-      },appOrigin)},
+      appOrigin, signal: controller.signal,
+      fetchHop:(input,init)=>pinnedFetch(input,init,appOrigin),
     });
     const metadata=source.kind==='html' ? await extractInThread(source.html,source.url,undefined,controller.signal) : {};
     const article=await convert(source.kind,{method:'POST',

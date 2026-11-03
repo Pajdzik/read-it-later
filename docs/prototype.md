@@ -4,4 +4,4 @@ The Node.js Markdown-reader prototype has been removed. Potem is maintained and 
 
 The old prototype source and deployment files remain available in Git history. To inspect a file from a revision before its removal, use `git show <revision>:server.ts` or `git show <revision>:Dockerfile`.
 
-The offline [Obsidian converter](obsidian-import.md), [GitHub backup converter](github-recovery.md), and portable archive tools remain supported for reviewing and importing existing Markdown backups. They do not start a server or modify source folders. No user vault or backup was read or migrated as part of retiring the prototype.
+The offline [Obsidian converter](obsidian-import.md), [GitHub backup converter](github-recovery.md), and portable archive tools remain supported for reviewing and importing current-format Markdown backups with valid short article IDs. They do not start a server or modify source folders. No user vault or backup was read or migrated as part of retiring the prototype.

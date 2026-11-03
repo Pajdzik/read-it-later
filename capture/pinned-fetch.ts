@@ -5,7 +5,7 @@ import { checkServerIdentity } from "node:tls";
 import { Readable } from "node:stream";
 import ipaddr from "ipaddr.js";
 import { SourceFetchError } from "../src/articles/capture-protocol";
-import { validateTarget } from "../src/articles/source-fetch";
+import { validateSourceTarget } from "../src/articles/source-policy";
 
 export type Address = { address: string; family: number };
 export type ResolveAddresses = (hostname: string) => Promise<Address[]>;
@@ -46,7 +46,7 @@ export function pinnedRequestOptions(target: URL, address: Address, signal?: Abo
 
 /** Native Linux Node HTTP client. Never replace with Workers node:https or hostname fetch(). */
 export async function pinnedFetch(input: string, init: RequestInit, appOrigin?: string, resolve?: ResolveAddresses): Promise<Response> {
-  const target = validateTarget(input, { APP_ORIGIN: appOrigin });
+  const target = validateSourceTarget(input, { APP_ORIGIN: appOrigin });
   const address = await resolvePublicAddress(target.hostname, resolve);
   init.signal?.throwIfAborted();
   const options = pinnedRequestOptions(target, address, init.signal);

@@ -1,17 +1,17 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
-import type { Env } from "../src/contracts";
-import { fetchSourcePage, isBackgroundCapturePaused, SourceFetchError } from "../src/articles/source-fetch";
-import { CONTAINER_STARTUP_TIMEOUT_MS, SOURCE_HOP_TIMEOUT_MS, SOURCE_TOTAL_TIMEOUT_MS } from "../src/articles/capture-limits";
+import { fetchSourceDocument, type SourceFetchOptions } from "../src/articles/source-fetch";
+import { SourceFetchError } from "../src/articles/source-policy";
+import { SOURCE_HOP_TIMEOUT_MS, SOURCE_TOTAL_TIMEOUT_MS } from "../src/articles/capture-limits";
 
 type FetchCall = { input: RequestInfo | URL; init?: RequestInit };
-function envWith(fetch: (input: RequestInfo | URL, init?: RequestInit) => Promise<Response>, overrides: Partial<Env> = {}): Env {
-  return {
-    DB: {} as D1Database,
-    ASSETS: {} as Fetcher,
-    BACKGROUND_CAPTURE_ENABLED: "true",
-    ARTICLE_FETCHER: { fetch, connect() { throw new Error("unused"); } } as Fetcher,
-    ...overrides,
-  };
+function envWith(fetchHop: (input: string, init: RequestInit) => Promise<Response>, overrides: { APP_ORIGIN?: string } = {}): SourceFetchOptions {
+  return { appOrigin: overrides.APP_ORIGIN, fetchHop };
+}
+
+async function fetchHtml(url: string, options: SourceFetchOptions): Promise<{ html: string; url: string }> {
+  const source = await fetchSourceDocument(url, options);
+  if (source.kind !== "html") throw new Error("Expected HTML fixture");
+  return { html: source.html, url: source.url };
 }
 
 function html(body = "<article><h1>Fixture</h1><p>Readable body.</p></article>"): Response {
@@ -27,26 +27,14 @@ function expectFetchError(promise: Promise<unknown>, code: string): Promise<void
 describe("bounded source fetching", () => {
   afterEach(() => vi.useRealTimers());
 
-  it("stays paused without explicit enablement and never falls back to global fetch", async () => {
-    const globalFetch = vi.spyOn(globalThis, "fetch");
-    const fetcher = vi.fn(async () => html());
-    const disabled = envWith(fetcher, { BACKGROUND_CAPTURE_ENABLED: undefined });
-    expect(isBackgroundCapturePaused(disabled)).toBe(true);
-    await expectFetchError(fetchSourcePage("https://news.example.com/post", disabled), "capture_paused");
-    expect(isBackgroundCapturePaused(envWith(fetcher, { ARTICLE_FETCHER: undefined }))).toBe(true);
-    expect(globalFetch).not.toHaveBeenCalled();
-    expect(fetcher).not.toHaveBeenCalled();
-    globalFetch.mockRestore();
-  });
-
-  it("sends only fixed headers through the gateway and follows validated redirects manually", async () => {
+  it("sends only fixed headers through the executor and follows validated redirects manually", async () => {
     const calls: FetchCall[] = [];
     const env = envWith(async (input, init) => {
       calls.push({ input, init });
       if (calls.length === 1) return new Response(null, { status: 302, headers: { Location: "/story" } });
       return html();
     });
-    const result = await fetchSourcePage("https://news.example.com/start", env);
+    const result = await fetchHtml("https://news.example.com/start", env);
     expect(result.url).toBe("https://news.example.com/story");
     expect(result.html).toContain("<title>Fixture</title>");
     expect(calls).toHaveLength(2);
@@ -73,42 +61,43 @@ describe("bounded source fetching", () => {
       "http://metadata.google.internal/latest",
       "https://app.potem.com/api/articles",
       "https://news.example.com:8443/post",
-    ]) await expectFetchError(fetchSourcePage(url, env), "unsafe_destination");
+    ]) await expectFetchError(fetchHtml(url, env), "unsafe_destination");
     expect(fetcher).not.toHaveBeenCalled();
   });
 
   it("revalidates each redirect and rejects downgrade, loops, and excessive hops", async () => {
     const toPrivate = envWith(async () => new Response(null, { status: 302, headers: { Location: "http://127.0.0.1/" } }));
-    await expectFetchError(fetchSourcePage("https://news.example.com/start", toPrivate), "unsafe_destination");
+    await expectFetchError(fetchHtml("https://news.example.com/start", toPrivate), "unsafe_destination");
     const downgrade = envWith(async () => new Response(null, { status: 301, headers: { Location: "http://news.example.com/plain" } }));
-    await expectFetchError(fetchSourcePage("https://news.example.com/start", downgrade), "redirect_downgrade");
+    await expectFetchError(fetchHtml("https://news.example.com/start", downgrade), "redirect_downgrade");
     const loop = envWith(async () => new Response(null, { status: 302, headers: { Location: "/start" } }));
-    await expectFetchError(fetchSourcePage("https://news.example.com/start", loop), "redirect_loop");
+    await expectFetchError(fetchHtml("https://news.example.com/start", loop), "redirect_loop");
     const endless = envWith(async (input) => new Response(null, { status: 302, headers: { Location: `https://news.example.com/${encodeURIComponent(String(input))}` } }));
-    await expectFetchError(fetchSourcePage("https://news.example.com/start", endless), "too_many_redirects");
+    await expectFetchError(fetchHtml("https://news.example.com/start", endless), "too_many_redirects");
   });
 
   it("maps transient HTTP failures and caps Retry-After", async () => {
     const env = envWith(async () => new Response("", { status: 429, headers: { "Retry-After": "7200" } }));
-    await expect(fetchSourcePage("https://news.example.com/post", env)).rejects.toMatchObject({
+    await expect(fetchHtml("https://news.example.com/post", env)).rejects.toMatchObject({
       code: "upstream_http", retryable: true, retryAfterSeconds: 3600,
     });
   });
 
-  it("preserves stable safe-fetch gateway errors and retry policy", async () => {
-    const unsafe = envWith(async () => new Response(null, { status: 502, headers: { "x-safe-fetch-error": "unsafe_destination" } }));
-    await expect(fetchSourcePage("https://news.example.com/post", unsafe)).rejects.toMatchObject({ code: "unsafe_destination", retryable: false });
-    const dns = envWith(async () => new Response(null, { status: 502, headers: { "x-safe-fetch-error": "dns_error" } }));
-    await expect(fetchSourcePage("https://news.example.com/post", dns)).rejects.toMatchObject({ code: "dns_error", retryable: true });
+  it("does not start a hop after the caller has aborted", async () => {
+    const controller = new AbortController();
+    controller.abort();
+    const fetchHop = vi.fn(async () => html());
+    await expectFetchError(fetchSourceDocument("https://news.example.com/post", { fetchHop, signal: controller.signal }), "timeout");
+    expect(fetchHop).not.toHaveBeenCalled();
   });
 
   it("rejects non-HTML, unsupported encoding, malformed, empty, invalid UTF-8, and oversized bodies", async () => {
-    await expectFetchError(fetchSourcePage("https://news.example.com/post", envWith(async () => new Response("text", { headers: { "Content-Type": "text/plain" } }))), "unsupported_content");
-    await expectFetchError(fetchSourcePage("https://news.example.com/post", envWith(async () => new Response("<html/>", { headers: { "Content-Type": "text/html; charset=utf-16" } }))), "unsupported_encoding");
-    await expectFetchError(fetchSourcePage("https://news.example.com/post", envWith(async () => new Response("plain text", { headers: { "Content-Type": "text/html" } }))), "malformed_html");
-    await expectFetchError(fetchSourcePage("https://news.example.com/post", envWith(async () => new Response("   ", { headers: { "Content-Type": "text/html" } }))), "empty_source");
+    await expectFetchError(fetchHtml("https://news.example.com/post", envWith(async () => new Response("text", { headers: { "Content-Type": "text/plain" } }))), "unsupported_content");
+    await expectFetchError(fetchHtml("https://news.example.com/post", envWith(async () => new Response("<html/>", { headers: { "Content-Type": "text/html; charset=utf-16" } }))), "unsupported_encoding");
+    await expectFetchError(fetchHtml("https://news.example.com/post", envWith(async () => new Response("plain text", { headers: { "Content-Type": "text/html" } }))), "malformed_html");
+    await expectFetchError(fetchHtml("https://news.example.com/post", envWith(async () => new Response("   ", { headers: { "Content-Type": "text/html" } }))), "empty_source");
     const invalidUtf8 = new Response(new Uint8Array([60, 104, 116, 109, 108, 62, 0xff]), { headers: { "Content-Type": "text/html" } });
-    await expectFetchError(fetchSourcePage("https://news.example.com/post", envWith(async () => invalidUtf8)), "invalid_encoding");
+    await expectFetchError(fetchHtml("https://news.example.com/post", envWith(async () => invalidUtf8)), "invalid_encoding");
     const bodyOfSize = (size: number) => {
       const prefix = new TextEncoder().encode("<!doctype html><html><body><article>Cursor article fixture</article></body></html>");
       const bytes = new Uint8Array(size).fill(0x20);
@@ -116,10 +105,10 @@ describe("bounded source fetching", () => {
       return bytes;
     };
     const largeButAllowed = bodyOfSize(718_354);
-    const largeResult = await fetchSourcePage("https://news.example.com/large", envWith(async () => new Response(largeButAllowed, { headers: { "Content-Type": "text/html" } })));
+    const largeResult = await fetchHtml("https://news.example.com/large", envWith(async () => new Response(largeButAllowed, { headers: { "Content-Type": "text/html" } })));
     expect(new TextEncoder().encode(largeResult.html).byteLength).toBe(718_354);
     const atLimit = new Response(bodyOfSize(2 * 1024 * 1024), { headers: { "Content-Type": "text/html" } });
-    expect(new TextEncoder().encode((await fetchSourcePage("https://news.example.com/at-limit", envWith(async () => atLimit))).html).byteLength).toBe(2 * 1024 * 1024);
+    expect(new TextEncoder().encode((await fetchHtml("https://news.example.com/at-limit", envWith(async () => atLimit))).html).byteLength).toBe(2 * 1024 * 1024);
     const oversized = new Response(new ReadableStream<Uint8Array>({
       start(controller) {
         controller.enqueue(bodyOfSize(2 * 1024 * 1024));
@@ -127,16 +116,16 @@ describe("bounded source fetching", () => {
         controller.close();
       },
     }), { headers: { "Content-Type": "text/html" } });
-    await expectFetchError(fetchSourcePage("https://news.example.com/post", envWith(async () => oversized)), "source_too_large");
-    await expectFetchError(fetchSourcePage("https://news.example.com/declared-oversized", envWith(async () => new Response("<html/>", { headers: { "Content-Type": "text/html", "Content-Length": String(2 * 1024 * 1024 + 1) } }))), "source_too_large");
+    await expectFetchError(fetchHtml("https://news.example.com/post", envWith(async () => oversized)), "source_too_large");
+    await expectFetchError(fetchHtml("https://news.example.com/declared-oversized", envWith(async () => new Response("<html/>", { headers: { "Content-Type": "text/html", "Content-Length": String(2 * 1024 * 1024 + 1) } }))), "source_too_large");
   });
 
-  it("bounds first-hop startup plus fetching even when a fetcher ignores abort", async () => {
+  it("bounds a fetch hop even when its executor ignores abort", async () => {
     vi.useFakeTimers();
     const env = envWith(() => new Promise<Response>(() => undefined));
-    const pending = fetchSourcePage("https://news.example.com/post", env);
+    const pending = fetchHtml("https://news.example.com/post", env);
     const assertion = expectFetchError(pending, "timeout");
-    await vi.advanceTimersByTimeAsync(CONTAINER_STARTUP_TIMEOUT_MS + SOURCE_HOP_TIMEOUT_MS + 1);
+    await vi.advanceTimersByTimeAsync(SOURCE_HOP_TIMEOUT_MS + 1);
     await assertion;
   });
 
@@ -147,18 +136,18 @@ describe("bounded source fetching", () => {
       pull() { return new Promise<void>(() => undefined); },
       cancel() { streamCancelled = true; },
     }), { headers: { "Content-Type": "text/html" } });
-    const blocked = fetchSourcePage("https://news.example.com/blocked", envWith(async () => blockedBody));
+    const blocked = fetchHtml("https://news.example.com/blocked", envWith(async () => blockedBody));
     const blockedAssertion = expectFetchError(blocked, "timeout");
-    await vi.advanceTimersByTimeAsync(CONTAINER_STARTUP_TIMEOUT_MS + SOURCE_HOP_TIMEOUT_MS + 1);
+    await vi.advanceTimersByTimeAsync(SOURCE_HOP_TIMEOUT_MS + 1);
     await blockedAssertion;
     expect(streamCancelled).toBe(true);
 
     let resolveFetch!: (response: Response) => void;
     const lateFetch = new Promise<Response>((resolve) => { resolveFetch = resolve; });
     let lateBodyCancelled = false;
-    const late = fetchSourcePage("https://news.example.com/late", envWith(() => lateFetch));
+    const late = fetchHtml("https://news.example.com/late", envWith(() => lateFetch));
     const lateAssertion = expectFetchError(late, "timeout");
-    await vi.advanceTimersByTimeAsync(CONTAINER_STARTUP_TIMEOUT_MS + SOURCE_HOP_TIMEOUT_MS + 1);
+    await vi.advanceTimersByTimeAsync(SOURCE_HOP_TIMEOUT_MS + 1);
     await lateAssertion;
     resolveFetch(new Response(new ReadableStream<Uint8Array>({ cancel() { lateBodyCancelled = true; } }), {
       headers: { "Content-Type": "text/html" },
@@ -174,16 +163,16 @@ describe("bounded source fetching", () => {
     expect(error.retryable).toBe(false);
   });
 
-  it("allows a bounded cold start but does not grant startup time again after redirects", async () => {
+  it("applies the same hop timeout before and after redirects", async () => {
     vi.useFakeTimers();
-    const slowFirst = fetchSourcePage("https://news.example.com/story", envWith(() => new Promise<Response>((resolve) => {
-      setTimeout(() => resolve(html()), SOURCE_HOP_TIMEOUT_MS + 100);
+    const slowFirst = fetchHtml("https://news.example.com/story", envWith(() => new Promise<Response>((resolve) => {
+      setTimeout(() => resolve(html()), SOURCE_HOP_TIMEOUT_MS - 100);
     })));
-    await vi.advanceTimersByTimeAsync(SOURCE_HOP_TIMEOUT_MS + 101);
+    await vi.advanceTimersByTimeAsync(SOURCE_HOP_TIMEOUT_MS - 1);
     expect((await slowFirst).html).toContain("<title>Fixture</title>");
 
     let requests = 0;
-    const redirected = fetchSourcePage("https://news.example.com/start", envWith(async () => {
+    const redirected = fetchHtml("https://news.example.com/start", envWith(async () => {
       requests++;
       if (requests === 1) return new Response(null, { status: 302, headers: { Location: "/story" } });
       return new Promise<Response>(() => undefined);
@@ -194,17 +183,17 @@ describe("bounded source fetching", () => {
     expect(requests).toBe(2);
   });
 
-  it("keeps the overall fetch deadline across a cold start and several redirects", async () => {
+  it("keeps the overall fetch deadline across several redirects", async () => {
     vi.useFakeTimers();
     let requests = 0;
     let lastSignal: AbortSignal | undefined;
-    const pending = fetchSourcePage("https://news.example.com/start", envWith((_input, init) => {
+    const pending = fetchHtml("https://news.example.com/start", envWith((_input, init) => {
       requests++;
       lastSignal = init?.signal ?? undefined;
       const current = requests;
       return new Promise<Response>((resolve) => setTimeout(() => resolve(current < 4
         ? new Response(null, { status: 302, headers: { Location: `/hop-${current}` } })
-        : html()), current === 1 ? 9_000 : 4_000));
+        : html()), current === 4 ? 9_000 : 4_000));
     }));
     const assertion = expectFetchError(pending, "timeout");
     await vi.advanceTimersByTimeAsync(SOURCE_TOTAL_TIMEOUT_MS + 1);

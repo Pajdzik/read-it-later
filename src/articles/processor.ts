@@ -118,13 +118,12 @@ export async function recoverExtractionJobs(env: Env, now = new Date().toISOStri
   try { await cleanupPdfAssets(env, now); }
   catch { extractionLog("pdf_cleanup_failed"); }
   if (isBackgroundCapturePaused(env) || !env.EXTRACTION_QUEUE) return;
-  let recovered = 0, materialized = 0, published = 0;
+  let recovered = 0, published = 0;
   try {
     for (;;) {
       const result = await reconcileExtractionJobs(env.DB, now);
       recovered += result.recovered;
-      materialized += result.materialized;
-      if (result.recovered < 50 && result.materialized < 50) break;
+      if (result.recovered < 50) break;
     }
     let after = '';
     for (;;) {
@@ -134,9 +133,9 @@ export async function recoverExtractionJobs(env: Env, now = new Date().toISOStri
       published += page.length;
       after = page[page.length - 1].articleId;
     }
-    extractionLog('extraction_recovery_completed', { recovered, materialized, published });
+    extractionLog('extraction_recovery_completed', { recovered, published });
   } catch {
-    extractionLog('extraction_recovery_failed', { recovered, materialized, published });
+    extractionLog('extraction_recovery_failed', { recovered, published });
     throw new Error('extraction_recovery_failed');
   }
 }

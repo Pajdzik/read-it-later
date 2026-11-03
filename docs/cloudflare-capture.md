@@ -1,32 +1,34 @@
 # Cloudflare Container capture
 
-Current HTML/PDF conversion, original storage and complete archive behavior are documented in [unified ingestion](unified-ingestion.md). Server-side Defuddle architecture and manual-only/R2-deferred statements below are historical. Managed conversion is enabled in production; local defaults and staging remain disabled.
+Current HTML/PDF conversion, original storage and complete archive behavior are documented in [unified ingestion](unified-ingestion.md). Server-side Defuddle architecture and manual-only/R2-deferred statements below are historical. All checked-in environments keep capture disabled pending the [fresh database reset](prelaunch-reset.md).
 
-Decision, October 19, 2026: keep Workers, Static Assets, D1, and D1 jobs, and move the entire fetch-and-extract operation into a private Cloudflare Container. Workers Paid is accepted for this design. The checked-in production config enables background capture and binds the private executor; local defaults and staging keep it disabled. This configuration does not establish live deployment state. The implementation changes no account billing and deploys no resources.
+Decision, October 19, 2026: keep Workers, Static Assets, D1, and D1 jobs, and move the entire fetch-and-extract operation into a private Cloudflare Container. Workers Paid is accepted for this design. The checked-in configurations bind separate private executors and keep capture disabled until the fresh database cutover is verified. This configuration does not establish live deployment state. The implementation changes no account billing and deploys no resources.
 
 ## Architecture
 
 ```mermaid
 flowchart LR
-    Save[Website / token save] --> Intent[(D1 article + capture intent)]
-    Intent --> Ack[Immediate acknowledgment]
-    Cron[One-minute Cron] --> Claim[(D1 fenced job claim)]
-    Claim --> App[App Worker]
+    Save[Website / token save] --> Commit[(D1 article + initial job)]
+    Commit --> Ack[Immediate acknowledgment]
+    Commit --> Queue[Extraction Queue]
+    Cron[Hourly recovery] --> Queue
+    Queue --> App[App Worker claims fenced job]
     App -->|private ARTICLE_EXTRACTOR binding| Service[Capture Worker]
     Service --> Container[One sleeping Container]
     Container --> DNS[Resolve and validate all addresses]
     DNS --> Fetch[Native connection to numeric public IP]
-    Fetch --> Convert[Metadata + inert Defuddle thread]
-    Convert -->|Markdown + metadata| App
-    App --> Complete[(Fenced transactional copy + metadata + job completion)]
-    Complete --> Reader[Existing private reader and polling]
+    Fetch --> Metadata[Bounded metadata thread]
+    Fetch --> Convert[Managed HTML/PDF conversion]
+    Metadata --> Complete[(Fenced copy + metadata + job completion)]
+    Convert --> Complete
+    Complete --> Reader[Private reader and polling]
 ```
 
-The app Worker keeps all D1 access, scheduling, and completion logic. The Container has no database binding, application credentials, or durable article storage. A fixed private endpoint receives only `{url}` and returns a versioned result. Source HTML stays in the executor. The capture Worker has no public workers.dev URL, preview URL, route, or custom domain. Staging and production bind to separate executors.
+The app Worker handles article/job writes, scheduling, and completion. The private capture Worker handles managed conversion and PDF staging using its D1/R2 bindings. The Container has no database binding, application credentials, or durable article storage. A fixed private endpoint receives a URL and optional stored-PDF identity and returns a versioned result. Source bytes stay inside the private capture service. The capture Worker has no public workers.dev URL, preview URL, route, or custom domain. Staging and production bind to separate executors.
 
-`ARTICLE_EXTRACTOR` replaces the previous app `ARTICLE_FETCHER` deployment contract. The internal transport named `ARTICLE_FETCHER` in `source-fetch.ts` remains an executor dependency, implemented by `capture/pinned-fetch.ts`.
+The Container executor calls the native pinned-fetch implementation directly. The app Worker binds only to the private `ARTICLE_EXTRACTOR` service.
 
-Keep one eligible D1 job per tick and one Container instance per environment. A deterministic instance name avoids unnecessary instances, and a 30-second idle timeout permits sleeping. Empty cron ticks never start a Container. Overlapping work receives retryable `capture_busy`; D1 remains authoritative. Queues/Workflows add dispatch coordination without solving connection pinning and are unnecessary at this workload. Consider Queues with a D1 outbox if faster dispatch or throughput later requires it.
+Queue delivery processes one job at a time per environment. A deterministic Container instance name avoids unnecessary instances, and a 30-second idle timeout permits sleeping. The hourly recovery sweep never starts a Container directly. Overlapping work receives retryable `capture_busy`; D1 remains authoritative for job state and deadlines.
 
 ## Native connection boundary
 
@@ -42,7 +44,7 @@ Do not substitute Workers `node:https`: Cloudflare documents that it wraps `fetc
 
 ## Conversion and protocol
 
-The existing metadata parser and pinned Defuddle 0.19.4 / LinkeDOM 0.18.13 run inside the executor. Conversion creates a fresh inert DOM in a new Node thread, disables scripts and Defuddle async fallback, and replaces that thread's `fetch` with a throwing implementation. A five-second wall deadline can terminate synchronous parsing. Old/young generation heaps are limited to 128/16 MiB; these are V8 heap limits, not a total RSS guarantee. The Container bounds process memory as well. Empty output, conversion errors, thread exits, and excessive Markdown fail without saving partial text. Markdown remains capped at 256 KiB UTF-8.
+The production metadata parser runs in the executor's bounded Node thread against the fetched HTML. A five-second wall deadline can terminate synchronous parsing; V8 old/young generation heaps are limited to 128/16 MiB, which is not a total RSS guarantee. The Container bounds process memory as well. HTML and PDF conversion use the configured managed converter in the private capture Worker. Empty output, conversion errors, and excessive Markdown fail without saving partial text. Markdown remains capped at 256 KiB UTF-8. Defuddle is used by the browser capture flow, not by this Worker or executor.
 
 The app calls `POST https://capture.internal/capture` **through the service binding**. This is a fixed internal request label, not a public source URL. URLs never appear in the service path/query. The request carries only the source URL, with no article IDs, user headers, or credentials.
 
@@ -62,9 +64,9 @@ Updated October 31, 2026: the application now uses Cloudflare Queues for immedia
 
 ## Existing contracts retained
 
-No additional D1 migration is required beyond `0006_background_capture.sql`. Saving commits the link/intent immediately; enqueue reconciliation recovers missed jobs. One conditional claim increments attempts. Transient network, timeout, 408/429/5xx, service, and storage failures get at most three attempts with existing backoff and capped Retry-After. Permanent source/conversion failures await owner retry after cooldown. Duplicate saves do not reset attempts.
+Initialize the fresh database with `0001_initial.sql`. Saving commits the article and eligible initial job together; hourly recovery republishes missed notifications and recovers expired leases. One conditional claim increments attempts. Transient network, timeout, 408/429/5xx, service, and storage failures get at most three attempts with existing backoff and capped Retry-After. Permanent source/conversion failures await owner retry after cooldown. Duplicate saves do not reset attempts.
 
-Completion inserts a copy only if absent and updates permitted metadata/job state in the existing fenced transaction. Only fallback titles can change, and author/description fill empty fields. User edits, supplied titles, read state, identity, manual/browser copies, and GitHub publishing choices retain their existing behavior. Tokens remain save-only. Imports do not restore operational jobs or fetch restored links. Background copies keep the compatible `source: "paste"` and version-2 backup format.
+Completion inserts a copy only if absent and updates permitted metadata/job state in the existing fenced transaction. Only fallback titles can change, and author/description fill empty fields. User edits, supplied titles, read state, identity, manual/browser copies, and GitHub publishing choices retain their existing behavior. Tokens remain save-only. Imports do not restore operational jobs or fetch restored links. Background copies keep the compatible `source: "paste"` and version-3 backup format.
 
 The Add form and token route keep their current capture defaults, status/polling, and retry/manual fallbacks. A false flag or missing binding pauses processing without preventing saves. This redesign adds no UI step or publish action.
 
@@ -72,7 +74,7 @@ The Add form and token route keep their current capture defaults, status/polling
 
 Workers Paid starts at $5/month with included Container resource usage. The configured `basic` instance has 1 GiB memory, 1/4 vCPU, and 4 GB disk. One instance and short idle sleeping suit personal use; they are capacity limits, not a dollar spending cap. The [deployment guide](deployment.md#background-markdown-extraction) records an example monthly estimate, account-sharing caveats, commands, and rollout order.
 
-Use `pnpm typecheck`, `pnpm test`, and `pnpm test:capture` without local Docker. `pnpm check:capture` additionally builds the image and requires a Docker engine; GitHub Actions runs this check on its hosted Ubuntu runner. `pnpm build` checks the base app separately. After verification, pushes to `main` build and deploy the production executor before migrating D1 and deploying the app, using the existing protected production environment and Cloudflare secrets (including Containers Edit permission). No local Docker installation or manual production executor provisioning is needed. Enable capture only after staging validation.
+Use `pnpm typecheck`, `pnpm test`, and `pnpm test:capture` without local Docker. `pnpm check:capture` additionally builds the image and requires a Docker engine; GitHub Actions runs this check on its hosted Ubuntu runner. `pnpm build` checks the base app separately. After verification and fresh-binding preflight, pushes to `main` initialize D1, deploy the production capture service, and deploy the app, using the existing protected production environment and Cloudflare secrets (including Containers Edit permission). No local Docker installation or manual production executor provisioning is needed. Enable capture only after staging validation.
 
 Local tests cover address policy, mixed public/private answers, numeric connection options plus original-host TLS checks, private/self-target rejection, the built Node extraction thread, protocol bounds/timeouts, and existing D1 races/recovery. Staging must additionally verify real TLS/redirect/rebinding behavior, network isolation, slow/truncated/oversized sources, worst-case CPU/memory under 1/4-vCPU throttling, cold starts within 90 seconds, private-only service access, and account resource use. A01/A04 release gates remain open until this evidence exists. No deployed safety or performance benchmark is claimed.
 

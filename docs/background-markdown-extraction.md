@@ -1,10 +1,17 @@
 # Background Markdown extraction
 
-Current HTML/PDF conversion, original storage and complete archive behavior are documented in [unified ingestion](unified-ingestion.md). Server-side Defuddle architecture and manual-only/R2-deferred statements below are historical. Managed conversion is enabled in production; local defaults and staging remain disabled.
+> **Superseded proposal.** This page preserves the original design discussion and implementation requirements for historical context. Its proposal language, D1 intent/materialization model, scheduled-only architecture, and rollout assumptions are not the current contract.
 
-Updated October 19, 2026: [Cloudflare Container capture](cloudflare-capture.md) supersedes the fetch/runtime architecture in this original October 6 specification. The app now calls a private `ARTICLE_EXTRACTOR` service for both retrieval and conversion; native Node sockets pin validated public IPs, and Defuddle runs in a bounded Container thread. Existing D1 intent, fencing, retry, API, and reader contracts below remain applicable. Checked-in Wrangler config enables processing in production and disables it in local defaults/staging; this is not live-deployment verification. The older `ARTICLE_FETCHER` deployment instructions and Workers Free conversion discussion below describe the previous design, not current setup. Use the [current deployment instructions](deployment.md#background-markdown-extraction).
+## Current job invariant
 
-Updated October 31, 2026: queue notifications now trigger extraction after Save, Retry, and Recapture. The hourly cron repairs missed jobs and republishes unfinished work. D1 remains authoritative; see [queue delivery and recovery](deployment.md#queue-delivery-and-hourly-recovery). The scheduling discussion below records the original design.
+A save that requests capture writes the article and its initial extraction job in the same transactional D1 batch. There is no separate extraction intent field or later job materialization step. After commit, the Worker sends a Queue notification. The D1 job remains authoritative if notification delivery fails; the queue consumer claims and processes it with the current lease/generation checks. Recapture and retry also persist their job state before notification. Imports and restores never create extraction jobs.
+
+Wrangler resource IDs and service bindings are placeholders, and capture flags are disabled pending the fresh database reset. Do not treat this repository state as a live deployment. See [prelaunch reset](prelaunch-reset.md), [current ingestion and archive behavior](unified-ingestion.md), and [deployment guidance](deployment.md).
+
+## Historical proposal
+
+<details>
+<summary>Original design record (superseded)</summary>
 
 Save the link and a durable extraction request, acknowledge the save, then fetch and convert the article on the server. An iOS Shortcut or mobile browser can close immediately after the acknowledgment. The copy becomes available in the existing reader when extraction completes.
 
@@ -176,3 +183,5 @@ Log aggregate counts, job identifiers, safe error codes, age, attempts, CPU, and
 Required automated checks exercise save response before source work; mobile token intent and read/replace restrictions; disconnect after acknowledgment; crash before job materialization; concurrent saves/claims; lease expiry after each attempt; old-generation completion; transient backoff and Retry-After; exhausted/permanent failures; D1 completion rollback; duplicate failed jobs; deletion and manual-copy races; edited titles/read-state preservation; unsafe redirect/DNS/rebinding fixtures; complete byte/encoding bounds; and export/import compatibility. Browser smoke covers pending/ready/failed views, draft preservation, manual-copy priority, narrow layouts, and zero unsolicited GitHub writes.
 
 Run the existing TypeScript, Worker/D1, browser-smoke, backup/recovery, and build checks when implementing. Local fixtures cannot establish deployed DNS protection, plan headroom, or actual-device share support. Automated implementation evidence is recorded in the implementation tracker; it does not establish deployed DNS protection, plan headroom, or actual-device share support.
+
+</details>

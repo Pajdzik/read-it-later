@@ -2,19 +2,20 @@ import { normalizeTags } from './tags';
 import type { Article, ArticleCopy, Env } from '../contracts';
 import { errorResponse, jsonResponse } from '../http';
 import { isArticleId } from './identity';
+import { validatePortableArticle } from './portable-format';
 import { MAX_IMPORT_BYTES, MAX_IMPORT_ITEMS, MAX_TITLE_LENGTH, normalizeArticleUrl, parseObject, readJson, ValidationError } from './validation';
 const MAX_COPY_BYTES = 256 * 1024;
 type ImportArticle = Article;
 export function validateLibrary(value: unknown) {
   const input = parseObject(value, ['version', 'exportedAt', 'articles'], ['version', 'exportedAt', 'articles']);
-  if (input.version !== 1 && input.version !== 2 && input.version !== 3) throw new ValidationError('unsupported import version');
+  if (input.version !== 3) throw new ValidationError('unsupported import version');
   validTimestamp(input.exportedAt, 'exportedAt');
   if (!Array.isArray(input.articles) || input.articles.length > MAX_IMPORT_ITEMS) throw new ValidationError('articles must be an array with at most 1000 items');
   const seenIds = new Set<string>();
   const normalized: Array<ImportArticle & { normalizedUrl: string; copy?: ArticleCopy }> = [];
   for (const value of input.articles) {
-    const item = parseObject(value, ['id', 'url', 'title', 'author', 'description', 'createdAt', 'updatedAt', 'readAt', ...(input.version !== 1 ? ['copy'] : []), ...(input.version === 3 ? ['tags', 'descriptionOrigin', 'tagsManuallyEdited'] : [])], ['id', 'url', 'title', 'createdAt', 'updatedAt', 'readAt']);
-    if (!isArticleId(item.id)) throw new ValidationError('article id must contain eight lowercase letters or digits; convert legacy backups before importing');
+    const item = parseObject(value, ['id', 'url', 'title', 'author', 'description', 'tags', 'descriptionOrigin', 'tagsManuallyEdited', 'createdAt', 'updatedAt', 'readAt', 'copy'], ['id', 'url', 'title', 'createdAt', 'updatedAt', 'readAt']);
+    if (!isArticleId(item.id)) throw new ValidationError('article id must contain eight lowercase letters or digits');
     if (seenIds.has(item.id)) throw new ValidationError('import contains duplicate article IDs');
     seenIds.add(item.id);
     const url = normalizeArticleUrl(item.url);
@@ -23,9 +24,8 @@ export function validateLibrary(value: unknown) {
     const readAt = item.readAt === null ? null : validTimestamp(item.readAt, 'readAt');
     const author = optionalImportText(item.author, 'author', 200);
     const description = optionalImportText(item.description, 'description', 500);
-    const tags = input.version === 3 ? normalizeTags(item.tags ?? []) : [];
-    const descriptionOrigin = input.version === 3 && item.descriptionOrigin !== undefined
-      ? item.descriptionOrigin : description ? 'manual' : null;
+    const tags = normalizeTags(item.tags ?? []);
+    const descriptionOrigin = item.descriptionOrigin !== undefined ? item.descriptionOrigin : description ? 'manual' : null;
     if (![null, 'manual', 'extracted', 'generated'].includes(descriptionOrigin as string | null) ||
         (description && descriptionOrigin === null) || (!description && descriptionOrigin && descriptionOrigin !== 'manual') || (descriptionOrigin === 'generated' && description && [...description].length > 280)) throw new ValidationError('descriptionOrigin is invalid');
     if (item.tagsManuallyEdited !== undefined && typeof item.tagsManuallyEdited !== 'boolean') throw new ValidationError('tagsManuallyEdited is invalid');
@@ -42,6 +42,8 @@ export function validateLibrary(value: unknown) {
       if (typeof value.revision !== 'string' || !/^[A-Za-z0-9_-]{1,128}$/.test(value.revision)) throw new ValidationError('article copy revision is invalid');
       copy = { markdown: value.markdown, capturedAt, source: value.source, revision: value.revision };
     }
+    try { validatePortableArticle({ ...item, ...(copy ? { copy } : {}) }); }
+    catch { throw new ValidationError('article is invalid'); }
     normalized.push({ id: item.id, url: url.url, normalizedUrl: url.normalizedUrl, title: item.title.trim(), author, description, descriptionOrigin: descriptionOrigin as Article["descriptionOrigin"], tags, tagsManuallyEdited, createdAt, updatedAt, readAt, ...(copy ? { copy } : {}) });
   }
   return normalized;

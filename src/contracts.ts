@@ -35,8 +35,6 @@ export interface Env extends Pick<WorkerBindings, "DB" | "ASSETS">, Partial<Pick
   ARTICLE_ENRICHMENT_DAILY_LIMIT?: string;
   /** Private Cloudflare Container capture service; returns Markdown and metadata, never source HTML. */
   ARTICLE_EXTRACTOR?: Fetcher;
-  /** Legacy gateway binding retained for staged source-fetch compatibility. */
-  ARTICLE_FETCHER?: { fetch(input: string, init: RequestInit): Promise<Response> };
 }
 
 export interface ExtractionStatus {
@@ -83,25 +81,6 @@ export interface ArticleCopy {
   capturedAt: string;
   source: "paste" | "upload";
   revision: string;
-}
-
-export interface GitHubBackupStatus {
-  configured: boolean;
-  message?: string;
-  repository?: string;
-  branch?: string;
-  path?: string;
-  url?: string;
-  state?: "not_saved" | "saved" | "outdated";
-  backedUpAt?: string;
-}
-
-export interface GitHubBackupConfiguration {
-  configured: boolean;
-  message?: string;
-  repository?: string;
-  branch?: string;
-  folder?: string;
 }
 
 export type { IntegrationConfiguration, IntegrationStatus, IntegrationConsent } from './integrations/contracts';

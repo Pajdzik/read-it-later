@@ -1,16 +1,5 @@
 import type { Article } from '../contracts';
-import { ValidationError } from './validation';
-
-export function normalizeTags(value: unknown, maximum = 10): string[] {
-  if (!Array.isArray(value) || value.length > maximum) throw new ValidationError(`tags must be an array of at most ${maximum} tags`);
-  const tags = value.map(tag => {
-    if (typeof tag !== 'string' || /[\p{Cc}\p{Cs}<>]/u.test(tag)) throw new ValidationError('tags must contain plain text');
-    const normalized = tag.normalize('NFKC').toLowerCase().replace(/\s+/gu, ' ').trim();
-    if (!normalized || [...normalized].length > 40) throw new ValidationError('each tag must contain 1–40 characters');
-    return normalized;
-  });
-  return [...new Set(tags)].sort();
-}
+export { normalizeTags } from './validation';
 
 /** A fixed number of queries for the whole page, rather than one per article. */
 export async function hydrateTags(db: D1Database, articles: Article[]): Promise<Article[]> {

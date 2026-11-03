@@ -37,13 +37,12 @@ function safeCode(code: string): string {
 
 function mapStatus(row: Record<string, unknown>, paused: boolean): ExtractionStatus {
   const hasCopy = row.copy_id != null;
-  const intent = row.extraction_requested_at != null;
   const jobState = row.job_state == null ? null : String(row.job_state);
   const state: ExtractionStatus["state"] = hasCopy ? "ready"
     : jobState === "queued" || jobState === "retry_wait" || jobState === "running" ? jobState
       : jobState === "failed" ? "failed"
         : jobState === "succeeded" ? "failed"
-          : intent ? "queued" : "none";
+          : "none";
   return {
     state,
     attempts: Number(row.attempts ?? 0),
@@ -63,7 +62,7 @@ function mapStatus(row: Record<string, unknown>, paused: boolean): ExtractionSta
   };
 }
 
-const STATUS_SELECT = `SELECT a.id, a.extraction_requested_at, c.article_id AS copy_id,
+const STATUS_SELECT = `SELECT a.id, c.article_id AS copy_id,
     j.state AS job_state, j.attempts, j.error_code, j.next_attempt_at,j.kind,j.generation,
     EXISTS (SELECT 1 FROM article_capture_recovery r WHERE r.article_id=a.id
       AND r.resulting_revision=c.revision
@@ -98,50 +97,27 @@ export async function getExtractionStatuses(
   return result;
 }
 
-/** Materialize one durable article intent. Safe to retry after a save/worker crash. */
-export async function enqueueExtractionJob(db: D1Database, id: string, now = new Date().toISOString()): Promise<void> {
-  await db.prepare(`INSERT INTO article_extraction_jobs
-      (article_id,generation,state,attempts,next_attempt_at,created_at,updated_at)
-    SELECT a.id,1,'queued',0,?,?,? FROM articles a
-    WHERE a.id = ? AND a.extraction_requested_at IS NOT NULL
-      AND NOT EXISTS (SELECT 1 FROM article_copies c WHERE c.article_id = a.id)
-    ON CONFLICT(article_id) DO NOTHING`)
-    .bind(now, now, now, id).run();
-}
-
-/** Reconcile missed intents and consume expired leases in bounded batches. */
+/** Recover expired leases in bounded batches. */
 export async function reconcileExtractionJobs(
   db: D1Database, now = new Date().toISOString(), target?: ExtractionMessage,
-): Promise<{ recovered: number; materialized: number }> {
+): Promise<{ recovered: number }> {
   const recover = db.prepare(`UPDATE article_extraction_jobs SET
       state = CASE WHEN attempts >= ? THEN 'failed' ELSE 'retry_wait' END,
       next_attempt_at = CASE attempts
         WHEN 1 THEN strftime('%Y-%m-%dT%H:%M:%fZ', ?, '+1 minute')
         ELSE strftime('%Y-%m-%dT%H:%M:%fZ', ?, '+5 minutes') END,
       lease_token = NULL, lease_expires_at = NULL,
-      error_code = CASE WHEN attempts >= ? THEN 'lease_expired' ELSE 'lease_expired' END,
+      error_code = 'lease_expired',
       finished_at = CASE WHEN attempts >= ? THEN ? ELSE NULL END,
       updated_at = ?
     WHERE article_id IN (SELECT article_id FROM article_extraction_jobs
       WHERE state = 'running' AND lease_expires_at <= ?
         ${target ? 'AND article_id = ? AND generation = ?' : ''}
       ORDER BY lease_expires_at,article_id LIMIT ?)`)
-    .bind(MAX_ATTEMPTS, now, now, MAX_ATTEMPTS, MAX_ATTEMPTS, now, now, now,
+    .bind(MAX_ATTEMPTS, now, now, MAX_ATTEMPTS, now, now, now,
       ...(target ? [target.articleId, target.generation] : []), MAX_RECONCILE);
-  if (target) {
-    const result = await recover.run();
-    return { recovered: result.meta.changes ?? 0, materialized: 0 };
-  }
-  const materialize = db.prepare(`INSERT INTO article_extraction_jobs
-      (article_id,generation,state,attempts,next_attempt_at,created_at,updated_at)
-    SELECT a.id,1,'queued',0,?,?,? FROM articles a
-    WHERE a.extraction_requested_at IS NOT NULL
-      AND NOT EXISTS (SELECT 1 FROM article_copies c WHERE c.article_id = a.id)
-      AND NOT EXISTS (SELECT 1 FROM article_extraction_jobs j WHERE j.article_id = a.id)
-    ORDER BY a.extraction_requested_at,a.id LIMIT ?`)
-    .bind(now, now, now, MAX_RECONCILE);
-  const results = await db.batch([recover, materialize]);
-  return { recovered: results[0].meta.changes ?? 0, materialized: results[1].meta.changes ?? 0 };
+  const result = await recover.run();
+  return { recovered: result.meta.changes ?? 0 };
 }
 
 export interface ExtractionDelivery {
@@ -289,18 +265,14 @@ export async function retryExtractionJob(
   id: string,
   now = new Date().toISOString(),
 ): Promise<RetryExtractionResult> {
-  const article = await db.prepare(`SELECT a.id, a.extraction_requested_at,
+  const article = await db.prepare(`SELECT a.id,
       EXISTS (SELECT 1 FROM article_copies c WHERE c.article_id = a.id) AS has_copy
     FROM articles a WHERE a.id = ?`).bind(id).first<Record<string, unknown>>();
   if (!article) return "missing";
   if (Number(article.has_copy) > 0) return "ready";
   const row = await db.prepare("SELECT state,updated_at FROM article_extraction_jobs WHERE article_id = ?")
     .bind(id).first<Record<string, unknown>>();
-  if (!row) {
-    if (article.extraction_requested_at == null) return "missing";
-    await enqueueExtractionJob(db, id, now);
-    return "queued";
-  }
+  if (!row) return "missing";
   if (["queued", "running", "retry_wait"].includes(String(row.state))) return "active";
   if (row.state !== "failed" && row.state !== "succeeded") return "missing";
   if (Date.parse(now) - Date.parse(String(row.updated_at)) < 60_000) return "cooldown";

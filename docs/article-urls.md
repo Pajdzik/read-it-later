@@ -26,46 +26,13 @@ All article foreign keys, copy access, capture jobs, read/edit/delete requests, 
 
 Article DTOs retain the existing `id` field. Resolve a reader path with `GET /api/articles/:id`, then load the copy through `GET /api/articles/:id/copy`. The title slug is never sent to the lookup API. No new reader lookup API is required. An invalid ID returns 400; an unknown valid ID returns 404. Keep existing owner-session and private/no-store policies; capture tokens grant no read access.
 
-## Backups and the testing transition
+## Backups
 
-The backup shapes do not need to change. JSON version 2 still contains `id` and the optional Markdown copy; GitHub Markdown still uses `potem_backup_version: 1` and an `id` frontmatter field. Their existing string-ID fields can hold short IDs. Imports of current-format data preserve supplied short IDs exactly, including through a full restore; an ID assigned to a different normalized URL rejects the entire import. Existing normalized-URL duplicates retain their stored article and ID.
+JSON version 3 retains article IDs and optional Markdown copies. GitHub Markdown uses `potem_backup_version: 2` and the article ID in frontmatter. New GitHub writes use `<configured-folder>/<article-id>.md`; title edits update metadata in place. Generic integration receipts track delivery history separately for each configured repository, branch, and folder. Existing title-based remote files are not automatically renamed or adopted. See [GitHub Markdown](github-markdown.md) for the current writer and offline recovery converter.
 
-New GitHub backups use readable title-based filenames such as `Articles/why-we-read.md`, with `id: "k7m2q9x4"` in YAML frontmatter. The database records the article's assigned backup path. The writer, recovery converter, JSON import, and database must agree on the frontmatter ID; the filename carries no identity contract. Repeated restore must preserve both the article ID and its reader URL. Preserve saved Markdown bytes and existing metadata through conversion. GitHub Markdown remains a text/capture backup and does not acquire read-state fields through this change.
+## GitHub filenames
 
-Default cutover: clear the disposable test article library and start with newly generated short IDs. Reset article rows and dependent copies/jobs/backup-status records together; keep authentication, tokens, configuration, and unrelated repository files outside the reset. Do not rewrite primary keys piecemeal across an active library. Test backups can be regenerated from the new library, and old UUID-named backup files can be retired rather than retained as aliases. Old bookmarks, last-opened browser pointers, and UUID links are allowed to expire.
-
-If retaining an existing backup's contents is useful, convert it once before import:
-
-1. Read a JSON export and/or local GitHub Markdown backup folder, and validate it using the existing backup parsers. Produce output in a separate directory.
-2. Build one old-ID → short-ID mapping for the entire conversion, including all import batches and matching Markdown files. Reserve existing valid short IDs first and preserve them. Allocate collision-checked IDs for legacy records; never independently rekey each representation of the same article. Reject inconsistent old-ID/normalized-URL identities rather than guessing. Keep the mapping as a migration report, not an application dependency.
-3. Write converted JSON batches with the existing version and limits. For Markdown, replace the `id` scalar and assign a readable title-based filename using the rules below, retaining all other metadata and the exact body bytes. Record old path → new path alongside the ID mapping. Do not rewrite IDs or links inside article bodies.
-4. Validate the converted outputs, import into an empty test library, then verify IDs, counts, metadata, copies, read state where backed up, and reader URLs. Reimport must make no changes. Old-format data goes through this converter rather than adding a runtime legacy-ID lookup path.
-5. If replacing the existing GitHub backup set, use the verified mapping to rename only recognized Potem files and update their ID frontmatter together in one repository commit. Preserve unrelated files and repository history. Rebuild backup-status metadata against the new destination paths; do not reuse old content hashes. For a clean reset, fresh backups can replace the test set instead. Before publishing, produce a concrete diff for review; this design does not mutate the remote repository.
-
-New GitHub/Obsidian recovery conversions must also emit or retain valid short IDs. Update fixtures and archive helpers to use short IDs and verify the unchanged JSON/Markdown format contracts. Version-1 JSON input without copies may continue through the same short-ID import contract; legacy UUID or opaque IDs require conversion first. There is no obligation to preserve current test identifiers or old reader links.
-
-## Readable GitHub filenames
-
-Keep the repository pleasant to browse and each Markdown file independently identifiable:
-
-| Location | Example | Purpose |
-| --- | --- | --- |
-| Reader URL | `/read/k7m2q9x4/why-we-read` | Stable article address with a readable title |
-| GitHub filename | `Articles/why-we-read.md` | Human-readable name in the repository |
-| YAML frontmatter | `id: "k7m2q9x4"` | Permanent identity carried with the file |
-| Database mapping | Article `k7m2q9x4` → repository, branch, `Articles/why-we-read.md` | Find the same file on subsequent writes |
-
-Frontmatter already includes `id`, and `article_github_backups` already records the confirmed `path`. Recovery must continue to parse the ID from metadata rather than infer it from a filename. Keeping the ID inside the file allows recovery without the database, including after a manual filename change.
-
-On the first backup attempt, choose `<title-slug>.md` within the configured folder. Use the title-slug normalization from the reader URL, with filename portability checks for reserved basenames. A title with no usable slug falls back to `saved-article.md`. Generate one basename only; article titles cannot supply path separators or escape the configured folder. If another article or unrelated file owns that path, try `why-we-read-2.md`, `why-we-read-3.md`, and so on, with a bounded limit of 100 candidates. The article ID remains in frontmatter rather than being appended to the filename.
-
-Reserve the chosen path in D1 before the first remote write. The existing backup-status row is written only after a successful GitHub operation, so it cannot alone make the first attempt repeatable. Add a destination-path reservation keyed by article ID, repository, branch, and configured folder, with unique ownership of each destination path. Keep the existing confirmed content hash/time separate from an unconfirmed reservation. Resolve concurrent saves through that reservation and reuse it after a timeout or Worker restart. A failed network request must not allocate another filename.
-
-Always verify a remote file's Potem marker and frontmatter ID before replacing it, and use its current blob SHA. An occupied candidate belonging to another article is skipped only during initial allocation. If an already assigned file is replaced with unrelated content, report a conflict rather than overwrite it or silently create a replacement elsewhere. A concurrent remote creation must be rechecked before selecting another candidate. Exhausted candidates or unresolved conflicts leave D1 article content and previous confirmed backup status intact.
-
-Keep the assigned filename stable when the article's title changes. Update the full `title` in frontmatter on the next backup; subsequent writes reuse the stored path. This keeps title edits from creating extra files and keeps existing GitHub links useful. Automatic filename renaming on title edits is outside this feature.
-
-During backup migration or a repository-aware restore, rebuild destination mappings by reading recognized files' frontmatter IDs and their current paths. Use Settings → **Find existing GitHub backups**, backed by owner/CSRF-protected `POST /api/github/reconcile`. The scan is limited to 100 direct Markdown files and 4 MiB advertised size under a shared 10-second deadline; exceeding that bound reports a limit error. Ordinary saves do not scan the folder. Do not regenerate a path from an article's latest title when a matching backup already exists. Multiple files claiming the same article ID are a reported conflict, not a reason to choose one silently. A JSON-only restore recovers article identity and content; reconcile the target GitHub folder before resuming publication to an existing backup set. Neither JSON export nor Markdown needs a new field or format version for this mapping.
+GitHub Markdown files use `<configured-folder>/<article-id>.md`, such as `Articles/k7m2q9x4.md`. This keeps the remote destination stable across title edits and avoids path allocation, collision suffixes, and database path mappings. Frontmatter retains the ID for offline recovery. Each send checks remote ownership and content before writing; deleting a remote file allows the next send to recreate it at the same path. Generic integration receipts are scoped to the configured repository, branch, and folder.
 
 ## Reading flow
 
@@ -148,7 +115,7 @@ Apply the same preservation before the existing API-401 redirect. Hide the last-
 ## Implementation scope
 
 1. Replace article UUID generation with a shared short-ID generator and bounded collision retries. Keep the existing `id` field, text primary key, article APIs, and foreign keys. Tighten article-ID validation and update fixtures.
-2. Update backup/recovery converters and archive helpers for short IDs within existing formats. Add readable filename allocation and durable destination-path reservations to the GitHub writer; reuse confirmed paths and frontmatter identity checks. Provide the one-time backup converter with a shared ID/path mapping and an optional verified GitHub file-migration diff. Verify exact ID retention through full restore and atomic rejection of conflicting IDs. Reset/rebuild disposable test article data during cutover.
+2. Update backup/recovery converters and archive helpers for short IDs within existing formats. Write GitHub backups at stable article-ID paths and verify remote ownership before replacement. Keep the offline GitHub converter for local recovery. Verify exact ID retention through full restore and atomic rejection of conflicting IDs. Reset/rebuild disposable test article data during cutover.
 3. Add a small typed URL/navigation module for article link generation, parsing, history transitions, and current navigation ownership. Integrate with `initialize`, `openArticleById`, `openSavedCopy`, reader close handlers, and logout in `web/app.ts`.
 4. Convert article entry controls to anchors; update extension result links to use the same URL helper. Add the Copy article link control and the accessible Last opened row in `web/index.html`, with responsive styles in `web/app.v1.css`.
 5. Add browser-local last-opened and tab-local sign-in return helpers with defensive storage handling. Keep render-only functions free of persistence/navigation effects.
@@ -163,8 +130,8 @@ Cross-device last-opened synchronization and restoring a position within an arti
 - Extension results use short-ID reader paths. Duplicate titles, edited titles, stale slugs, and Unicode titles work. Malformed IDs/paths show a usable error. UUID query bookmarks are outside the compatibility contract.
 - Newly saved/imported articles use one unique eight-character primary ID. Force a collision and verify bounded retry, concurrent allocation, rollback on exhaustion, duplicate-URL ID retention, and consistent copy/job/GitHub references.
 - Export v2 and restore into a fresh database; reconcile IDs, copies, metadata, read state, and reader URLs exactly. Current-format short IDs are retained; invalid IDs or ID/URL conflicts cause no partial writes. V1 JSON without copies follows the same short-ID contract.
-- Convert legacy JSON/GitHub fixtures with one shared mapping; verify matching JSON/frontmatter IDs, readable assigned filenames, exact body bytes, bounded output batches, unchanged source inputs, and idempotent restore. Recognized-file rename diffs leave unrelated repository content alone. No article-ID alias table or URL-specific ID is introduced.
-- GitHub filename allocation covers duplicate titles, Unicode/punctuation/empty slugs, reserved basenames, unrelated occupied paths, concurrent initial saves, and a timeout after remote commit but before confirmed D1 status. Retry finds the same assigned file. Title changes update metadata without creating another file. ID-based recovery works after a manual rename, and duplicate frontmatter identities are reported during reconciliation.
+- Convert legacy JSON/GitHub fixtures using short IDs; verify matching JSON/frontmatter IDs, exact body bytes, bounded output batches, unchanged source inputs, and idempotent restore. No article-ID alias table or URL-specific ID is introduced.
+- GitHub uses a stable article-ID filename, checks ownership before replacement, recreates deleted remote files, and confirms ambiguous writes by exact-byte reread. Title changes update frontmatter in place.
 - Direct links work for read articles and articles beyond the first list page, including when the list request fails.
 - Last opened survives browser restart and a successful Mark read, appears in the unread view even if its article is read, and fetches the current title after rename. Failed or pending copy loads never replace it.
 - Deleted, malformed, and temporarily unavailable remembered articles follow the distinct cleanup/retry behavior. Unavailable local storage and clipboard do not block reading.
@@ -175,11 +142,11 @@ Cross-device last-opened synchronization and restoring a position within an arti
 
 ## Local validation
 
-- `pnpm check` and all 84 Worker/D1 tests pass. Collision retries, strict identity/import boundaries, GitHub reservations, concurrent saves, lost-response retries, renamed-file reconciliation, and owner/CSRF access have runtime coverage. An independent Luna review found no additional short-ID backend correctness issues.
-- All 37 standalone archive/converter/migration tests pass. The new command is `pnpm backup:migrate --json /absolute/export.json --github-dir /absolute/Articles --output /absolute/new-directory`; either input can be omitted. It creates private converted files and an ID/path mapping without modifying inputs or publishing to GitHub.
+- Worker/D1 tests cover ID collision retries, strict identity/import boundaries, stable GitHub ID paths, ownership checks, remote deletion, ambiguous writes, and destination-scoped receipts.
+- Offline archive and GitHub converters validate local recovery inputs without publishing to GitHub.
 - Desktop browser smoke covers real anchor links, 51 loaded rows through Back, tab titles, copy-link fallback, stale title slugs, direct landing/reload/close, Last opened, unchanged read state, sign-in through `/add`, unavailable local storage, existing capture workflows, and delayed-response guards. Desktop and 390px reader/list screenshots were inspected.
 - Chromium Android and WebKit iPhone touch smoke passes across portrait, landscape, and short viewports. This is browser emulation, not a physical-device release check.
 - Archive rehearsal restores 30 articles and 28 copies, compares canonical fields, confirms repeat import makes zero writes, and reads/downloads two saved copies with external browser requests blocked. GitHub and Obsidian recovery also have temporary local Worker/D1 integration coverage.
 - Chromium extension/controller/bridge integration passes with real local Worker/D1, including the new Read in Potem URL. Native toolbar activation and the complete Firefox matrix retain their existing release gates.
 
-Migration `0007_github_paths.sql` must be applied before running the new GitHub writer. It adds durable filename reservations and seeds existing confirmed paths. Rebuilding existing test data and replacing remote backups remain explicit cutover operations; local validation used temporary databases and fixture repositories only.
+GitHub sends use the generic integration receipt migration. Local validation used temporary databases and fixture repositories only.

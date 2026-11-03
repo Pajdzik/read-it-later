@@ -1,7 +1,7 @@
 # Managed HTML/PDF capture and complete archives
 
 HTML and PDF URLs use the same durable background capture flow. Saving a link
-commits the article and intent immediately, then publishes a Queue notification.
+commits the article and initial job atomically, then publishes a Queue notification.
 The consumer calls the private Container for that article and generation; the
 phone/browser can close after acknowledgment. An hourly sweep repairs missed
 notifications and expired leases and cleans unreferenced PDFs and archive sessions.
@@ -93,12 +93,11 @@ enablement. Buckets must stay private; do not enable r2.dev or a public domain.
 ## Portable archive format and restore
 
 Settings offers **Export complete archive** and **Restore archive**. JSON export
-is explicitly labeled as excluding PDF originals; existing version-1/2 JSON
-imports remain supported.
+is explicitly labeled as excluding PDF originals. JSON imports accept version 3 only, with current short article IDs.
 
 The complete archive is streaming, uncompressed ZIP64, containing:
 
-- `library.json`: the existing version-2 article/copy envelope;
+- `library.json`: the existing version-3 article/copy envelope;
 - `manifest.json`: `{version:1,exportedAt,pdfs:[{articleId,id,checksum,bytes,capturedAt,sourceUrl}]}`;
 - `pdf/<asset-id>.pdf`: one file per referenced original.
 
@@ -138,11 +137,12 @@ the session expires. An empty archive is supported.
 
 ## Rollout and validation
 
-Migrations `0010_pdf_assets.sql` and `0011_archive_commit_guard.sql` are additive and must be applied before deploying the capture service and app. Both app and capture production configs set
-`MANAGED_CONVERSION_ENABLED=true`; local defaults and staging remain disabled.
-The owner chose to skip staging for the initial activation on October 31, 2026.
-Validate representative captures and archive restoration in production using
-synthetic records. Existing queued capture intent resumes when enabled.
+The initial `0001_initial.sql` schema includes the PDF and archive commit guards.
+Follow the [fresh database reset](prelaunch-reset.md) before the first deployment;
+this baseline does not upgrade the previous database. Both environments keep
+capture and managed conversion disabled until the matching fresh bindings have
+been verified. The dated production evidence below describes earlier deployments.
+Queued jobs resume when capture is enabled.
 
 The sequence below remains the recommended staging path for future releases.
 
@@ -160,8 +160,7 @@ The sequence below remains the recommended staging path for future releases.
 3. Build assets, apply migrations and deploy the private capture service. Provision
    the environment Queue with `pnpm queue:ensure --env staging --execute`, then
    deploy the compatible app with managed conversion disabled. Use environment-specific
-   commands; the `capture:deploy` helper describes the older fetch gateway and is
-   not the managed-conversion release path.
+   commands. The normal `Checks` workflow is the production deployment path.
 4. In staging, set `MANAGED_CONVERSION_ENABLED=true` in both app and capture
    configuration, and `BACKGROUND_CAPTURE_ENABLED=true` in the app, then redeploy.
 5. Save representative HTML with navigation, code, links and tables; review full

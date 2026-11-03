@@ -38,27 +38,18 @@ jobs:
           node-version: 22
           cache: pnpm
 
-      - name: Test extension change detection
-        id: extension_changes
-        run: |
-          node --test scripts/ci-extension-changes.test.mjs
-          node scripts/ci-extension-changes.mjs
-
       - name: Install dependencies
         run: pnpm install --frozen-lockfile
 
       - name: Check TypeScript across all runtimes
         run: |
           pnpm check
-          pnpm typecheck:fetcher
 
       - name: Run Worker and D1 tests
         run: pnpm test
 
       - name: Test queue provisioning
-        run: |
-          pnpm test:queues-deployment
-          pnpm test:capture-deployment
+        run: pnpm test:queues-deployment
 
       - name: Test native capture executor
         run: pnpm test:capture
@@ -71,30 +62,6 @@ jobs:
 
       - name: Build for deployment (dry run)
         run: pnpm build
-
-      - name: Package the safe fetch probe (dry run)
-        run: pnpm build:fetch-probe
-
-      - name: Test pinned safe fetch and gateway protocol
-        run: pnpm test:fetcher
-
-      - name: Package the safe fetch gateway Worker (dry run)
-        run: pnpm build:fetcher-dry-run
-
-      - name: Run browser extension checks
-        if: steps.extension_changes.outputs.run == 'true'
-        run: |
-          pnpm exec playwright install chromium
-          pnpm test:extension
-
-      - name: Install WebKit for mobile smoke test
-        run: pnpm exec playwright install --with-deps chromium webkit
-
-      - name: Run mobile browser smoke test
-        run: pnpm test:mobile
-
-      - name: Rehearse archive restoration
-        run: pnpm test:archive
 
       - name: Test Obsidian conversion and local restore
         run: pnpm test:obsidian
@@ -140,15 +107,14 @@ jobs:
       - name: Install dependencies
         run: pnpm install --frozen-lockfile
 
-      - name: Install extension packaging tools
-        if: steps.extension_changes.outputs.run == 'true'
-        run: apt-get update && apt-get install -y zip
-
       - name: Check Playwright image version matches the project
         env:
           EXPECTED_PLAYWRIGHT_VERSION: ${{ matrix.playwright-version }}
         run: |
           node -e 'const actual = require("./package.json").devDependencies.playwright; if (actual !== process.env.EXPECTED_PLAYWRIGHT_VERSION) { console.error(`Playwright image is ${process.env.EXPECTED_PLAYWRIGHT_VERSION}, package.json requires ${actual}`); process.exit(1); }'
+
+      - name: Test extension change detection
+        run: node --test scripts/ci-extension-changes.test.mjs
 
       - name: Run browser smoke test
         run: pnpm test:browser
@@ -208,6 +174,20 @@ jobs:
           test -n "$CLOUDFLARE_API_TOKEN" || { echo "::error::Set the CLOUDFLARE_API_TOKEN Actions secret."; exit 1; }
           test -n "$CLOUDFLARE_ACCOUNT_ID" || { echo "::error::Set the CLOUDFLARE_ACCOUNT_ID Actions secret."; exit 1; }
 
+      - name: Verify fresh production D1 configuration
+        run: |
+          node <<'NODE'
+          const fs = require('node:fs');
+          const app = JSON.parse(fs.readFileSync('wrangler.jsonc', 'utf8')).env.production.d1_databases.find((db) => db.binding === 'DB');
+          const capture = JSON.parse(fs.readFileSync('capture/wrangler.jsonc', 'utf8')).env.production.d1_databases.find((db) => db.binding === 'DB');
+          const oldId = 'e4a7e714-8e4e-413d-8f13-51c0c02fab5f';
+          const validId = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
+          if (!app || !capture || app.database_name !== 'read-later-production-v1' || capture.database_name !== 'read-later-production-v1' || app.database_id !== capture.database_id || !validId.test(app.database_id) || app.database_id === oldId) {
+            console.error('Production D1 is not configured for the fresh database. Follow docs/prelaunch-reset.md, create the new database, and set the same new UUID in both Wrangler configs.');
+            process.exit(1);
+          }
+          NODE
+
       - name: Check Container build engine
         run: docker info
 
@@ -226,7 +206,7 @@ jobs:
           CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
           CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
           CLOUDFLARE_LOAD_DEV_VARS_FROM_DOT_ENV: "false"
-        run: pnpm exec wrangler d1 migrations apply read-later-production --remote --env production
+        run: pnpm exec wrangler d1 migrations apply read-later-production-v1 --remote --env production
 
       # The app's ARTICLE_EXTRACTOR service binding must exist before app deployment.
       # Wrangler builds and pushes the image using the runner's Docker engine.

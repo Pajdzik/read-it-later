@@ -6,7 +6,7 @@ import { managedConversion, type ManagedEnv } from '../capture/managed';
 import { deliverPendingExtractions, extractionQueueStub } from './extraction-queue-fixture';
 import { cleanupPdfAssets, getOriginalPdf, stagePdf, assetKey, checksum } from '../src/articles/pdf';
 import { fetchSourceDocument } from '../src/articles/source-fetch';
-import { completeExtractionJob, claimExtractionJob, enqueueExtractionJob } from '../src/articles/jobs';
+import { completeExtractionJob, claimExtractionJob } from '../src/articles/jobs';
 import { saveArticleCopy } from '../src/articles/repository';
 import { requestRecapture, undoRecapture } from '../src/articles/recovery';
 import { inspectArchive, restoreArchive } from '../web/archive';
@@ -55,9 +55,11 @@ function observeDatabase(match: (sql: string) => boolean, hooks: {
   } });
 }
 async function add(id = 'pdf00001', url = 'https://news.example.com/document'): Promise<void> {
-  await env.DB.prepare(`INSERT INTO articles(id,url,normalized_url,title,created_at,updated_at,read_at,extraction_requested_at,title_origin) VALUES(?,?,?,'Saved title',?,?,NULL,?,'supplied')`)
-    .bind(id,url,url,ago(),ago(),ago()).run();
-  await enqueueExtractionJob(env.DB,id,ago());
+  const now = ago();
+  await env.DB.prepare(`INSERT INTO articles(id,url,normalized_url,title,created_at,updated_at,read_at,title_origin) VALUES(?,?,?,'Saved title',?,?,NULL,'supplied')`)
+    .bind(id,url,url,now,now).run();
+  await env.DB.prepare(`INSERT INTO article_extraction_jobs(article_id,generation,state,attempts,next_attempt_at,created_at,updated_at) VALUES(?,1,'queued',0,?,?,?)`)
+    .bind(id,now,now,now).run();
 }
 function converterService(binding: ManagedEnv) {
   return vi.fn(async (_input: RequestInfo | URL, init?: RequestInit) => {
@@ -185,7 +187,7 @@ describe('managed conversion', () => {
 
 describe('PDF source fetching and access', () => {
   it('recognizes extensionless PDFs, validates signatures, and retains separate HTML/PDF bounds', async () => {
-    const source = (body: BodyInit, type: string, length?: string) => ({ BACKGROUND_CAPTURE_ENABLED:'true',ARTICLE_FETCHER:{fetch:async()=>new Response(body,{headers:{'Content-Type':type,...(length?{'Content-Length':length}:{})}})} });
+    const source = (body: BodyInit, type: string, length?: string) => ({ fetchHop: async () => new Response(body,{headers:{'Content-Type':type,...(length?{'Content-Length':length}:{})}}) });
     expect(await fetchSourceDocument('https://news.example.com/download',source(pdfBytes,'application/pdf'))).toMatchObject({kind:'pdf',bytes:pdfBytes});
     expect(await fetchSourceDocument('https://news.example.com/download',source(pdfBytes,'application/octet-stream'))).toMatchObject({kind:'pdf'});
     await expect(fetchSourceDocument('https://news.example.com/download',source('not pdf','application/pdf'))).rejects.toMatchObject({code:'invalid_pdf'});
@@ -216,7 +218,6 @@ describe('PDF lifecycle', () => {
   it('preserves the first original when recapturing a link-only scan without a saved copy', async () => {
     await add();
     await env.DB.prepare('DELETE FROM article_extraction_jobs').run();
-    await env.DB.prepare('UPDATE articles SET extraction_requested_at=NULL').run();
     expect(await requestRecapture(env.DB,'pdf00001',null)).toBe('queued');
     await capture(ai('# document.pdf\n## Contents\n### Page 1\n'));
     const original=await getOriginalPdf(env.DB,'pdf00001');
@@ -353,7 +354,7 @@ describe('complete portable archives', () => {
   });
   it('rejects malformed metadata and cross-origin import requests before library changes', async () => {
     const {id}=await api<{id:string}>('/api/archive/imports',{method:'POST',body:'{}'});
-    const invalid=await route(`/api/archive/imports/${id}/records`,{method:'POST',body:JSON.stringify({library:{version:2,exportedAt:new Date().toISOString(),articles:[{id:'bad'}]},pdfs:[]})});
+    const invalid=await route(`/api/archive/imports/${id}/records`,{method:'POST',body:JSON.stringify({library:{version:3,exportedAt:new Date().toISOString(),articles:[{id:'bad'}]},pdfs:[]})});
     expect(invalid.status).toBe(400);
     expect((await route('/api/archive/imports',{method:'POST',body:'{}',headers:{Origin:'https://other.example'}})).status).toBe(403);
     expect(await env.DB.prepare('SELECT COUNT(*) AS n FROM articles').first()).toEqual({n:0});
@@ -387,7 +388,7 @@ describe('complete portable archives', () => {
       return api<T>(path,init);
     };
     const result=await restoreArchive(new File([pdfBytes],'fixture.pdf'),{
-      library:{version:2,exportedAt:now,articles},pdfs,
+      library:{version:3,exportedAt:now,articles},pdfs,
       entries:new Map([[assetKey(pdfId),{name:assetKey(pdfId),size:pdfBytes.length,start:0,crc:0}]]),
     },checkedApi,()=>undefined);
     expect(result).toEqual({imported:160,skipped:0});
@@ -399,7 +400,7 @@ describe('complete portable archives', () => {
     for (let i=0;i<2;i++) {
       const article={id:`large00${i}`,url:`https://news.example.com/large/${i}`,title:'Large escaped article',createdAt:now,updatedAt:now,readAt:null,
         copy:{markdown:'\u0001'.repeat(256*1024),source:'paste',capturedAt:now,revision:`large-${i}`}};
-      await api(`/api/archive/imports/${id}/records`,{method:'POST',body:JSON.stringify({library:{version:2,exportedAt:now,articles:[article]},pdfs:[]})});
+      await api(`/api/archive/imports/${id}/records`,{method:'POST',body:JSON.stringify({library:{version:3,exportedAt:now,articles:[article]},pdfs:[]})});
     }
     await api(`/api/archive/imports/${id}/complete`,{method:'POST',body:'{}'});
     const sizes: number[]=[];
@@ -420,7 +421,7 @@ describe('complete portable archives', () => {
       if(injected)return; injected=true;
       const article={id:'late0001',url:'https://news.example.com/late',title:'Late PDF',createdAt:now,updatedAt:now,readAt:null};
       const pdf={id:crypto.randomUUID(),articleId:article.id,checksum:await checksum(pdfBytes),bytes:pdfBytes.length,capturedAt:now,sourceUrl:article.url};
-      await api(`/api/archive/imports/${id}/records`,{method:'POST',body:JSON.stringify({library:{version:2,exportedAt:now,articles:[article]},pdfs:[pdf]})});
+      await api(`/api/archive/imports/${id}/records`,{method:'POST',body:JSON.stringify({library:{version:3,exportedAt:now,articles:[article]},pdfs:[pdf]})});
     }});
     const response=await route(`/api/archive/imports/${id}/complete`,{method:'POST',body:'{}'},{...configured,DB:db});
     expect(injected).toBe(true); expect(response.status).toBe(400);
@@ -431,7 +432,7 @@ describe('complete portable archives', () => {
   it('does not resurrect deleted articles from a stale concurrent commit', async () => {
     const {id}=await api<{id:string}>('/api/archive/imports',{method:'POST',body:'{}'}), now=new Date().toISOString();
     const article={id:'fence001',url:'https://news.example.com/fence',title:'Fenced article',createdAt:now,updatedAt:now,readAt:null};
-    await api(`/api/archive/imports/${id}/records`,{method:'POST',body:JSON.stringify({library:{version:2,exportedAt:now,articles:[article]},pdfs:[]})});
+    await api(`/api/archive/imports/${id}/records`,{method:'POST',body:JSON.stringify({library:{version:3,exportedAt:now,articles:[article]},pdfs:[]})});
     await api(`/api/archive/imports/${id}/complete`,{method:'POST',body:'{}'});
     let injected=false;
     const db=observeDatabase(()=>false,{async beforeBatch(){
@@ -447,7 +448,7 @@ describe('complete portable archives', () => {
   it('does not publish a cached commit after its archive session is removed', async () => {
     const {id}=await api<{id:string}>('/api/archive/imports',{method:'POST',body:'{}'}), now=new Date().toISOString();
     const article={id:'fence002',url:'https://news.example.com/expired',title:'Expired article',createdAt:now,updatedAt:now,readAt:null};
-    await api(`/api/archive/imports/${id}/records`,{method:'POST',body:JSON.stringify({library:{version:2,exportedAt:now,articles:[article]},pdfs:[]})});
+    await api(`/api/archive/imports/${id}/records`,{method:'POST',body:JSON.stringify({library:{version:3,exportedAt:now,articles:[article]},pdfs:[]})});
     await api(`/api/archive/imports/${id}/complete`,{method:'POST',body:'{}'});
     const db=observeDatabase(()=>false,{async beforeBatch(){await env.DB.prepare('DELETE FROM archive_sessions WHERE id=?').bind(id).run();}});
     expect((await route(`/api/archive/imports/${id}/commit`,{method:'POST',body:'{}'},{...configured,DB:db})).status).toBe(404);

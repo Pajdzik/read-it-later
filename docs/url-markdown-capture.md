@@ -1,6 +1,17 @@
 # Markdown capture when pasting or sharing a URL
 
-Current HTML/PDF conversion, original storage and complete archive behavior are documented in [unified ingestion](unified-ingestion.md). Server-side Defuddle architecture and manual-only/R2-deferred statements below are historical. Managed conversion is enabled in production; local defaults and staging remain disabled.
+> **Superseded proposal.** The design and rollout text below is retained as a historical record. Its references to live production configuration and earlier API behavior are not current operating instructions.
+
+## Current behavior
+
+Capture requests create a D1 article and initial extraction job atomically. The Worker sends a Queue notification after commit; the queue consumer invokes the private capture service. Retries and recaptures persist job state before notification. A failed notification does not require a separate intent/materialization pass. Restores do not fetch URLs or create jobs.
+
+The current bindings are placeholders and capture remains disabled pending the [fresh database reset](prelaunch-reset.md). Use [unified ingestion](unified-ingestion.md) for the current processing, PDF, and archive contract. GitHub delivery is an explicit generic integration; it is not part of URL capture.
+
+## Historical capture proposal
+
+<details>
+<summary>Original proposal and validation record (superseded)</summary>
 
 Add requests a background Markdown copy by default using `captureMarkdown: true` on the owner-authenticated `POST /api/articles` route. The response confirms a saved link and durable extraction intent, not a completed copy. It returns `extraction` status instead of the former synchronous `copy`/`copyCaptureError` fields. The original URL, identity, saved date, and read state remain independent of extraction.
 
@@ -19,3 +30,5 @@ Background captures keep the compatible `source: "paste"` copy value. GitHub pub
 Checked-in Wrangler configuration enables processing in production and disables it in local defaults and staging. The production service binding points to the private `ARTICLE_EXTRACTOR` Container. See the [production activation evidence](unified-ingestion.md#production-activation-evidence-october-31-2026) for the verified deployment and the limits of its smoke checks. A missing binding or false flag makes scheduled work a no-op; saves still persist intent and the owner sees “Capture paused.” The executor resolves all returned addresses, rejects a mixed public/private result, and connects to a selected public numeric IP using native Node HTTP(S), preserving the original hostname for TLS verification. Defuddle runs outside the app Worker in a thread with a 5-second deadline and bounded heap. Workers Paid is required; local tests do not establish deployed security, latency, or costs.
 
 See the [design and recovery rules](background-markdown-extraction.md) and [activation instructions](deployment.md#background-markdown-extraction). Jobs and leases are operational state, omitted from portable backups; import does not fetch restored links.
+
+</details>

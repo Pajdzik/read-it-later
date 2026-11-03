@@ -1,6 +1,6 @@
 import { build } from 'esbuild';
-import { execFileSync } from 'node:child_process';
-import { cp, mkdir, readFile, rm, writeFile } from 'node:fs/promises';
+import { zipSync } from 'fflate';
+import { cp, mkdir, readFile, readdir, rm, stat, writeFile } from 'node:fs/promises';
 import path from 'node:path';
 import sharp from 'sharp';
 
@@ -57,7 +57,12 @@ for (const browserName of ['chrome', 'firefox'] as const) {
   };
   await writeFile(path.join(directory, 'manifest.json'), `${JSON.stringify(manifest, null, 2)}\n`);
   const archive = path.join(output, `potem-${browserName}.zip`);
-  execFileSync('/usr/bin/zip', ['-qr', archive, '.'], { cwd: directory });
+  const files: Record<string, Uint8Array> = {};
+  for (const relativePath of await readdir(directory, { recursive: true })) {
+    const filename = path.join(directory, relativePath);
+    if ((await stat(filename)).isFile()) files[relativePath.split(path.sep).join('/')] = await readFile(filename);
+  }
+  await writeFile(archive, zipSync(files));
 }
 await writeFile(path.join(output, 'BUILD-INFO.txt'), `${production ? 'production' : 'development'}\n${origin}\n`);
 console.log(`Built Chrome and Firefox packages for ${origin}${production ? ' (production)' : ' (loopback development)'}.`);

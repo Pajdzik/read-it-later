@@ -2052,19 +2052,6 @@ lastOpenedRetry?.addEventListener("click", () => {
   else void loadSuggestion(true);
 });
 $("#suggestion-shuffle").addEventListener("click", () => void loadSuggestion(true));
-const reconcileGitHubButton = document.querySelector<HTMLButtonElement>("#github-reconcile");
-reconcileGitHubButton?.addEventListener("click", async () => {
-  if (!state.session?.authenticated || !reconcileGitHubButton) return;
-  reconcileGitHubButton.disabled = true;
-  const status = $("#settings-status");
-  status.textContent = "Finding existing GitHub backups…";
-  try {
-    const result = await request<{ scanned: number; mapped: number; conflicts: unknown[] }>("/api/github/reconcile", { method: "POST", body: JSON.stringify({}) });
-    status.textContent = `Scanned ${result.scanned} backup${result.scanned === 1 ? "" : "s"}; mapped ${result.mapped}; ${result.conflicts.length} conflict${result.conflicts.length === 1 ? "" : "s"}.`;
-  } catch (error) {
-    status.textContent = `Couldn’t find existing GitHub backups. ${(error as Error).message}`;
-  } finally { reconcileGitHubButton.disabled = false; }
-});
 $("#add-dialog").addEventListener("close", () => window.setTimeout(resumePendingReader, 0));
 async function openSavedCopy(article: Article, opener?: HTMLElement) {
   ensureReaderOpener(opener);
@@ -2132,7 +2119,6 @@ async function initialize() {
     return;
   }
   if (!state.session.authenticated) {
-    if (reconcileGitHubButton) reconcileGitHubButton.hidden = true;
     const unauthenticatedRoute = parseReaderPath(location.pathname);
     if (unauthenticatedRoute && "id" in unauthenticatedRoute) {
       try { sessionStorage.setItem(pendingReaderStorageKey, JSON.stringify({ version: 1, articleId: unauthenticatedRoute.id, createdAt: Date.now() })); } catch {}
@@ -2981,7 +2967,6 @@ async function openSettings() {
     for (const integration of integrations) {
       container.append(el('h4', integration.name), el('p', integration.destination), el('p', integration.message || integration.description, 'muted'));
     }
-    if (reconcileGitHubButton) reconcileGitHubButton.hidden = !integrations.some(item => item.id === 'github' && item.configured);
   }).catch(() => { $('#settings-integrations').textContent = 'Couldn’t load integrations. Reopen Settings to retry.'; });
   try {
     const data = await request<{

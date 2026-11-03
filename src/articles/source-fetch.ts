@@ -1,18 +1,13 @@
-import type { Env } from "../contracts";
 import { failSourceFetch as fail, SourceFetchError, validateSourceTarget } from "./source-policy";
-import { FETCH_FAILURE_HEADER, isFetchErrorCode } from "../../fetcher/protocol";
-import { CONTAINER_STARTUP_TIMEOUT_MS, MAX_SOURCE_HTML_BYTES, MAX_SOURCE_PDF_BYTES, SOURCE_HOP_TIMEOUT_MS, SOURCE_TOTAL_TIMEOUT_MS } from "./capture-limits";
+import { MAX_SOURCE_HTML_BYTES, MAX_SOURCE_PDF_BYTES, SOURCE_HOP_TIMEOUT_MS, SOURCE_TOTAL_TIMEOUT_MS } from "./capture-limits";
 
-export { SourceFetchError } from "./source-policy";
-export { validateSourceTarget as validateTarget } from "./source-policy";
-
-export type SourceFetchEnv = Pick<Env, "APP_ORIGIN" | "BACKGROUND_CAPTURE_ENABLED" | "ARTICLE_FETCHER">;
+export type SourceFetchOptions = {
+  appOrigin?: string;
+  signal?: AbortSignal;
+  fetchHop: (url: string, init: RequestInit) => Promise<Response>;
+};
 
 const MAX_REDIRECTS = 3;
-
-export function isBackgroundCapturePaused(env: SourceFetchEnv): boolean {
-  return env.BACKGROUND_CAPTURE_ENABLED !== "true" || !env.ARTICLE_FETCHER;
-}
 
 function retryAfter(response: Response, now: number): number | undefined {
   const value = response.headers.get("retry-after");
@@ -37,9 +32,9 @@ function contentCharset(contentType: string): string {
 
 export type SourceDocument = { kind: "html"; html: string; url: string } | { kind: "pdf"; bytes: Uint8Array; url: string };
 
-async function readDocument(response: Response, signal: AbortSignal, allowPdf: boolean): Promise<Omit<Extract<SourceDocument, {kind: "html"}>, "url"> | Omit<Extract<SourceDocument, {kind: "pdf"}>, "url">> {
+async function readDocument(response: Response, signal: AbortSignal): Promise<Omit<Extract<SourceDocument, {kind: "html"}>, "url"> | Omit<Extract<SourceDocument, {kind: "pdf"}>, "url">> {
   const contentType = response.headers.get("content-type") || "";
-  const pdf = allowPdf && /^\s*application\/(?:pdf|octet-stream)(?:\s*;|\s*$)/i.test(contentType);
+  const pdf = /^\s*application\/(?:pdf|octet-stream)(?:\s*;|\s*$)/i.test(contentType);
   const limit = pdf ? MAX_SOURCE_PDF_BYTES : MAX_SOURCE_HTML_BYTES;
   if (!pdf && !/^\s*(?:text\/html|application\/xhtml\+xml)(?:\s*;|\s*$)/i.test(contentType)) {
     await response.body?.cancel().catch(() => undefined);
@@ -100,30 +95,26 @@ async function readDocument(response: Response, signal: AbortSignal, allowPdf: b
 }
 
 /**
- * Fetches only through the configured connection-time public-egress gateway.
- * That service must resolve and validate every A/AAAA/CNAME candidate and
- * connect to a validated public address while preserving TLS hostname checks.
- * A Worker-side DNS preflight cannot prove which address an ordinary fetch uses.
+ * Fetches each manually validated hop through the executor's native pinned
+ * transport. Its resolver checks the complete DNS answer set before connecting
+ * to a numeric public address with the original hostname for TLS verification.
  */
-export async function fetchSourceDocument(url: string, env: SourceFetchEnv, allowPdf = true): Promise<SourceDocument> {
-  if (isBackgroundCapturePaused(env)) fail("capture_paused");
-  const fetcher = env.ARTICLE_FETCHER;
-  if (!fetcher) fail("capture_paused");
-
+export async function fetchSourceDocument(url: string, options: SourceFetchOptions): Promise<SourceDocument> {
   const deadline = Date.now() + SOURCE_TOTAL_TIMEOUT_MS;
   const visited = new Set<string>();
-  let target = validateSourceTarget(url, env);
+  let target = validateSourceTarget(url, { APP_ORIGIN: options.appOrigin });
   for (let redirects = 0; ; redirects++) {
-    target = validateSourceTarget(target.href, env);
+    target = validateSourceTarget(target.href, { APP_ORIGIN: options.appOrigin });
     if (visited.has(target.href)) fail("redirect_loop");
     visited.add(target.href);
     const remaining = deadline - Date.now();
     if (remaining <= 0) fail("timeout", true);
 
     const controller = new AbortController();
-    // The gateway enforces its network deadline after readiness; only the first
-    // hop can spend an additional bounded allowance waking the Container.
-    const hopMs = Math.min(SOURCE_HOP_TIMEOUT_MS + (redirects === 0 ? CONTAINER_STARTUP_TIMEOUT_MS : 0), remaining);
+    const abortFromCaller = () => controller.abort(options.signal?.reason);
+    options.signal?.addEventListener("abort", abortFromCaller, { once: true });
+    if (options.signal?.aborted) abortFromCaller();
+    const hopMs = Math.min(SOURCE_HOP_TIMEOUT_MS, remaining);
     let activeResponse: Response | undefined;
     let timeoutId: ReturnType<typeof setTimeout>;
     const hopTimeout = new Promise<never>((_, reject) => {
@@ -135,7 +126,8 @@ export async function fetchSourceDocument(url: string, env: SourceFetchEnv, allo
     });
     let response: Response;
     try {
-      const fetchPromise = fetcher.fetch(target.href, {
+      controller.signal.throwIfAborted();
+      const fetchPromise = options.fetchHop(target.href, {
         method: "GET",
         redirect: "manual",
         signal: controller.signal,
@@ -151,6 +143,7 @@ export async function fetchSourceDocument(url: string, env: SourceFetchEnv, allo
       activeResponse = response;
     } catch (error) {
       clearTimeout(timeoutId!);
+      options.signal?.removeEventListener("abort", abortFromCaller);
       if (error instanceof SourceFetchError) throw error;
       fail(Date.now() >= deadline || controller.signal.aborted ? "timeout" : "network_error", true);
     }
@@ -158,25 +151,21 @@ export async function fetchSourceDocument(url: string, env: SourceFetchEnv, allo
     if ([301, 302, 303, 307, 308].includes(response.status)) {
       await response.body?.cancel().catch(() => undefined);
       clearTimeout(timeoutId!);
+      options.signal?.removeEventListener("abort", abortFromCaller);
       const location = response.headers.get("location");
       if (!location) fail("invalid_redirect");
       if (redirects >= MAX_REDIRECTS) fail("too_many_redirects");
       let next: URL;
       try { next = new URL(location, target); } catch { fail("invalid_redirect"); }
-      next = validateSourceTarget(next.href, env);
+      next = validateSourceTarget(next.href, { APP_ORIGIN: options.appOrigin });
       if (target.protocol === "https:" && next.protocol === "http:") fail("redirect_downgrade");
       target = next;
       continue;
     }
-    const gatewayError = response.headers.get(FETCH_FAILURE_HEADER);
-    if (gatewayError && isFetchErrorCode(gatewayError)) {
-      await response.body?.cancel().catch(() => undefined);
-      clearTimeout(timeoutId!);
-      fail(gatewayError, ["dns_error", "timeout", "network_error"].includes(gatewayError));
-    }
     if (response.status < 200 || response.status >= 300) {
       await response.body?.cancel().catch(() => undefined);
       clearTimeout(timeoutId!);
+      options.signal?.removeEventListener("abort", abortFromCaller);
       if (response.status === 408 || response.status === 429 || response.status >= 500) {
         fail("upstream_http", true, retryAfter(response, Date.now()));
       }
@@ -185,23 +174,17 @@ export async function fetchSourceDocument(url: string, env: SourceFetchEnv, allo
     if (response.url && response.url !== target.href) {
       await response.body?.cancel().catch(() => undefined);
       clearTimeout(timeoutId!);
+      options.signal?.removeEventListener("abort", abortFromCaller);
       fail("unvalidated_redirect");
     }
     let document: Awaited<ReturnType<typeof readDocument>>;
-    try { document = await Promise.race([readDocument(response, controller.signal, allowPdf), hopTimeout]); }
+    try { document = await Promise.race([readDocument(response, controller.signal), hopTimeout]); }
     catch (error) {
       if (error instanceof SourceFetchError) throw error;
       fail(Date.now() >= deadline || controller.signal.aborted ? "timeout" : "network_error", true);
     }
-    finally { clearTimeout(timeoutId!); }
+    finally { clearTimeout(timeoutId!); options.signal?.removeEventListener("abort", abortFromCaller); }
     // Parsing belongs to the executor's bounded thread, after the network deadline.
     return { ...document, url: target.href };
   }
-}
-
-/** Legacy HTML-only interface retained for the fetch gateway and its checks. */
-export async function fetchSourcePage(url: string, env: SourceFetchEnv): Promise<{ html: string; url: string }> {
-  const source = await fetchSourceDocument(url, env, false);
-  if (source.kind !== "html") fail("unsupported_content");
-  return { html: source.html, url: source.url };
 }

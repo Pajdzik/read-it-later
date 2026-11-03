@@ -7,19 +7,19 @@ import os from "node:os";
 import path from "node:path";
 import { pathToFileURL } from "node:url";
 import { parseGitHubMarkdown, convertGitHubMarkdown, MAX_SOURCE_FILE_BYTES } from "./github-convert.ts";
-import { createShortIdMapper } from "./short-id.ts";
 import { splitImportBatches, validateBackupEnvelope } from "./archive-backup.ts";
 
 const temporaryDirs = [];
 async function temp() { const dir = await mkdtemp(path.join(os.tmpdir(), "potem-github-convert-")); temporaryDirs.push(dir); return dir; }
 after(async () => Promise.all(temporaryDirs.map(dir => rm(dir, { recursive: true, force: true }))));
 const base = {
-  id: "opaque/ID/%2e%2e-01", title: "title with \"quotes\", newline\nand Ω",
+  id: "k7m2q9x4", title: "title with \"quotes\", newline\nand Ω",
   url: "https://Example.com:443/path?q=one%20two&utm_source=test#fragment", author: "A\nName Ω", description: null,
+  tags: ["recovery", "unicode"], descriptionOrigin: null, tagsManuallyEdited: true,
   savedAt: "2026-01-02T03:04:05.000Z", capturedAt: "2026-02-03T04:05:06.000Z", source: "upload", revision: "rev_01-A",
 };
 function writerText(meta = base, body = "# exact Ω body\r\n\r\n---\r\nbody frontmatter\n") {
-  return `---\npotem_backup_version: 1\n${Object.entries(meta).map(([key, value]) => `${key}: ${JSON.stringify(value)}`).join("\n")}\n---\n${body}`;
+  return `---\npotem_backup_version: 2\n${Object.entries(meta).map(([key, value]) => `${key}: ${JSON.stringify(value)}`).join("\n")}\n---\n${body}`;
 }
 function paths(root, name = "a.md") { return path.join(root, name); }
 async function put(root, name, value) { const file = paths(root, name); await mkdir(path.dirname(file), { recursive: true }); await writeFile(file, value); return file; }
@@ -41,6 +41,9 @@ test("recovers exact JSON scalar metadata and body, including BOM, CRLF headers 
   assert.equal(parsed.item.title, base.title);
   assert.equal(parsed.item.author, base.author);
   assert.equal(parsed.item.description, null);
+  assert.deepEqual(parsed.item.tags, base.tags);
+  assert.equal(parsed.item.descriptionOrigin, base.descriptionOrigin);
+  assert.equal(parsed.item.tagsManuallyEdited, base.tagsManuallyEdited);
   assert.equal(parsed.item.createdAt, base.savedAt);
   assert.equal(parsed.item.updatedAt, base.savedAt);
   assert.equal(parsed.item.readAt, null);
@@ -58,8 +61,8 @@ test("rejects missing, duplicate, unknown, malformed, non-scalar and unsupported
     writerText().replace("revision: \"rev_01-A\"", "revision: \"one\"\nrevision: \"two\""),
     writerText().replace("revision: \"rev_01-A\"", "extra: \"unknown\"\nrevision: \"rev_01-A\""),
     writerText().replace("title: \"title with \\\"quotes\\\", newline\\nand Ω\"", "title: [not, scalar]"),
-    writerText().replace("potem_backup_version: 1", "potem_backup_version: 2"),
-    "---\npotem_backup_version: 1\nid: \"no close\"\n",
+    writerText().replace("potem_backup_version: 2", "potem_backup_version: 1"),
+    "---\npotem_backup_version: 2\nid: \"no close\"\n",
   ]) assert.throws(() => parseGitHubMarkdown(text));
   assert.throws(() => parseGitHubMarkdown(Buffer.from([0xff, 0xfe])), /invalid_utf8/);
 });
@@ -79,7 +82,7 @@ test("enforces metadata, canonical timestamps, URL safety and Markdown limits", 
 
 test("uses sorted normalized URL winner, then excludes a conflicting ID on a different URL", async () => {
   const root = await temp(); const source = path.join(root, "source"); const output = path.join(root, "out"); await mkdir(source);
-  await put(source, "z-duplicate.markdown", writerText({ ...base, id: "another-id", url: "https://example.com/path?q=one%20two&utm_campaign=x" }));
+  await put(source, "z-duplicate.markdown", writerText({ ...base, id: "a1b2c3d4", url: "https://example.com/path?q=one%20two&utm_campaign=x" }));
   await put(source, "b-conflict.md", writerText({ ...base, url: "https://different.example/a" }));
   await put(source, "a-winner.md", writerText());
   const { report, batches } = await convertGitHubMarkdown(source, output, { now: new Date("2026-10-02T00:00:00.000Z") });
@@ -88,7 +91,7 @@ test("uses sorted normalized URL winner, then excludes a conflicting ID on a dif
     ["a-winner.md", "eligible", undefined], ["b-conflict.md", "excluded", "a-winner.md"], ["z-duplicate.markdown", "duplicate", "a-winner.md"],
   ]);
   assert.deepEqual(report.outcomes[0].warnings, ["read_state_not_backed_up"]);
-  assert.deepEqual(batches[0].articles[0], { ...parseGitHubMarkdown(writerText()).item, id: createShortIdMapper([base.id])(base.id) });
+  assert.deepEqual(batches[0].articles[0], parseGitHubMarkdown(writerText()).item);
   assert.equal(JSON.stringify(report).includes("example.com"), false);
   assert.equal(JSON.stringify(report).includes("title with"), false);
 });
@@ -104,7 +107,7 @@ test("invalid or oversized records never claim IDs or URLs", async () => {
 
 test("skips hidden directories, records symlinks, preserves source and writes private bounded batches", async () => {
   const root = await temp(); const source = path.join(root, "source"); const output = path.join(root, "out"); await mkdir(source);
-  const original = writerText(); await put(source, "nested/a.md", original); await put(source, ".hidden/hidden.md", writerText({ ...base, id: "hidden" }));
+  const original = writerText(); await put(source, "nested/a.md", original); await put(source, ".hidden/hidden.md", writerText({ ...base, id: "h1d2n3x4" }));
   await symlink(paths(source, "nested/a.md"), paths(source, "link.md"));
   const before = await readFile(paths(source, "nested/a.md"));
   const result = await convertGitHubMarkdown(source, output);
@@ -149,8 +152,8 @@ test("aborts before publishing output at candidate and aggregate read bounds", a
 
 test("splits output at limits without splitting records and excludes an individually oversized JSON record", async () => {
   const root = await temp(); const source = path.join(root, "source"); const output = path.join(root, "out"); await mkdir(source);
-  for (let i = 0; i < 6; i++) await put(source, `item-${i}.md`, writerText({ ...base, id: `article-${i}`, url: `https://example.com/${i}` }, "x".repeat(190_000)));
-  await put(source, "oversized-escaped.md", writerText({ ...base, id: "too-large", url: "https://example.com/big" }, "\0".repeat(200_000)));
+  for (let i = 0; i < 6; i++) await put(source, `item-${i}.md`, writerText({ ...base, id: `i${String(i).padStart(7, "0")}`, url: `https://example.com/${i}` }, "x".repeat(190_000)));
+  await put(source, "oversized-escaped.md", writerText({ ...base, id: "t00larg0", url: "https://example.com/big" }, "\0".repeat(200_000)));
   const result = await convertGitHubMarkdown(source, output);
   assert.equal(result.report.eligible, 6); assert.equal(result.report.excluded, 1); assert.equal(result.report.batchCount, 2);
   assert.ok(result.batches.every(batch => batch.articles.length <= 1000 && Buffer.byteLength(JSON.stringify(batch)) <= 1024 * 1024));

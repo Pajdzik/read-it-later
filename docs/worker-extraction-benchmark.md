@@ -2,13 +2,13 @@
 
 Current HTML/PDF conversion, original storage and complete archive behavior are documented in [unified ingestion](unified-ingestion.md). Server-side Defuddle architecture and manual-only/R2-deferred statements below are historical. Managed conversion is enabled in production; local defaults and staging remain disabled.
 
-The extractor was deployed as an isolated Cloudflare Worker and exercised directly on Free (October 19, 2026) and Paid (October 25, 2026 UTC). Extraction remains in the application Worker; the separate fetch-only gateway handles source fetching. Neither benchmark changes production bindings or enables capture. The account owner enabled Workers Paid before the second trial.
+An isolated Cloudflare Worker was exercised directly on Free (October 19, 2026) and Paid (October 25, 2026 UTC). This is a historical record for a retired Worker conversion design. It does not describe current fetching or conversion, and it did not change production bindings.
 
 ## Result
 
-The recorded deployments below predate the shared-DOM optimization. The current fixture Worker now shares the initial parsed document between metadata and Defuddle, matching the application pipeline. No new deployed performance result is claimed for that change; the recorded versions and measurements remain unchanged.
+The recorded deployments predate the shared-DOM optimization and current Container/managed-conversion architecture. The old fixture Worker shared a parsed document between metadata and Defuddle; no current production performance is inferred from those results.
 
-**The Paid trial completed all 70 requests with the expected outcomes and complete CPU telemetry.** The largest structured fixture used at most 5,641 ms of CPU against the configured 30,000 ms budget. The Free trial below did not reliably support the accepted input range. These results support keeping Defuddle in the Worker; deployed fetcher integration and scheduled application behavior remain staging checks.
+**The Paid trial completed all 70 requests with the expected outcomes and complete CPU telemetry.** The largest structured fixture used at most 5,641 ms of CPU against the configured 30,000 ms budget. The Free trial below did not reliably support the accepted input range. These numbers apply only to the retired benchmark Worker.
 
 ## Paid-plan trial (October 25, 2026 UTC)
 
@@ -56,41 +56,10 @@ Successful extraction preserved bold formatting, absolute URLs resolved from rel
 
 Cloudflare documents a [10 ms Free CPU budget](https://developers.cloudflare.com/workers/platform/limits/#cpu-time) and some flexibility for occasional overruns. The successful above-budget requests are not evidence of a reliable Free fit. The 10 ms values on terminated traces are limits, not completed conversion timings. No peak-heap measurement was taken. The later Paid trial above completes the fixture CPU measurements with a larger budget.
 
-## Reproduce
+## Status
 
-The benchmark Worker accepts only a fixed set of synthetic fixture IDs. It has no database, storage, application credentials, user HTML/URLs, or source fetching. Deployment exposes that fixture-only endpoint on workers.dev for twenty minutes; the handler expires after that. The checked-in config is expired by default. The temporary Worker used for the recorded trial was removed after measurement.
-
-```sh
-pnpm install --frozen-lockfile
-pnpm typecheck
-pnpm test
-pnpm build:benchmark
-pnpm benchmark:deploy
-```
-
-For a Paid-plan trial, after enabling Workers Paid on the selected account:
-
-```sh
-pnpm benchmark:deploy --cpu-ms 30000
-```
-
-The deploy helper uses a temporary config and sets the twenty-minute expiry. It never changes billing or production bindings. `--dry-run` validates packaging without publishing.
-
-Start tailing in one terminal, then run the requests in another, substituting the URL returned by deployment:
-
-```sh
-pnpm exec wrangler tail --config benchmarks/wrangler.jsonc --format json > dist/benchmark-tail.log
-pnpm benchmark:extraction --url https://BENCHMARK.WORKERS_SUBDOMAIN.workers.dev --tail dist/benchmark-tail.log --out dist/benchmark-report.json --samples 10
-```
-
-The runner saves a report and exits nonzero for missing telemetry or failed requests. In particular, the recorded Free run is a failed-capacity experiment, not an all-green performance check. Raw tail files contain client network metadata; keep them local. The report persists only fixture IDs, byte counts, HTTP status, CPU/wall time, invocation outcome, run identity, and Worker version. Stop tailing and remove the temporary Worker when finished:
-
-```sh
-pnpm exec wrangler delete --config benchmarks/wrangler.jsonc
-```
-
-CI runs the functional fixture tests and Worker packaging dry run without Docker or deployment credentials. It does not publish the benchmark or change production extraction settings.
+The temporary benchmark Worker and its deployment tooling have been retired. The recorded Free and Paid measurements above remain as historical evidence for the Worker conversion design and do not characterize the current Container executor. No benchmark command is supported.
 
 ## Remaining capture boundary
 
-The runtime experiments do not relax source-fetch protection. This benchmark predates the current `ARTICLE_EXTRACTOR` Container implementation and its production configuration. The Paid fixture CPU trial has passed, but it does not verify the current Container executor, its deployment, or live scheduled capture. See [Cloudflare capture](cloudflare-capture.md) and [deployment](deployment.md#background-markdown-extraction) for the current configuration and remaining validation.
+The runtime experiments do not relax source-fetch protection. This benchmark predates the current `ARTICLE_EXTRACTOR` Container implementation and its production configuration. The Paid fixture CPU trial does not verify the current Container executor or live scheduled capture. See [Cloudflare capture](cloudflare-capture.md) and [deployment](deployment.md#background-markdown-extraction) for the current path.
