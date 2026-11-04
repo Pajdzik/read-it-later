@@ -1,0 +1,259 @@
+{
+  "date": "2026-11-04T23:16:41.163Z",
+  "experimentCap": null,
+  "previousExperimentCap": 100,
+  "authorization": "User explicitly removed the 100-call task cap and approved the model comparison. Historical ledgers were preserved.",
+  "activation": "disabled",
+  "selectedAvailableModel": "glm",
+  "productionContract": "Tagging only; supplied/extracted descriptions preserved, generated descriptions disabled.",
+  "dispatches": 45,
+  "confirmedUsageResponses": 43,
+  "inputTokens": 33829,
+  "outputTokens": 1248,
+  "knownUsageCostUsd": 0.0022563195,
+  "inferenceCostBeforeAllowanceUsd": null,
+  "usageComplete": false,
+  "unknownUsageReason": "Two Luna requests failed with no usage; the recorded total is known usage only, not a complete invoice.",
+  "byModel": {
+    "llama": {
+      "attempts": 6,
+      "valid": 0,
+      "latencyMedianMs": 1295,
+      "latencyP95Ms": 1421,
+      "usageComplete": true,
+      "inputTokens": 4746,
+      "outputTokens": 656,
+      "inferenceCostBeforeAllowanceUsd": 0.000259998,
+      "knownUsageCostUsd": 0.000259998,
+      "pricing": {
+        "id": "@cf/meta/llama-3.2-1b-instruct",
+        "inputUsdPerMillion": 0.027,
+        "outputUsdPerMillion": 0.201,
+        "cachedInputUsdPerMillion": 0.027,
+        "documentation": "https://developers.cloudflare.com/workers-ai/models/llama-3.2-1b-instruct/"
+      },
+      "cachedTokens": 0
+    },
+    "glm": {
+      "attempts": 37,
+      "valid": 36,
+      "latencyMedianMs": 741,
+      "latencyP95Ms": 4566,
+      "usageComplete": true,
+      "inputTokens": 29083,
+      "outputTokens": 592,
+      "inferenceCostBeforeAllowanceUsd": 0.0019963215,
+      "knownUsageCostUsd": 0.0019963215,
+      "pricing": {
+        "id": "@cf/zai-org/glm-4.7-flash",
+        "inputUsdPerMillion": 0.0605,
+        "outputUsdPerMillion": 0.4,
+        "cachedInputUsdPerMillion": 0.0605,
+        "documentation": "https://developers.cloudflare.com/workers-ai/models/glm-4.7-flash/"
+      },
+      "cachedTokens": 0
+    },
+    "luna": {
+      "attempts": 2,
+      "valid": 0,
+      "latencyMedianMs": 2132,
+      "latencyP95Ms": 5276,
+      "usageComplete": false,
+      "inputTokens": 0,
+      "outputTokens": 0,
+      "inferenceCostBeforeAllowanceUsd": null,
+      "knownUsageCostUsd": 0,
+      "pricing": {
+        "id": "openai/gpt-6-luna",
+        "inputUsdPerMillion": 0.1,
+        "outputUsdPerMillion": 0.5,
+        "cachedInputUsdPerMillion": 0.01,
+        "documentation": "https://developers.openai.com/api/docs/models/gpt-6-luna"
+      },
+      "cachedTokens": 0
+    }
+  },
+  "stages": [
+    {
+      "name": "glm-smoke",
+      "modelAlias": "glm",
+      "report": "glm-smoke.json",
+      "review": "glm-smoke.review.json",
+      "gate": "glm-smoke.gate.json",
+      "attempts": 1,
+      "valid": 0,
+      "latencyMedianMs": 714,
+      "latencyP95Ms": 714,
+      "usageComplete": true,
+      "inputTokens": 588,
+      "outputTokens": 14,
+      "inferenceCostBeforeAllowanceUsd": 0.000041174,
+      "knownUsageCostUsd": 0.000041174,
+      "pricing": {
+        "id": "@cf/zai-org/glm-4.7-flash",
+        "inputUsdPerMillion": 0.0605,
+        "outputUsdPerMillion": 0.4,
+        "cachedInputUsdPerMillion": 0.0605,
+        "documentation": "https://developers.cloudflare.com/workers-ai/models/glm-4.7-flash/"
+      },
+      "cachedTokens": 0,
+      "usefulTagSets": 0,
+      "passed": false
+    },
+    {
+      "name": "glm-development",
+      "modelAlias": "glm",
+      "report": "glm-development.json",
+      "review": "glm-development.review.json",
+      "gate": "glm-development.gate.json",
+      "attempts": 6,
+      "valid": 6,
+      "latencyMedianMs": 785,
+      "latencyP95Ms": 7721,
+      "usageComplete": true,
+      "inputTokens": 4554,
+      "outputTokens": 95,
+      "inferenceCostBeforeAllowanceUsd": 0.000313517,
+      "knownUsageCostUsd": 0.000313517,
+      "pricing": {
+        "id": "@cf/zai-org/glm-4.7-flash",
+        "inputUsdPerMillion": 0.0605,
+        "outputUsdPerMillion": 0.4,
+        "cachedInputUsdPerMillion": 0.0605,
+        "documentation": "https://developers.cloudflare.com/workers-ai/models/glm-4.7-flash/"
+      },
+      "cachedTokens": 0,
+      "usefulTagSets": 6,
+      "passed": true
+    },
+    {
+      "name": "glm-evaluation",
+      "modelAlias": "glm",
+      "report": "glm-evaluation.json",
+      "review": "glm-evaluation.review.json",
+      "gate": "glm-evaluation.gate.json",
+      "attempts": 30,
+      "valid": 30,
+      "latencyMedianMs": 716,
+      "latencyP95Ms": 2477,
+      "usageComplete": true,
+      "inputTokens": 23941,
+      "outputTokens": 483,
+      "inferenceCostBeforeAllowanceUsd": 0.0016416305,
+      "knownUsageCostUsd": 0.0016416305,
+      "pricing": {
+        "id": "@cf/zai-org/glm-4.7-flash",
+        "inputUsdPerMillion": 0.0605,
+        "outputUsdPerMillion": 0.4,
+        "cachedInputUsdPerMillion": 0.0605,
+        "documentation": "https://developers.cloudflare.com/workers-ai/models/glm-4.7-flash/"
+      },
+      "cachedTokens": 0,
+      "usefulTagSets": 30,
+      "passed": true
+    },
+    {
+      "name": "llama-development",
+      "modelAlias": "llama",
+      "report": "llama-development.json",
+      "review": "llama-development.review.json",
+      "gate": "llama-development.gate.json",
+      "attempts": 6,
+      "valid": 0,
+      "latencyMedianMs": 1295,
+      "latencyP95Ms": 1421,
+      "usageComplete": true,
+      "inputTokens": 4746,
+      "outputTokens": 656,
+      "inferenceCostBeforeAllowanceUsd": 0.000259998,
+      "knownUsageCostUsd": 0.000259998,
+      "pricing": {
+        "id": "@cf/meta/llama-3.2-1b-instruct",
+        "inputUsdPerMillion": 0.027,
+        "outputUsdPerMillion": 0.201,
+        "cachedInputUsdPerMillion": 0.027,
+        "documentation": "https://developers.cloudflare.com/workers-ai/models/llama-3.2-1b-instruct/"
+      },
+      "cachedTokens": 0,
+      "usefulTagSets": 0,
+      "passed": false
+    },
+    {
+      "name": "luna-smoke",
+      "modelAlias": "luna",
+      "report": "luna-smoke.json",
+      "review": "luna-smoke.review.json",
+      "gate": "luna-smoke.gate.json",
+      "attempts": 1,
+      "valid": 0,
+      "latencyMedianMs": 5276,
+      "latencyP95Ms": 5276,
+      "usageComplete": false,
+      "inputTokens": 0,
+      "outputTokens": 0,
+      "inferenceCostBeforeAllowanceUsd": null,
+      "knownUsageCostUsd": 0,
+      "pricing": {
+        "id": "openai/gpt-6-luna",
+        "inputUsdPerMillion": 0.1,
+        "outputUsdPerMillion": 0.5,
+        "cachedInputUsdPerMillion": 0.01,
+        "documentation": "https://developers.openai.com/api/docs/models/gpt-6-luna"
+      },
+      "cachedTokens": 0,
+      "usefulTagSets": 0,
+      "passed": false
+    },
+    {
+      "name": "luna-access-check",
+      "modelAlias": "luna",
+      "report": "luna-access-check.json",
+      "review": "luna-access-check.review.json",
+      "gate": "luna-access-check.gate.json",
+      "attempts": 1,
+      "valid": 0,
+      "latencyMedianMs": 2132,
+      "latencyP95Ms": 2132,
+      "usageComplete": false,
+      "inputTokens": 0,
+      "outputTokens": 0,
+      "inferenceCostBeforeAllowanceUsd": null,
+      "knownUsageCostUsd": 0,
+      "pricing": {
+        "id": "openai/gpt-6-luna",
+        "inputUsdPerMillion": 0.1,
+        "outputUsdPerMillion": 0.5,
+        "cachedInputUsdPerMillion": 0.01,
+        "documentation": "https://developers.openai.com/api/docs/models/gpt-6-luna"
+      },
+      "cachedTokens": 0,
+      "usefulTagSets": 0,
+      "passed": false
+    }
+  ],
+  "conclusion": "GLM meets the revised tagging-only gate: 30/30 useful English tag sets, 25 English and five Polish source articles. The 1B baseline fails all six development cases. Luna is unassessed because AI Gateway billing prevents inference; it is not ranked below GLM.",
+  "limitations": [
+    "Agent review is subjective, not human review or a statistical guarantee.",
+    "Corpus is a frozen set of public excerpts, not the complete current private library.",
+    "Three cases have partial specificity/coverage; one article is effectively classified from its informative title because saved prose is fenced as code.",
+    "No staging activation, production deployment, activation or backfill occurred."
+  ],
+  "validation": {
+    "status": "passed",
+    "workerD1": {
+      "files": 17,
+      "tests": 198,
+      "remoteBindings": false,
+      "command": "CLOUDFLARE_LOAD_DEV_VARS_FROM_DOT_ENV=false pnpm exec vitest run --maxWorkers=1"
+    },
+    "evaluator": {
+      "tests": 13,
+      "command": "pnpm test:enrichment-evaluator"
+    },
+    "typecheck": "pnpm typecheck",
+    "build": "pnpm build (Wrangler dry run only)",
+    "recordedGate": "GLM offline review passes 30/30 against current preprocessing, request construction and strict parser",
+    "browserBackup": "Not required: browser, capture, backup and portable-data paths unchanged",
+    "deployment": "none"
+  }
+}

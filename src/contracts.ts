@@ -30,7 +30,7 @@ export interface Env extends Pick<WorkerBindings, "DB" | "ASSETS">, Partial<Pick
   /** Durable delivery notifications; D1 remains authoritative for job state. */
   EXTRACTION_QUEUE?: Queue<ArticleMessage>;
   /** Only the non-streaming text-generation capability is needed here. */
-  AI?: { run(model: '@cf/meta/llama-3.2-1b-instruct', inputs: AiModels['@cf/meta/llama-3.2-1b-instruct']['inputs']): Promise<unknown> };
+  AI?: { run(model: '@cf/zai-org/glm-4.7-flash', inputs: AiModels['@cf/zai-org/glm-4.7-flash']['inputs']): Promise<unknown> };
   ARTICLE_ENRICHMENT_ENABLED?: string;
   ARTICLE_ENRICHMENT_DAILY_LIMIT?: string;
   /** Private Cloudflare Container capture service; returns Markdown and metadata, never source HTML. */

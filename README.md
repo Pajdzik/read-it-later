@@ -40,7 +40,7 @@ The frontend is bundled with esbuild. JavaScript and CSS use content-hashed file
 
 Owner-editable tags appear below article leads and filter the library alongside search and read state. Article details also allow description editing and deliberate clearing. JSON/ZIP library exports use v3 and GitHub Markdown uses frontmatter v2. JSON v1/v2 and legacy IDs are not accepted.
 
-Automatic enrichment is implemented but **disabled in staging and production** pending its quality gate. When enabled, new saves create the article, extraction job, and enrichment state transactionally; copies and extraction complete before enrichment, and imports/duplicates never start it. A shared atomic limit permits at most 100 AI attempts per UTC day, with one transient retry and no automatic model upgrade. See [article enrichment](docs/article-enrichment.md) for configuration, costs, evaluation results, and recovery.
+Automatic tagging is implemented but **disabled in staging and production** pending a staging check and explicit activation. The tagging-only GLM-4.7-Flash candidate passed agent review on 30/30 public English/Polish excerpts; supplied/extracted descriptions are preserved and AI descriptions remain disabled. When enabled, new saves create the article, extraction job, and enrichment state transactionally; copies and extraction complete before enrichment, and imports/duplicates never start it. A shared atomic limit permits at most 100 AI attempts per UTC day, with one transient retry and no automatic model upgrade. See [article enrichment](docs/article-enrichment.md) for configuration, costs, evaluation results, and recovery.
 
 ### Saving and article metadata
 

@@ -1,0 +1,177 @@
+{
+  "reportDigest": "739ef8b0fa2f90f02908b22d6d5314fab66de91276354ce6f568c57735cca23f",
+  "reviewerType": "agent",
+  "reviewer": "Codex",
+  "reviewedAt": "2026-11-04T23:08:33.999Z",
+  "rubric": "review-rubric.md",
+  "judgments": [
+    {
+      "id": "development-1-en",
+      "resultDigest": "f128964a4aee2c409dacd8e6f4d9d9be4882cd85259dac8398a75470693f0ba7",
+      "useful": true,
+      "topicCoverage": "good",
+      "tags": [
+        {
+          "tag": "accounting",
+          "english": true,
+          "relationship": "central",
+          "evidence": "The source introduces double-entry counting and bookkeeping accounts."
+        },
+        {
+          "tag": "bookkeeping",
+          "english": true,
+          "relationship": "central",
+          "evidence": "Double-entry bookkeeping and account balances are the central subject."
+        },
+        {
+          "tag": "finance",
+          "english": true,
+          "relationship": "related",
+          "evidence": "Related category for bookkeeping, balances, credits and debits."
+        }
+      ],
+      "notes": "Reviewed every tag against the complete supplied excerpt; the set covers its main subject with English topics."
+    },
+    {
+      "id": "development-2-en",
+      "resultDigest": "0533251a82e2de15a73ae4733ea28057f86431f03d432bd837180114405c4750",
+      "useful": true,
+      "topicCoverage": "good",
+      "tags": [
+        {
+          "tag": "email",
+          "english": true,
+          "relationship": "central",
+          "evidence": "The source explicitly explains the email system and its messages."
+        },
+        {
+          "tag": "internet protocols",
+          "english": true,
+          "relationship": "central",
+          "evidence": "The supplied excerpt discusses SMTP, RFCs, DNS and related communication protocols."
+        },
+        {
+          "tag": "it security",
+          "english": true,
+          "relationship": "central",
+          "evidence": "The excerpt explicitly covers privacy/security, TLS, authentication and encryption."
+        }
+      ],
+      "notes": "Reviewed every tag against the complete supplied excerpt; the set covers its main subject with English topics."
+    },
+    {
+      "id": "development-3-en",
+      "resultDigest": "4fe3c30a785a044757a523cdda6b80c14f7c9675d64dd361f57e844829ce8392",
+      "useful": true,
+      "topicCoverage": "good",
+      "tags": [
+        {
+          "tag": "distributed systems",
+          "english": true,
+          "relationship": "central",
+          "evidence": "The source introduces queues in distributed, event-driven systems."
+        },
+        {
+          "tag": "http requests",
+          "english": true,
+          "relationship": "central",
+          "evidence": "The article explicitly studies queueing for HTTP requests."
+        },
+        {
+          "tag": "queueing",
+          "english": true,
+          "relationship": "central",
+          "evidence": "The source explains queueing strategies and dropped requests."
+        }
+      ],
+      "notes": "Reviewed every tag against the complete supplied excerpt; the set covers its main subject with English topics."
+    },
+    {
+      "id": "development-4-en",
+      "resultDigest": "b699366426683b67032d6e8fb34ab9ffac7cf2f57b45ed98921293982b490a0b",
+      "useful": true,
+      "topicCoverage": "good",
+      "tags": [
+        {
+          "tag": "deep learning",
+          "english": true,
+          "relationship": "related",
+          "evidence": "Related category for the source’s neural sequence models and Transformer architecture."
+        },
+        {
+          "tag": "natural language processing",
+          "english": true,
+          "relationship": "central",
+          "evidence": "The source studies translation and sequence transduction."
+        },
+        {
+          "tag": "transformers",
+          "english": true,
+          "relationship": "central",
+          "evidence": "The article proposes the Transformer architecture based on attention."
+        }
+      ],
+      "notes": "Reviewed every tag against the complete supplied excerpt; the set covers its main subject with English topics."
+    },
+    {
+      "id": "development-5-pl",
+      "resultDigest": "23118ffc258f59b715b3e83f87a93df919c9da2d654f6f8a430c6d24f85bdba2",
+      "useful": true,
+      "topicCoverage": "good",
+      "tags": [
+        {
+          "tag": "computer science",
+          "english": true,
+          "relationship": "related",
+          "evidence": "Related broad category; specific encoding and UTF-8 tags provide the main topic."
+        },
+        {
+          "tag": "encoding",
+          "english": true,
+          "relationship": "central",
+          "evidence": "The source explains variable-length Unicode character encoding."
+        },
+        {
+          "tag": "unicode",
+          "english": true,
+          "relationship": "central",
+          "evidence": "The source explains coding Unicode characters."
+        },
+        {
+          "tag": "utf-8",
+          "english": true,
+          "relationship": "central",
+          "evidence": "UTF-8 encoding is the explicit title and subject."
+        }
+      ],
+      "notes": "Reviewed every tag against the complete supplied excerpt; the set covers its main subject with English topics."
+    },
+    {
+      "id": "development-6-pl",
+      "resultDigest": "d7719d5348b39a5f9218d297e2d3074a7c13139fcb35450f5cadbd8d829c8671",
+      "useful": true,
+      "topicCoverage": "good",
+      "tags": [
+        {
+          "tag": "cybersecurity",
+          "english": true,
+          "relationship": "central",
+          "evidence": "The source describes phishing as an information-security attack."
+        },
+        {
+          "tag": "fraud",
+          "english": true,
+          "relationship": "central",
+          "evidence": "The source describes impersonation and obtaining confidential information deceptively."
+        },
+        {
+          "tag": "phishing",
+          "english": true,
+          "relationship": "central",
+          "evidence": "Phishing is the explicit title and central subject."
+        }
+      ],
+      "notes": "Reviewed every tag against the complete supplied excerpt; the set covers its main subject with English topics."
+    }
+  ]
+}

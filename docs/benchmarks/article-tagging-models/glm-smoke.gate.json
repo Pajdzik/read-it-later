@@ -1,0 +1,21 @@
+{
+  "passed": false,
+  "usefulTagSets": 0,
+  "valid": 0,
+  "language": {
+    "en": {
+      "total": 1,
+      "valid": 0,
+      "useful": 0
+    }
+  },
+  "reasons": [
+    "probe_not_fully_useful"
+  ],
+  "failures": [
+    {
+      "id": "development-1-en",
+      "reason": "invalid_output"
+    }
+  ]
+}

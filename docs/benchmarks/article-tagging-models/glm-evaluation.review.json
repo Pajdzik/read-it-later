@@ -1,0 +1,891 @@
+{
+  "reportDigest": "0356ef94e27e24b667a64a919799121972fde4abf3bfd6013b28aef1351d7e6b",
+  "reviewerType": "agent",
+  "reviewer": "Codex",
+  "reviewedAt": "2026-11-04T23:12:17.934Z",
+  "rubric": "review-rubric.md",
+  "judgments": [
+    {
+      "id": "archive-01-en",
+      "resultDigest": "a8a98e1e8ec2f5c3588fbc63094d272e6381d67abb3195c9e9c409f77b41046d",
+      "useful": true,
+      "topicCoverage": "good",
+      "tags": [
+        {
+          "tag": "inference",
+          "english": true,
+          "relationship": "central",
+          "evidence": "The source investigates nondeterministic LLM inference engines."
+        },
+        {
+          "tag": "llm",
+          "english": true,
+          "relationship": "central",
+          "evidence": "Large language models are the explicit subject."
+        },
+        {
+          "tag": "reproducibility",
+          "english": true,
+          "relationship": "central",
+          "evidence": "The article aims to obtain truly reproducible inference results."
+        }
+      ],
+      "notes": "Reviewed the complete supplied request and every tag. The English set covers the main subject and contains no misleading topic."
+    },
+    {
+      "id": "archive-02-en",
+      "resultDigest": "b8b19d2958952cd107dc5d3eba03955c3508de27cd93493e7c5a674d51a7526b",
+      "useful": true,
+      "topicCoverage": "good",
+      "tags": [
+        {
+          "tag": "gps",
+          "english": true,
+          "relationship": "central",
+          "evidence": "The article explains the Global Positioning System."
+        },
+        {
+          "tag": "navigation",
+          "english": true,
+          "relationship": "central",
+          "evidence": "Position determination for ships, cars and hikers is discussed."
+        },
+        {
+          "tag": "trilateration",
+          "english": true,
+          "relationship": "central",
+          "evidence": "The supplied text explicitly identifies distance-based trilateration as the heart of GPS."
+        }
+      ],
+      "notes": "Reviewed the complete supplied request and every tag. The English set covers the main subject and contains no misleading topic."
+    },
+    {
+      "id": "archive-03-en",
+      "resultDigest": "80a284bb5f01444f578e408142ba6feb8ef4a9b561ef6e296db905629f032285",
+      "useful": true,
+      "topicCoverage": "good",
+      "tags": [
+        {
+          "tag": "founder liquidity",
+          "english": true,
+          "relationship": "central",
+          "evidence": "Founders selling shares in funding rounds is the central topic."
+        },
+        {
+          "tag": "startup culture",
+          "english": true,
+          "relationship": "related",
+          "evidence": "The text examines founder-risk narratives and employee morale."
+        },
+        {
+          "tag": "startup equity",
+          "english": true,
+          "relationship": "central",
+          "evidence": "It compares founders’ and employees’ equity and liquidity access."
+        },
+        {
+          "tag": "venture capital",
+          "english": true,
+          "relationship": "central",
+          "evidence": "Funding rounds, investors and secondary share sales are central."
+        }
+      ],
+      "notes": "Reviewed the complete supplied request and every tag. The English set covers the main subject and contains no misleading topic."
+    },
+    {
+      "id": "archive-04-en",
+      "resultDigest": "210c31c2ebd69c22db940cdd95825c992b8a5e62b0ccf65c9d2573b787ca65ea",
+      "useful": true,
+      "topicCoverage": "good",
+      "tags": [
+        {
+          "tag": "photography",
+          "english": true,
+          "relationship": "central",
+          "evidence": "The source demonstrates processing a camera photo."
+        },
+        {
+          "tag": "raw",
+          "english": true,
+          "relationship": "central",
+          "evidence": "Raw sensor output and its intensity range are discussed."
+        },
+        {
+          "tag": "sensors",
+          "english": true,
+          "relationship": "central",
+          "evidence": "Camera sensor measurements and color-filter grids are explicit."
+        }
+      ],
+      "notes": "Reviewed the complete supplied request and every tag. The English set covers the main subject and contains no misleading topic."
+    },
+    {
+      "id": "archive-05-en",
+      "resultDigest": "3073586acbfbf7a89dfcf765638ed78c13485a5b71fdca1a23d578262b757267",
+      "useful": true,
+      "topicCoverage": "good",
+      "tags": [
+        {
+          "tag": "c++",
+          "english": true,
+          "relationship": "central",
+          "evidence": "The source discusses C++ std::atomic and WebKit locking wrappers."
+        },
+        {
+          "tag": "concurrency",
+          "english": true,
+          "relationship": "central",
+          "evidence": "Mutexes, parallel code and atomic operations are central."
+        },
+        {
+          "tag": "performance",
+          "english": true,
+          "relationship": "central",
+          "evidence": "It measures smaller/faster locks and browser performance gains."
+        },
+        {
+          "tag": "web development",
+          "english": true,
+          "relationship": "related",
+          "evidence": "WebKit browser-engine implementation is related to web development."
+        }
+      ],
+      "notes": "Reviewed the complete supplied request and every tag. The English set covers the main subject and contains no misleading topic."
+    },
+    {
+      "id": "archive-06-en",
+      "resultDigest": "9a97310ada69bfc4bb961dd3baad8eeaab71da94c0064949326c1afebf4ebbf3",
+      "useful": true,
+      "topicCoverage": "good",
+      "tags": [
+        {
+          "tag": "books",
+          "english": true,
+          "relationship": "central",
+          "evidence": "The supplied title explicitly identifies competitive-programming books."
+        },
+        {
+          "tag": "competitive programming",
+          "english": true,
+          "relationship": "central",
+          "evidence": "Both the title and body identify competitive-programming practice."
+        },
+        {
+          "tag": "cses",
+          "english": true,
+          "relationship": "central",
+          "evidence": "The source names the CSES Problem Set."
+        }
+      ],
+      "notes": "Reviewed the complete supplied request and every tag. The English set covers the main subject and contains no misleading topic."
+    },
+    {
+      "id": "archive-07-en",
+      "resultDigest": "88747e392b4ee0003bd7cef8a6e3d9316c654014ef8a042b943644283942cb9b",
+      "useful": true,
+      "topicCoverage": "good",
+      "tags": [
+        {
+          "tag": "asynchronous programming",
+          "english": true,
+          "relationship": "central",
+          "evidence": "Task queues, Promises and deferred code execution are explained."
+        },
+        {
+          "tag": "event loop",
+          "english": true,
+          "relationship": "central",
+          "evidence": "The event loop and its task/microtask queues are central."
+        },
+        {
+          "tag": "javascript",
+          "english": true,
+          "relationship": "central",
+          "evidence": "The supplied title and browser APIs identify JavaScript."
+        }
+      ],
+      "notes": "Reviewed the complete supplied request and every tag. The English set covers the main subject and contains no misleading topic."
+    },
+    {
+      "id": "archive-08-en",
+      "resultDigest": "eb87aeb41f4dfb2860da53d955cc9ab6b82ff3970e4201b3627088509e683b50",
+      "useful": true,
+      "topicCoverage": "partial",
+      "tags": [
+        {
+          "tag": "ai",
+          "english": true,
+          "relationship": "central",
+          "evidence": "The title explicitly identifies anti-AI hype."
+        },
+        {
+          "tag": "hype",
+          "english": true,
+          "relationship": "central",
+          "evidence": "Hype is the explicit topic of the title."
+        },
+        {
+          "tag": "technology",
+          "english": true,
+          "relationship": "related",
+          "evidence": "AI is a technology topic; this is a broad supplementary category."
+        }
+      ],
+      "notes": "Partial coverage: Markdown preprocessing removes the fenced article body, leaving an informative title and author/date fragments. The tags classify that title; this does not establish full-body quality."
+    },
+    {
+      "id": "archive-09-en",
+      "resultDigest": "6795e2def8fa8d8bb34d198976f18ca3fa70e1e8ee60aca59cd74cd0e1d0d666",
+      "useful": true,
+      "topicCoverage": "good",
+      "tags": [
+        {
+          "tag": "c programming",
+          "english": true,
+          "relationship": "central",
+          "evidence": "Low-level C and building Redis in C/C++ are explicit."
+        },
+        {
+          "tag": "network programming",
+          "english": true,
+          "relationship": "central",
+          "evidence": "The source lists network programming and socket/TCP exercises."
+        },
+        {
+          "tag": "systems programming",
+          "english": true,
+          "relationship": "central",
+          "evidence": "The source explicitly discusses systems programming and infrastructure software."
+        }
+      ],
+      "notes": "Reviewed the complete supplied request and every tag. The English set covers the main subject and contains no misleading topic."
+    },
+    {
+      "id": "archive-10-en",
+      "resultDigest": "1fd4f8e240a8c455b0087eba4d5158ce9aa974fca05d89ab0d9514915d1b2875",
+      "useful": true,
+      "topicCoverage": "good",
+      "tags": [
+        {
+          "tag": "ascii art",
+          "english": true,
+          "relationship": "central",
+          "evidence": "The source builds an image-to-ASCII renderer."
+        },
+        {
+          "tag": "image processing",
+          "english": true,
+          "relationship": "central",
+          "evidence": "Lightness sampling, contrast enhancement and cel shading are discussed."
+        },
+        {
+          "tag": "programming",
+          "english": true,
+          "relationship": "central",
+          "evidence": "The article explains implementing rendering algorithms."
+        },
+        {
+          "tag": "web development",
+          "english": true,
+          "relationship": "related",
+          "evidence": "Interactive browser rendering demos and landing-page effects connect this implementation to web development."
+        }
+      ],
+      "notes": "Reviewed the complete supplied request and every tag. The English set covers the main subject and contains no misleading topic."
+    },
+    {
+      "id": "archive-11-en",
+      "resultDigest": "1083e2d81026b57a5b18af7869fad77f1910740aac2ffc02b08aaf82e6840976",
+      "useful": true,
+      "topicCoverage": "good",
+      "tags": [
+        {
+          "tag": "asian names",
+          "english": true,
+          "relationship": "central",
+          "evidence": "The source explains Asian name ordering and references."
+        },
+        {
+          "tag": "cultural etiquette",
+          "english": true,
+          "relationship": "central",
+          "evidence": "It discusses polite forms of address and respecting personal preferences."
+        },
+        {
+          "tag": "language guide",
+          "english": true,
+          "relationship": "related",
+          "evidence": "A reporting style guide for naming conventions is a related language-use category."
+        }
+      ],
+      "notes": "Reviewed the complete supplied request and every tag. The English set covers the main subject and contains no misleading topic."
+    },
+    {
+      "id": "archive-12-en",
+      "resultDigest": "b1729567acb290ad598c9a172115442c594e2d4b2e9d992be82ac659254cc1f0",
+      "useful": true,
+      "topicCoverage": "partial",
+      "tags": [
+        {
+          "tag": "business",
+          "english": true,
+          "relationship": "related",
+          "evidence": "Several examples are business and commercial projects."
+        },
+        {
+          "tag": "history",
+          "english": true,
+          "relationship": "central",
+          "evidence": "It collects dated historical examples of ambitious completed projects."
+        },
+        {
+          "tag": "innovation",
+          "english": true,
+          "relationship": "related",
+          "evidence": "Aircraft, infrastructure and software accomplishments are related innovation examples."
+        },
+        {
+          "tag": "productivity",
+          "english": true,
+          "relationship": "central",
+          "evidence": "The unifying topic is teams accomplishing ambitious work quickly."
+        }
+      ],
+      "notes": "Partial coverage: the set captures history and team productivity but omits a more specific rapid-project-execution tag. All four topics are reasonable for this source."
+    },
+    {
+      "id": "archive-13-en",
+      "resultDigest": "d86439516a30425d85ea0cb4ecc190d5963f89428440c97f056c225cec76c6c9",
+      "useful": true,
+      "topicCoverage": "good",
+      "tags": [
+        {
+          "tag": "architecture",
+          "english": true,
+          "relationship": "central",
+          "evidence": "The source explicitly examines buildings as refinement-culture examples."
+        },
+        {
+          "tag": "culture",
+          "english": true,
+          "relationship": "central",
+          "evidence": "Refinement culture and loss of variety are the central theme."
+        },
+        {
+          "tag": "design",
+          "english": true,
+          "relationship": "central",
+          "evidence": "Logos, cars, interiors and aesthetics are discussed."
+        }
+      ],
+      "notes": "Reviewed the complete supplied request and every tag. The English set covers the main subject and contains no misleading topic."
+    },
+    {
+      "id": "archive-14-en",
+      "resultDigest": "edc77d64ce7dce1a771d531602ee96418c212d9d3051cb82abb30acb0b5dc3a0",
+      "useful": true,
+      "topicCoverage": "good",
+      "tags": [
+        {
+          "tag": "abuse",
+          "english": true,
+          "relationship": "related",
+          "evidence": "The article explicitly concerns abuse of HTTP headers; the label is generic but related."
+        },
+        {
+          "tag": "http headers",
+          "english": true,
+          "relationship": "central",
+          "evidence": "Hop-by-hop headers and the Connection header are central."
+        },
+        {
+          "tag": "vulnerabilities",
+          "english": true,
+          "relationship": "central",
+          "evidence": "The source describes faulty proxies and resulting application vulnerabilities."
+        },
+        {
+          "tag": "web security",
+          "english": true,
+          "relationship": "central",
+          "evidence": "Authentication, access control and HTTP infrastructure attacks are discussed."
+        }
+      ],
+      "notes": "The abuse label is generic; the other three tags clearly identify HTTP security vulnerabilities. It is related rather than an invented subject."
+    },
+    {
+      "id": "archive-15-en",
+      "resultDigest": "e12fc2700d4c1f319c1a7c1146d7debe7ccc7335fc3ba9ee282da54c333466fa",
+      "useful": true,
+      "topicCoverage": "good",
+      "tags": [
+        {
+          "tag": "frontend development",
+          "english": true,
+          "relationship": "central",
+          "evidence": "The source compares frontend frameworks and their effects on users."
+        },
+        {
+          "tag": "react",
+          "english": true,
+          "relationship": "central",
+          "evidence": "React is the explicit framework under discussion."
+        },
+        {
+          "tag": "web components",
+          "english": true,
+          "relationship": "central",
+          "evidence": "Lack of web-component support is an explicit example in the supplied excerpt."
+        }
+      ],
+      "notes": "Reviewed the complete supplied request and every tag. The English set covers the main subject and contains no misleading topic."
+    },
+    {
+      "id": "archive-16-en",
+      "resultDigest": "d13c74bdd2b2bbf331bb5269a1ffd019168007edba45a2a3c41908f58e21b7fc",
+      "useful": true,
+      "topicCoverage": "good",
+      "tags": [
+        {
+          "tag": "git",
+          "english": true,
+          "relationship": "central",
+          "evidence": "The source explains Git commands and metadata."
+        },
+        {
+          "tag": "git internals",
+          "english": true,
+          "relationship": "central",
+          "evidence": "The .git/HEAD file and its possible contents are described."
+        },
+        {
+          "tag": "head",
+          "english": true,
+          "relationship": "central",
+          "evidence": "HEAD and detached HEAD are the exact technical subjects."
+        },
+        {
+          "tag": "version control",
+          "english": true,
+          "relationship": "related",
+          "evidence": "Git is a version-control system; the broader category is appropriate."
+        }
+      ],
+      "notes": "Reviewed the complete supplied request and every tag. The English set covers the main subject and contains no misleading topic."
+    },
+    {
+      "id": "archive-17-en",
+      "resultDigest": "a18458b2aabcda03dad9d8741f231eebe57cabd5148794ba9046a515048d61a9",
+      "useful": true,
+      "topicCoverage": "good",
+      "tags": [
+        {
+          "tag": "network security",
+          "english": true,
+          "relationship": "central",
+          "evidence": "The source discusses traversing firewalls and network access using SSH tunnels."
+        },
+        {
+          "tag": "port forwarding",
+          "english": true,
+          "relationship": "central",
+          "evidence": "Local, remote and dynamic port forwarding are explained."
+        },
+        {
+          "tag": "ssh",
+          "english": true,
+          "relationship": "central",
+          "evidence": "SSH options and commands are the central subject."
+        }
+      ],
+      "notes": "Reviewed the complete supplied request and every tag. The English set covers the main subject and contains no misleading topic."
+    },
+    {
+      "id": "archive-18-en",
+      "resultDigest": "68bf561ab8cb3171976132e6348298a9f44cb897dc9c1d8c5e38aa9ef10e6d9e",
+      "useful": true,
+      "topicCoverage": "good",
+      "tags": [
+        {
+          "tag": "productivity",
+          "english": true,
+          "relationship": "related",
+          "evidence": "Reading, triaging, highlighting and note-taking workflows are discussed."
+        },
+        {
+          "tag": "readwise",
+          "english": true,
+          "relationship": "central",
+          "evidence": "Readwise Reader and replacement options are central."
+        },
+        {
+          "tag": "rss",
+          "english": true,
+          "relationship": "central",
+          "evidence": "RSS readers and feed aggregators are explicitly compared."
+        },
+        {
+          "tag": "software",
+          "english": true,
+          "relationship": "related",
+          "evidence": "The article compares reading applications; software is a broad supplementary category."
+        }
+      ],
+      "notes": "Reviewed the complete supplied request and every tag. The English set covers the main subject and contains no misleading topic."
+    },
+    {
+      "id": "archive-19-en",
+      "resultDigest": "f91fa8b9730bb2bffaa6666f579584b9b46bdd58ab3b1a4b453bfcf786306df3",
+      "useful": true,
+      "topicCoverage": "good",
+      "tags": [
+        {
+          "tag": "obsidian",
+          "english": true,
+          "relationship": "central",
+          "evidence": "The source describes syncing Wallabag highlights into Obsidian."
+        },
+        {
+          "tag": "rss",
+          "english": true,
+          "relationship": "related",
+          "evidence": "The source explicitly places alternatives among RSS-reader/save-for-later products."
+        },
+        {
+          "tag": "selfhosting",
+          "english": true,
+          "relationship": "central",
+          "evidence": "It describes installing and operating a self-hosted Wallabag instance."
+        },
+        {
+          "tag": "wallabag",
+          "english": true,
+          "relationship": "central",
+          "evidence": "Wallabag is the selected replacement and main product."
+        }
+      ],
+      "notes": "Reviewed the complete supplied request and every tag. The English set covers the main subject and contains no misleading topic."
+    },
+    {
+      "id": "archive-20-en",
+      "resultDigest": "8894f83240180f1df56767f271fa9355033dfb8b78134a00c54d1ef414007ca9",
+      "useful": true,
+      "topicCoverage": "good",
+      "tags": [
+        {
+          "tag": "bash",
+          "english": true,
+          "relationship": "central",
+          "evidence": "The source explicitly states its examples use Bash."
+        },
+        {
+          "tag": "command line",
+          "english": true,
+          "relationship": "central",
+          "evidence": "CLI commands, history, shortcuts and pipes are central."
+        },
+        {
+          "tag": "productivity",
+          "english": true,
+          "relationship": "central",
+          "evidence": "The stated purpose is more efficient command-line work."
+        }
+      ],
+      "notes": "Reviewed the complete supplied request and every tag. The English set covers the main subject and contains no misleading topic."
+    },
+    {
+      "id": "archive-21-en",
+      "resultDigest": "f9cdfe61b8ab9e9e15f5699e90154a01bd2ef0cd8ed812e74679af322d088560",
+      "useful": true,
+      "topicCoverage": "partial",
+      "tags": [
+        {
+          "tag": "artificial intelligence",
+          "english": true,
+          "relationship": "central",
+          "evidence": "The article explains how AI language models work."
+        },
+        {
+          "tag": "generative ai",
+          "english": true,
+          "relationship": "central",
+          "evidence": "Generative AI and its Transformer basis are explicit."
+        },
+        {
+          "tag": "machine learning",
+          "english": true,
+          "relationship": "central",
+          "evidence": "Training data, embeddings and model learning are discussed."
+        }
+      ],
+      "notes": "Partial coverage: relevant AI topics, but a Transformer-specific tag would improve specificity."
+    },
+    {
+      "id": "archive-22-en",
+      "resultDigest": "1d33b9ecf3b225398338f7b9b4b420cbf8a3000a3956f2a2c9f8e58ff2e23eed",
+      "useful": true,
+      "topicCoverage": "good",
+      "tags": [
+        {
+          "tag": "artificial intelligence",
+          "english": true,
+          "relationship": "central",
+          "evidence": "The source discusses the AI-model ecosystem."
+        },
+        {
+          "tag": "google",
+          "english": true,
+          "relationship": "central",
+          "evidence": "It is framed as Google’s competitive situation."
+        },
+        {
+          "tag": "llms",
+          "english": true,
+          "relationship": "central",
+          "evidence": "LLM fine-tuning and model development are central."
+        },
+        {
+          "tag": "open source",
+          "english": true,
+          "relationship": "central",
+          "evidence": "Open-source model progress is the central argument."
+        }
+      ],
+      "notes": "Reviewed the complete supplied request and every tag. The English set covers the main subject and contains no misleading topic."
+    },
+    {
+      "id": "archive-23-en",
+      "resultDigest": "835a07e60e554e54de1c16c9ff6f37b62d512b979f4e0f7de707fd25c36c6d45",
+      "useful": true,
+      "topicCoverage": "good",
+      "tags": [
+        {
+          "tag": "communication",
+          "english": true,
+          "relationship": "central",
+          "evidence": "The source gives scripts for direct, respectful workplace conversations."
+        },
+        {
+          "tag": "feedback",
+          "english": true,
+          "relationship": "central",
+          "evidence": "Giving useful feedback is the main subject."
+        },
+        {
+          "tag": "leadership",
+          "english": true,
+          "relationship": "central",
+          "evidence": "The advice is addressed to leaders coaching employees."
+        }
+      ],
+      "notes": "Reviewed the complete supplied request and every tag. The English set covers the main subject and contains no misleading topic."
+    },
+    {
+      "id": "archive-24-en",
+      "resultDigest": "9a24983e870a815db131eb7e745dd25d399981ea30427bf7641f0d953c0e4261",
+      "useful": true,
+      "topicCoverage": "good",
+      "tags": [
+        {
+          "tag": "communication",
+          "english": true,
+          "relationship": "central",
+          "evidence": "The source explains how to inform a boss while inviting objections."
+        },
+        {
+          "tag": "management",
+          "english": true,
+          "relationship": "central",
+          "evidence": "It discusses decisions and authorization in organizations."
+        },
+        {
+          "tag": "productivity",
+          "english": true,
+          "relationship": "related",
+          "evidence": "A bias for action and reducing decision delays relate to productivity."
+        },
+        {
+          "tag": "workplace",
+          "english": true,
+          "relationship": "related",
+          "evidence": "The advice is explicitly situated in workplace roles and teams."
+        }
+      ],
+      "notes": "Reviewed the complete supplied request and every tag. The English set covers the main subject and contains no misleading topic."
+    },
+    {
+      "id": "archive-25-en",
+      "resultDigest": "ec49488fb7289b9afb0b495f4bf3315f57c7830bbacb3730b7bf9c68ac8c339b",
+      "useful": true,
+      "topicCoverage": "good",
+      "tags": [
+        {
+          "tag": "business",
+          "english": true,
+          "relationship": "central",
+          "evidence": "The source uses a SaaS pricing calculator and conversion experiment."
+        },
+        {
+          "tag": "productivity",
+          "english": true,
+          "relationship": "related",
+          "evidence": "Removing complexity reduces meetings and wasted work."
+        },
+        {
+          "tag": "psychology",
+          "english": true,
+          "relationship": "central",
+          "evidence": "It discusses the bias toward addition, aversion to change and a cited study."
+        },
+        {
+          "tag": "simplification",
+          "english": true,
+          "relationship": "central",
+          "evidence": "Removing unnecessary product and process elements is the central argument."
+        }
+      ],
+      "notes": "Reviewed the complete supplied request and every tag. The English set covers the main subject and contains no misleading topic."
+    },
+    {
+      "id": "public-1-pl",
+      "resultDigest": "521b8a1265fbf3af6e13698a4defdd26fceb03ab8a109164c27e5489c6872edb",
+      "useful": true,
+      "topicCoverage": "good",
+      "tags": [
+        {
+          "tag": "b-trees",
+          "english": true,
+          "relationship": "central",
+          "evidence": "B-drzewa are the explicit data structure."
+        },
+        {
+          "tag": "data structures",
+          "english": true,
+          "relationship": "central",
+          "evidence": "The article explains tree nodes, keys and operations."
+        },
+        {
+          "tag": "databases",
+          "english": true,
+          "relationship": "central",
+          "evidence": "The source explicitly identifies database systems as a main use."
+        }
+      ],
+      "notes": "Reviewed the complete supplied request and every tag. The English set covers the main subject and contains no misleading topic."
+    },
+    {
+      "id": "public-2-pl",
+      "resultDigest": "61102446fa07bae64abb10310ee9aa00ea3d0e78cd407fcc1d049a27afca4318",
+      "useful": true,
+      "topicCoverage": "good",
+      "tags": [
+        {
+          "tag": "computer science",
+          "english": true,
+          "relationship": "related",
+          "evidence": "The article concerns a computing data structure."
+        },
+        {
+          "tag": "data structures",
+          "english": true,
+          "relationship": "central",
+          "evidence": "It defines a queue as a linear data structure."
+        },
+        {
+          "tag": "fifo",
+          "english": true,
+          "relationship": "central",
+          "evidence": "FIFO order is explicitly defined."
+        },
+        {
+          "tag": "queue",
+          "english": true,
+          "relationship": "central",
+          "evidence": "Kolejka is explicitly translated as queue in the source."
+        }
+      ],
+      "notes": "Reviewed the complete supplied request and every tag. The English set covers the main subject and contains no misleading topic."
+    },
+    {
+      "id": "public-3-pl",
+      "resultDigest": "353a41d994f331058f43d03cc5c9dba3d88511d839a94c3b8eb8dcac49873ea8",
+      "useful": true,
+      "topicCoverage": "good",
+      "tags": [
+        {
+          "tag": "cameras",
+          "english": true,
+          "relationship": "central",
+          "evidence": "The source describes digital cameras and their construction."
+        },
+        {
+          "tag": "digital photography",
+          "english": true,
+          "relationship": "central",
+          "evidence": "Fotografia cyfrowa is the explicit subject."
+        },
+        {
+          "tag": "photography",
+          "english": true,
+          "relationship": "central",
+          "evidence": "It compares digital and traditional photography."
+        }
+      ],
+      "notes": "Reviewed the complete supplied request and every tag. The English set covers the main subject and contains no misleading topic."
+    },
+    {
+      "id": "public-4-pl",
+      "resultDigest": "f162da27cd7d0b34a1e7ffda0294b8a32f319bd1f9c84002a17f84f5687da83a",
+      "useful": true,
+      "topicCoverage": "good",
+      "tags": [
+        {
+          "tag": "character set",
+          "english": true,
+          "relationship": "central",
+          "evidence": "Zestaw znaków is explicitly defined as characters and their codes."
+        },
+        {
+          "tag": "encoding",
+          "english": true,
+          "relationship": "central",
+          "evidence": "Transforming characters into numerical/digital representations is discussed."
+        },
+        {
+          "tag": "unicode",
+          "english": true,
+          "relationship": "central",
+          "evidence": "The source explicitly identifies Unicode and UTF-8."
+        }
+      ],
+      "notes": "Reviewed the complete supplied request and every tag. The English set covers the main subject and contains no misleading topic."
+    },
+    {
+      "id": "public-5-pl",
+      "resultDigest": "4c607f9849622c600eb36c8ebc2e2f3a3b53c846854173fd6ec7c53a171ba3d4",
+      "useful": true,
+      "topicCoverage": "good",
+      "tags": [
+        {
+          "tag": "accounting",
+          "english": true,
+          "relationship": "central",
+          "evidence": "The source describes recording economic operations on accounts."
+        },
+        {
+          "tag": "bookkeeping",
+          "english": true,
+          "relationship": "central",
+          "evidence": "Debit/credit recording and balancing are the central procedure."
+        },
+        {
+          "tag": "double-entry",
+          "english": true,
+          "relationship": "central",
+          "evidence": "The title and rule specify equal recording on at least two accounts."
+        }
+      ],
+      "notes": "Reviewed the complete supplied request and every tag. The English set covers the main subject and contains no misleading topic."
+    }
+  ]
+}

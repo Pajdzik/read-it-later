@@ -1,0 +1,63 @@
+{
+  "reportDigest": "0a3f90a86018ab4f0bc5d5c700e5fe4defc57194b61a9bd57daaac7ff476751b",
+  "reviewerType": "agent",
+  "reviewer": "Codex",
+  "reviewedAt": "2026-11-04T23:16:41.150Z",
+  "rubric": "review-rubric.md",
+  "judgments": [
+    {
+      "id": "development-1-en",
+      "resultDigest": "1e0370e7c6e6c7bc3195b90ba3e30894b77449226143e77ad1510f7f8f4aed5a",
+      "useful": false,
+      "topicCoverage": "poor",
+      "tags": [],
+      "structuralJudgment": "rejected",
+      "notes": "The entire response is structurally invalid: it contains commentary/fences, excessive or repeated tags, or truncated JSON. Polish cases additionally contain Polish topic labels. No fields were salvaged."
+    },
+    {
+      "id": "development-2-en",
+      "resultDigest": "b214f52ac601520cc26f7fb164e9cfa14c03707fc5780aa7fce02c768b1958d2",
+      "useful": false,
+      "topicCoverage": "poor",
+      "tags": [],
+      "structuralJudgment": "rejected",
+      "notes": "The entire response is structurally invalid: it contains commentary/fences, excessive or repeated tags, or truncated JSON. Polish cases additionally contain Polish topic labels. No fields were salvaged."
+    },
+    {
+      "id": "development-3-en",
+      "resultDigest": "ee74ea6fbf0033078060bd257e82d45744c549d92be5930de621095bb81d0836",
+      "useful": false,
+      "topicCoverage": "poor",
+      "tags": [],
+      "structuralJudgment": "rejected",
+      "notes": "The entire response is structurally invalid: it contains commentary/fences, excessive or repeated tags, or truncated JSON. Polish cases additionally contain Polish topic labels. No fields were salvaged."
+    },
+    {
+      "id": "development-4-en",
+      "resultDigest": "3e4a7ad53fda74c35adbe26545b5c2c5088db77beff978e7a2ad6f8454bf53ed",
+      "useful": false,
+      "topicCoverage": "poor",
+      "tags": [],
+      "structuralJudgment": "rejected",
+      "notes": "The entire response is structurally invalid: it contains commentary/fences, excessive or repeated tags, or truncated JSON. Polish cases additionally contain Polish topic labels. No fields were salvaged."
+    },
+    {
+      "id": "development-5-pl",
+      "resultDigest": "7e9944376d34b77e4c2db4eddad82aed53abc92b3a2bd633937a88d66b3bf4ca",
+      "useful": false,
+      "topicCoverage": "poor",
+      "tags": [],
+      "structuralJudgment": "rejected",
+      "notes": "The entire response is structurally invalid: it contains commentary/fences, excessive or repeated tags, or truncated JSON. Polish cases additionally contain Polish topic labels. No fields were salvaged."
+    },
+    {
+      "id": "development-6-pl",
+      "resultDigest": "94e0266338b05a8531e3163cc50904af971d213b6a47bf0d2a55c6806ab7795c",
+      "useful": false,
+      "topicCoverage": "poor",
+      "tags": [],
+      "structuralJudgment": "rejected",
+      "notes": "The entire response is structurally invalid: it contains commentary/fences, excessive or repeated tags, or truncated JSON. Polish cases additionally contain Polish topic labels. No fields were salvaged."
+    }
+  ]
+}

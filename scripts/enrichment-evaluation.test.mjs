@@ -5,7 +5,7 @@ import os from 'node:os';
 import path from 'node:path';
 import { test } from 'node:test';
 import { atomicJson, assessReport, digest, reserveCall, resultDigest, structuralRejectionChecks, summarize } from './enrichment-evaluation.mjs';
-import { buildEnrichmentMessages, enrichmentModelInput } from '../src/articles/enrichment.ts';
+import { buildEnrichmentMessages, enrichmentModelInput, groundedArticleText } from '../src/articles/enrichment.ts';
 
 function result(id = 'one', language = 'en') {
   const input = { title: 'Database indexes', title_origin: 'supplied', description: null, description_origin: null,
@@ -122,4 +122,79 @@ test('checked-in live evidence binds every judgment, all reservations, usage and
   assert.equal(corpus.samples.filter(s=>s.language==='pl').length,5);
   assert.equal(new Set(corpus.samples.map(s=>s.contentHash)).size,30);
   for(const s of corpus.samples)assert.equal(s.contentHash,digest(s.markdown));
+});
+
+test('tagging-only review allows related topics and synonyms without a generated description gate', async () => {
+  const {assessTaggingReport}=await import('./tagging-evaluation.mjs');
+  const {TAGGING_MODELS,buildTaggingRequest}=await import('../src/articles/tagging.ts');
+  const article={title:'Passkeys',description:null,text:'Passkeys use public/private keys and bind credentials to a relying party to prevent phishing.'};
+  const output={tags:['authentication','passwords','phishing']};
+  const r={id:'case',language:'en',article,input:{title:article.title,description:article.description,markdown:article.text},existingTags:[],request:buildTaggingRequest(article,'glm'),raw:{choices:[{finish_reason:'stop',message:{role:'assistant',content:JSON.stringify(output),tool_calls:[]}}]},output};
+  const report={schemaVersion:3,model:TAGGING_MODELS.glm.id,modelAlias:'glm',task:'tags',kind:'tagging-probe',plannedCalls:1,results:[r]};
+  const judgments={reportDigest:digest(report),reviewerType:'agent',reviewer:'reviewer',judgments:[{id:r.id,resultDigest:resultDigest(r),useful:true,topicCoverage:'good',notes:'Useful topics cover passkey authentication and phishing.',tags:output.tags.map(tag=>({tag,english:true,relationship:tag==='passwords'?'related':'central',evidence:'The source discusses credentials, authentication and phishing prevention.'}))}]};
+  assert.equal(assessTaggingReport(report,judgments).passed,true);
+  judgments.judgments[0].tags[1].relationship='misleading';
+  assert.equal(assessTaggingReport(report,judgments).passed,false);
+  judgments.judgments[0].tags[1].relationship='related';judgments.judgments[0].tags[1].english=false;
+  assert.equal(assessTaggingReport(report,judgments).passed,false);
+  r.request.max_completion_tokens=193;
+  assert.ok(assessTaggingReport(report,judgments).reasons.some(x=>x.includes('request_mismatch')));
+});
+
+test('expanded experiment reservations exceed 100 without changing legacy limits or resetting a ledger', async () => {
+  const dir=await mkdtemp(path.join(os.tmpdir(),'tagging-ledger-test-')),file=path.join(dir,'calls.json');
+  try{
+    await atomicJson(file,{task:'article-tagging-comparison',maximum:null,calls:Array.from({length:100},(_,i)=>({number:i+1}))});
+    assert.equal((await reserveCall(file,{id:'expanded'},{task:'article-tagging-comparison',maximum:null})).number,101);
+    assert.equal(JSON.parse(await readFile(file,'utf8')).calls.length,101);
+    await assert.rejects(reserveCall(file,{id:'wrong-policy'}),/Invalid call ledger/);
+  }finally{await rm(dir,{recursive:true,force:true});}
+});
+
+test('tagging release gate counts 27 useful complete sets and rejects invalid accepted output', async () => {
+  const {assessTaggingReport}=await import('./tagging-evaluation.mjs');
+  const {TAGGING_MODELS,buildTaggingRequest}=await import('../src/articles/tagging.ts');
+  const corpus=JSON.parse(await readFile('benchmarks/enrichment-library-fixtures.json','utf8'));
+  // Mechanical gate controls use mocked judgments, not model-quality evidence.
+  const results=corpus.samples.map(sample=>{
+    const input={title:sample.title,description:sample.description??null,markdown:sample.markdown};
+    const article={title:input.title,description:input.description,text:groundedArticleText(input)};
+    return {id:sample.id,language:sample.language,sourceUrl:sample.sourceUrl,article,input,existingTags:[],request:buildTaggingRequest(article,'glm'),raw:{choices:[{finish_reason:'stop',message:{role:'assistant',content:'{"tags":["databases"]}',tool_calls:[]}}]},output:{tags:['databases']}};
+  });
+  const report={schemaVersion:3,model:TAGGING_MODELS.glm.id,modelAlias:'glm',task:'tags',kind:'tagging-evaluation',corpusHash:corpus.corpusHash,plannedCalls:30,results};
+  function judgments(){return{reportDigest:digest(report),reviewerType:'agent',reviewer:'reviewer',judgments:results.map(r=>({id:r.id,resultDigest:resultDigest(r),useful:true,topicCoverage:'good',notes:'Reviewed the set.',tags:[{tag:'databases',english:true,relationship:'central',evidence:'The source describes database indexes.'}]}))};}
+  let v=judgments();for(const j of v.judgments.slice(0,3)){j.useful=false;j.topicCoverage='poor';}
+  assert.equal(assessTaggingReport(report,v).passed,true);
+  results[0].input.markdown='A substitute article';
+  assert.ok(assessTaggingReport(report,judgments()).reasons.includes('representative_corpus_mismatch'));
+  results[0].input.markdown=corpus.samples[0].markdown;
+  v.judgments[3].useful=false;assert.equal(assessTaggingReport(report,v).passed,false);
+  results[0].raw.choices[0].message.content='{"tags":["databases"],"extra":true}';
+  v=judgments();assert.ok(assessTaggingReport(report,v).reasons.some(r=>r.includes('invalid_output_accepted')));
+});
+
+test('tagging evidence is fully reviewed, accounted and uses disjoint frozen corpora', async () => {
+  const {assessTaggingReport,summarizeTagging}=await import('./tagging-evaluation.mjs');
+  const directory='docs/benchmarks/article-tagging-models',summary=JSON.parse(await readFile(`${directory}/summary.json`,'utf8'));
+  const ledger=JSON.parse(await readFile(`${directory}/calls.json`,'utf8')),results=[];
+  for(const stage of summary.stages){
+    const report=JSON.parse(await readFile(`${directory}/${stage.report}`,'utf8'));
+    const review=JSON.parse(await readFile(`${directory}/${stage.review}`,'utf8'));
+    const gate=JSON.parse(await readFile(`${directory}/${stage.gate}`,'utf8'));
+    assert.deepEqual(assessTaggingReport(report,review),gate);
+    for(const r of report.results){
+      assert.equal(review.judgments.find(j=>j.id===r.id).resultDigest,resultDigest(r));
+      assert.equal(ledger.calls[r.reservation-1].requestDigest,digest(r.request));
+    }
+    assert.equal(stage.inputTokens,summarizeTagging(report.results,report.modelAlias).inputTokens);
+    results.push(...report.results);
+  }
+  assert.equal(results.length,ledger.calls.length);assert.equal(new Set(results.map(r=>r.reservation)).size,results.length);
+  assert.equal(ledger.maximum,null);assert.equal(summary.activation,'disabled');
+  const development=JSON.parse(await readFile('benchmarks/tagging-development-fixtures.json','utf8'));
+  const evaluation=JSON.parse(await readFile('benchmarks/enrichment-library-fixtures.json','utf8'));
+  assert.equal(development.corpusHash,digest(development.samples));
+  assert.equal(evaluation.corpusHash,digest(evaluation.samples));
+  const evaluationHashes=new Set(evaluation.samples.map(s=>s.contentHash));
+  for(const s of development.samples){assert.equal(s.contentHash,digest(s.markdown));assert.equal(evaluationHashes.has(s.contentHash),false);}
 });
