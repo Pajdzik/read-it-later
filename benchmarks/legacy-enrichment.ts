@@ -69,4 +69,3 @@ export function parseEnrichmentOutput(value: unknown, allowDescription = true): 
     || !r.description.trim() || [...r.description].length > 280 || r.description.length > 500 || !isSingleSentence(r.description))) throw new Error('invalid_output');
   return { tags, description: typeof r.description === 'string' ? r.description.trim() : null };
 }
-
