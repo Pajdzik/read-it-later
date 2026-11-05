@@ -1,4 +1,4 @@
-import { buildTaggingRequest, parseTaggingOutput, TAGGING_MODELS, TAGGING_OUTPUT_TOKENS, TAGGING_PROMPT_BYTES, taggingPromptBytes } from '../src/articles/tagging.ts';
+import { buildTaggingRequest, parseTaggingOutput, TAGGING_MODELS, TAGGING_OUTPUT_TOKENS, TAGGING_PROMPT_BYTES, taggingPromptBytes } from '../benchmarks/tagging-models.ts';
 import { groundedArticleText } from '../src/articles/enrichment.ts';
 import { digest, resultDigest, summarize } from './enrichment-evaluation.mjs';
 import { readFileSync } from 'node:fs';
@@ -14,7 +14,12 @@ export function summarizeTagging(results, model) {
 export function taggingRejectionChecks() {
   const invalid=['{"tags":["sql"]','{"tags":[],"description":null}','{"tags":[]}\n{"tags":[]}','```json\n{"tags":[]}\n```',
     JSON.stringify({tags:['sql','SQL']}),JSON.stringify({tags:Array(6).fill('sql')}),JSON.stringify({tags:['bad\ntext']})];
-  return invalid.every(response=>{try{parseTaggingOutput({response},'llama');return false;}catch{return true;}});
+  return invalid.every(response=>Object.keys(TAGGING_MODELS).every(model=>{
+    const raw=model==='glm'?{choices:[{finish_reason:'stop',message:{role:'assistant',content:response}}]}
+      :model==='luna'?{status:'completed',output:[{type:'message',role:'assistant',status:'completed',content:[{type:'output_text',text:response}]}]}
+      :{response};
+    try{parseTaggingOutput(raw,model);return false;}catch{return true;}
+  }));
 }
 /** Review usefulness, not literal word overlap. Related concepts and synonyms are valid. */
 export function assessTaggingReport(report, review) {

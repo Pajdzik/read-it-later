@@ -5,7 +5,8 @@ import os from 'node:os';
 import path from 'node:path';
 import { test } from 'node:test';
 import { atomicJson, assessReport, digest, reserveCall, resultDigest, structuralRejectionChecks, summarize } from './enrichment-evaluation.mjs';
-import { buildEnrichmentMessages, enrichmentModelInput, groundedArticleText } from '../src/articles/enrichment.ts';
+import { buildEnrichmentMessages, enrichmentModelInput } from '../benchmarks/legacy-enrichment.ts';
+import { groundedArticleText } from '../src/articles/enrichment.ts';
 
 function result(id = 'one', language = 'en') {
   const input = { title: 'Database indexes', title_origin: 'supplied', description: null, description_origin: null,
@@ -126,7 +127,7 @@ test('checked-in live evidence binds every judgment, all reservations, usage and
 
 test('tagging-only review allows related topics and synonyms without a generated description gate', async () => {
   const {assessTaggingReport}=await import('./tagging-evaluation.mjs');
-  const {TAGGING_MODELS,buildTaggingRequest}=await import('../src/articles/tagging.ts');
+  const {TAGGING_MODELS,buildTaggingRequest}=await import('../benchmarks/tagging-models.ts');
   const article={title:'Passkeys',description:null,text:'Passkeys use public/private keys and bind credentials to a relying party to prevent phishing.'};
   const output={tags:['authentication','passwords','phishing']};
   const r={id:'case',language:'en',article,input:{title:article.title,description:article.description,markdown:article.text},existingTags:[],request:buildTaggingRequest(article,'glm'),raw:{choices:[{finish_reason:'stop',message:{role:'assistant',content:JSON.stringify(output),tool_calls:[]}}]},output};
@@ -153,7 +154,7 @@ test('expanded experiment reservations exceed 100 without changing legacy limits
 
 test('tagging release gate counts 27 useful complete sets and rejects invalid accepted output', async () => {
   const {assessTaggingReport}=await import('./tagging-evaluation.mjs');
-  const {TAGGING_MODELS,buildTaggingRequest}=await import('../src/articles/tagging.ts');
+  const {TAGGING_MODELS,buildTaggingRequest}=await import('../benchmarks/tagging-models.ts');
   const corpus=JSON.parse(await readFile('benchmarks/enrichment-library-fixtures.json','utf8'));
   // Mechanical gate controls use mocked judgments, not model-quality evidence.
   const results=corpus.samples.map(sample=>{
@@ -197,4 +198,19 @@ test('tagging evidence is fully reviewed, accounted and uses disjoint frozen cor
   assert.equal(evaluation.corpusHash,digest(evaluation.samples));
   const evaluationHashes=new Set(evaluation.samples.map(s=>s.contentHash));
   for(const s of development.samples){assert.equal(s.contentHash,digest(s.markdown));assert.equal(evaluationHashes.has(s.contentHash),false);}
+});
+
+test('benchmark-only model adapters keep request limits and reject incomplete or multiple Luna messages', async () => {
+  const {buildTaggingRequest,parseTaggingOutput,taggingUsage,taggingPromptBytes,TAGGING_MODELS}=await import('../benchmarks/tagging-models.ts');
+  for(const model of Object.keys(TAGGING_MODELS)){
+    const request=buildTaggingRequest({title:'📰'.repeat(1000),description:null,text:'\\"📰'.repeat(20000)},model);
+    assert.ok(taggingPromptBytes(request)<=8192);
+    assert.equal(request.max_tokens??request.max_completion_tokens??request.max_output_tokens,192);
+  }
+  const raw={status:'completed',output:[{type:'message',role:'assistant',status:'completed',content:[{type:'output_text',text:'{"tags":["databases"]}'}]}]};
+  assert.deepEqual(parseTaggingOutput(raw,'luna'),{tags:['databases']});
+  assert.throws(()=>parseTaggingOutput({...raw,status:'incomplete'},'luna'));
+  assert.throws(()=>parseTaggingOutput({...raw,output:[...raw.output,...raw.output]},'luna'));
+  assert.deepEqual(parseTaggingOutput({response:'{"tags":["databases"]}'},'llama'),{tags:['databases']});
+  assert.deepEqual(taggingUsage({usage:{input_tokens:100,output_tokens:192}}),{prompt_tokens:100,completion_tokens:192,cached_tokens:0});
 });

@@ -6,7 +6,7 @@ import os from 'node:os';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { assessTaggingReport, summarizeTagging } from './tagging-evaluation.mjs';
-import { TAGGING_MODELS } from '../src/articles/tagging.ts';
+import { TAGGING_MODELS } from '../benchmarks/tagging-models.ts';
 import { atomicJson, assessReport, digest, reserveCall, resultDigest, summarize } from './enrichment-evaluation.mjs';
 
 const args = process.argv.slice(2);
@@ -25,7 +25,7 @@ if (args.includes('--review')) {
   const evidence = [];
   if (args.includes('--generation-report')) evidence.push({ report: await readJson(option('--generation-report')), review: await readJson(option('--generation-judgments')) });
   const gate = report.schemaVersion===3 ? assessTaggingReport(report, review) : assessReport(report, review, evidence);
-  if (report.schemaVersion!==3 && report.productionSourceHash !== digest(await readFile(path.join(root, 'src/articles/enrichment.ts'), 'utf8'))) {
+  if (report.schemaVersion!==3 && report.productionSourceHash !== digest(await readFile(path.join(root, 'benchmarks/legacy-enrichment.ts'), 'utf8'))) {
     gate.passed = false; gate.reasons.push('source_changed_since_run');
   }
   await atomicJson(path.resolve(root, option('--output', `${reportPath}.reviewed.json`)), { report, review, gate });
@@ -42,7 +42,7 @@ if (args.includes('--review')) {
 } else {
   if (!args.includes('--live')) throw new Error('Use --live for inference, --review-template for judgments, or --review for an offline quality gate.');
   const tagging=args.includes('--tagging');
-  const modelAlias=option('--model','llama');
+  const modelAlias=option('--model','glm');
   if(tagging&&!Object.hasOwn(TAGGING_MODELS,modelAlias))throw new Error('Unknown tagging model');
   const stage=option('--stage','development');
   if(tagging&&!['development','evaluation'].includes(stage))throw new Error('Unknown tagging stage');
@@ -77,8 +77,9 @@ if (args.includes('--review')) {
   await new Promise(resolve => portServer.close(resolve));
   const base = `http://127.0.0.1:${port}`;
   const main = path.join(temporary, 'worker.mjs');
-  await writeFile(main, `import {buildEnrichmentMessages,markdownLead,parseEnrichmentOutput,enrichmentModelInput,enrichmentPromptBytes,canGenerateDescription,groundedArticleText,ENRICHMENT_MODEL} from ${JSON.stringify(path.join(root, 'src/articles/enrichment.ts'))};
-import {buildTaggingRequest,parseTaggingOutput,taggingUsage,taggingPromptBytes} from ${JSON.stringify(path.join(root,'src/articles/tagging.ts'))};
+  await writeFile(main, `import {markdownLead,groundedArticleText} from ${JSON.stringify(path.join(root, 'src/articles/enrichment.ts'))};
+import {buildEnrichmentMessages,parseEnrichmentOutput,enrichmentModelInput,enrichmentPromptBytes,canGenerateDescription} from ${JSON.stringify(path.join(root, 'benchmarks/legacy-enrichment.ts'))};
+import {buildTaggingRequest,parseTaggingOutput,taggingUsage,taggingPromptBytes} from ${JSON.stringify(path.join(root,'benchmarks/tagging-models.ts'))};
 import {diagnosticRequest,parseDiagnosticOutput} from ${JSON.stringify(path.join(root, 'benchmarks/enrichment-diagnostics.ts'))};
 export default {async fetch(request,env) {
  if(request.method!=='POST'||request.headers.get('Authorization')!=='Bearer '+env.EVALUATION_KEY)return new Response('Not found',{status:404});
@@ -102,7 +103,7 @@ export default {async fetch(request,env) {
     ai: { binding: 'AI', remote: true }, vars: { EVALUATION_KEY: token }, observability: { enabled: false } }), { mode: 0o600 });
   const report = { schemaVersion: tagging?3:2, date: new Date().toISOString(), model: modelId, ...(tagging?{modelAlias}:{}), kind, task, variant:tagging?'production':variant,
     compatibilityDate: '2026-08-01', dataset: tagging||kind === 'evaluation' ? corpus.dataset : 'Four synthetic English/Polish development cases; not owner library data',
-    corpusHash: digest(fixtures), productionSourceHash: digest(await readFile(path.join(root,tagging?'src/articles/tagging.ts':'src/articles/enrichment.ts'),'utf8')),
+    corpusHash: digest(fixtures), productionSourceHash: digest(await readFile(path.join(root,tagging?'src/articles/tagging.ts':'benchmarks/legacy-enrichment.ts'),'utf8')),
     diagnosticSourceHash: digest(await readFile(path.join(root,'benchmarks/enrichment-diagnostics.ts'),'utf8')),
     plannedCalls, activation: 'disabled', reviewStatus: 'required', results: [] };
   const server = spawn(process.execPath, [path.join(root, 'node_modules/wrangler/bin/wrangler.js'), 'dev', '--config', config, '--ip', '127.0.0.1', '--port', String(port)],

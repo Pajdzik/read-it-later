@@ -8,6 +8,8 @@ The November 4, 2026 comparison qualifies `@cf/zai-org/glm-4.7-flash` for a stag
 
 The paused production implementation now makes one **tagging-only** request. It preserves supplied/extracted descriptions and the meaningful Markdown prose fallback; it does not generate descriptions. Exact tag-only output, complete 8 KiB serialized request and 192-token completion limits, manual-edit protection, new-saves-only behavior, daily attempts, retries and lease fencing remain enforced. All enable switches remain false; no deployment, activation or backfill occurred.
 
+GLM is the sole application model. Alternative model adapters and the historical combined-generation implementation live only under `benchmarks/`, outside application imports. Their reports and reproduction commands remain available; there is no model fallback or automatic comparison traffic.
+
 The revised tagging gate requires at least 27 useful complete tag sets across thirty cases, English consistency, current exact-request/output review bindings, and strict rejection of malformed output. Synonyms and reasonable related concepts count; generated descriptions no longer block tagging. Up to three unusable/rejected cases are allowed if rejected output is never accepted; any accepted non-English tag or invalid output fails the gate. Use `pnpm benchmark:tagging --live --model glm --stage evaluation --output .wrangler/my-tagging-run.json` for a new full evaluation, followed by recorded offline review. The original combined-generation failures below are historical evidence and were not re-scored as passing.
 
 ## Configuration and historical combined-generation gate

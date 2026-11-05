@@ -247,13 +247,21 @@
       "command": "CLOUDFLARE_LOAD_DEV_VARS_FROM_DOT_ENV=false pnpm exec vitest run --maxWorkers=1"
     },
     "evaluator": {
-      "tests": 13,
+      "tests": 14,
       "command": "pnpm test:enrichment-evaluator"
     },
-    "typecheck": "pnpm typecheck",
+    "typecheck": "pnpm typecheck (includes benchmark TypeScript)",
     "build": "pnpm build (Wrangler dry run only)",
     "recordedGate": "GLM offline review passes 30/30 against current preprocessing, request construction and strict parser",
     "browserBackup": "Not required: browser, capture, backup and portable-data paths unchanged",
-    "deployment": "none"
+    "deployment": "none",
+    "builtWorker": "GLM identifier present; alternative model identifiers and legacy combined-generation functions absent"
+  },
+  "implementationCleanup": {
+    "applicationModel": "@cf/zai-org/glm-4.7-flash",
+    "diagnosticAdapters": "benchmarks/tagging-models.ts",
+    "historicalCombinedCode": "benchmarks/legacy-enrichment.ts",
+    "additionalLiveCalls": 0,
+    "recordedGlmGate": "passes unchanged exact requests and outputs"
   }
 }

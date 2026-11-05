@@ -1,10 +1,11 @@
 import { env as testEnv } from 'cloudflare:workers';
 import { beforeEach, afterEach, describe, expect, it, vi } from 'vitest';
 import type { Env, EnrichmentMessage } from '../src/contracts';
-import { buildEnrichmentMessages, completeEnrichment, enrichmentStatuses, isEnrichmentMessage, markdownLead,
-  enrichmentModelInput, MAX_PROMPT_BYTES, parseEnrichmentOutput, processEnrichmentMessage, recoverEnrichmentJobs, reserveEnrichmentAttempt,
-  MAX_MARKDOWN_BYTES, plainMarkdown, canGenerateDescription, relevantExistingTags, enrichmentPromptBytes,
-  type EnrichmentInput } from '../src/articles/enrichment';
+import { completeEnrichment, enrichmentStatuses, isEnrichmentMessage, markdownLead,
+  processEnrichmentMessage, recoverEnrichmentJobs, reserveEnrichmentAttempt,
+  MAX_MARKDOWN_BYTES, plainMarkdown, type EnrichmentInput } from '../src/articles/enrichment';
+import { buildEnrichmentMessages, enrichmentModelInput, MAX_PROMPT_BYTES, parseEnrichmentOutput,
+  canGenerateDescription, relevantExistingTags, enrichmentPromptBytes } from '../benchmarks/legacy-enrichment';
 import { normalizeTags } from '../src/articles/tags';
 import { deleteArticle, getArticle, getArticleCopy, listArticles, saveArticle, saveArticleCopy, updateArticle,
   type SaveArticleInput } from '../src/articles/repository';

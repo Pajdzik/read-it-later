@@ -2,7 +2,7 @@ import { createHash } from 'node:crypto';
 import { mkdir, open, readFile, rename, unlink, writeFile } from 'node:fs/promises';
 import path from 'node:path';
 import { parseDiagnosticOutput } from '../benchmarks/enrichment-diagnostics.ts';
-import { canGenerateDescription, parseEnrichmentOutput, ENRICHMENT_MODEL, MAX_OUTPUT_TOKENS, MAX_PROMPT_BYTES, enrichmentPromptBytes } from '../src/articles/enrichment.ts';
+import { canGenerateDescription, parseEnrichmentOutput, ENRICHMENT_MODEL, MAX_OUTPUT_TOKENS, MAX_PROMPT_BYTES, enrichmentPromptBytes } from '../benchmarks/legacy-enrichment.ts';
 
 export const digest = value => createHash('sha256').update(typeof value === 'string' ? value : JSON.stringify(value)).digest('hex');
 export const resultDigest = result => digest({ id: result.id, input: result.input, request: result.request, raw: result.raw, output: result.output ?? null, error: result.error ?? null });
