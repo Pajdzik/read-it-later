@@ -1,0 +1,18 @@
+{
+  "reportDigest": "dd982cf260239207cef538b843818b1e48c653bd890fc103b207d45aa1ffd900",
+  "reviewerType": "agent",
+  "reviewer": "Codex",
+  "reviewedAt": "2026-11-04T23:16:41.142Z",
+  "rubric": "review-rubric.md",
+  "judgments": [
+    {
+      "id": "development-1-en",
+      "resultDigest": "adedac2d39223d359650722268a8888272e71d7b73dab500e3091623c01d1aba",
+      "useful": false,
+      "topicCoverage": "poor",
+      "tags": [],
+      "structuralJudgment": "rejected",
+      "notes": "Interface-probe failure: the raw tags JSON is valid (accounting/bookkeeping/finance), but the initial adapter rejected an empty tool_calls array. The adapter was corrected before the six development and thirty evaluation calls. No model fields were repaired or discarded."
+    }
+  ]
+}

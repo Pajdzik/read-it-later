@@ -1,5 +1,6 @@
 import { buildEnrichmentMessages, canGenerateDescription, enrichmentModelInput, enrichmentPromptBytes,
-  MAX_PROMPT_BYTES, parseEnrichmentOutput, relevantExistingTags, groundedArticleText, truncateUtf8, type EnrichmentInput } from '../src/articles/enrichment';
+  MAX_PROMPT_BYTES, parseEnrichmentOutput, relevantExistingTags } from './legacy-enrichment';
+import { groundedArticleText, truncateUtf8, type EnrichmentInput } from '../src/articles/enrichment';
 
 export type DiagnosticTask = 'tags' | 'description' | 'combined';
 export type DiagnosticVariant = 'minimal' | 'vocabulary' | 'examples' | 'plain' | 'plain-examples' | 'plain-english-example';

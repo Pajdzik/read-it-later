@@ -1,0 +1,46 @@
+{
+  "passed": false,
+  "usefulTagSets": 0,
+  "valid": 0,
+  "language": {
+    "en": {
+      "total": 4,
+      "valid": 0,
+      "useful": 0
+    },
+    "pl": {
+      "total": 2,
+      "valid": 0,
+      "useful": 0
+    }
+  },
+  "reasons": [
+    "probe_not_fully_useful"
+  ],
+  "failures": [
+    {
+      "id": "development-1-en",
+      "reason": "invalid_output"
+    },
+    {
+      "id": "development-2-en",
+      "reason": "invalid_output"
+    },
+    {
+      "id": "development-3-en",
+      "reason": "invalid_output"
+    },
+    {
+      "id": "development-4-en",
+      "reason": "invalid_output"
+    },
+    {
+      "id": "development-5-pl",
+      "reason": "invalid_output"
+    },
+    {
+      "id": "development-6-pl",
+      "reason": "invalid_output"
+    }
+  ]
+}

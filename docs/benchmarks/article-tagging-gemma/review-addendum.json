@@ -1,0 +1,8 @@
+{
+  "date": "2026-11-06T06:47:27.886Z",
+  "caseId": "development-4-en",
+  "gemmaReportDigest": "e6aba7d45e3d0a9301d44d861bc18f7547164abf6f0df76092bdbdf8c98deb61",
+  "historicalGlmReportDigest": "739ef8b0fa2f90f02908b22d6d5314fab66de91276354ce6f568c57735cca23f",
+  "historicalGlmReviewDigest": "0513d742d1336ebe02f70e3f158cc424bdd70bc0574ea9f036824c0fb363ea82",
+  "correction": "The earlier GLM development review described translation/sequence-transduction and Transformer-architecture facts as supplied article content. The exact recorded request contains the recognizable paper title and arXiv identifier followed mainly by bibliographic metadata, not those technical claims. That explanation overstated the source evidence. Historical reports/judgments are retained unchanged; this addendum records the correction. The case is outside the final 30-article corpus, so the recorded GLM full-corpus score is unaffected. Gemma review explicitly labels the same case as partial title/identity-based classification."
+}

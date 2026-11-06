@@ -1,10 +1,11 @@
 import { env as testEnv } from 'cloudflare:workers';
 import { beforeEach, afterEach, describe, expect, it, vi } from 'vitest';
 import type { Env, EnrichmentMessage } from '../src/contracts';
-import { buildEnrichmentMessages, completeEnrichment, enrichmentStatuses, isEnrichmentMessage, markdownLead,
-  enrichmentModelInput, MAX_PROMPT_BYTES, parseEnrichmentOutput, processEnrichmentMessage, recoverEnrichmentJobs, reserveEnrichmentAttempt,
-  MAX_MARKDOWN_BYTES, plainMarkdown, canGenerateDescription, relevantExistingTags, enrichmentPromptBytes,
-  type EnrichmentInput } from '../src/articles/enrichment';
+import { completeEnrichment, enrichmentStatuses, isEnrichmentMessage, markdownLead,
+  processEnrichmentMessage, recoverEnrichmentJobs, reserveEnrichmentAttempt,
+  MAX_MARKDOWN_BYTES, plainMarkdown, type EnrichmentInput } from '../src/articles/enrichment';
+import { buildEnrichmentMessages, enrichmentModelInput, MAX_PROMPT_BYTES, parseEnrichmentOutput,
+  canGenerateDescription, relevantExistingTags, enrichmentPromptBytes } from '../benchmarks/legacy-enrichment';
 import { normalizeTags } from '../src/articles/tags';
 import { deleteArticle, getArticle, getArticleCopy, listArticles, saveArticle, saveArticleCopy, updateArticle,
   type SaveArticleInput } from '../src/articles/repository';
@@ -14,9 +15,9 @@ import { consumeExtractionBatch } from '../src/articles/processor';
 import { createMessageBatch } from 'cloudflare:test';
 
 const NOW = '2026-10-31T12:00:00.000Z';
-const response = () => ({ response: JSON.stringify({ tags: ['Databases', '  Query   Planning '], description: null }) });
+const response = () => ({ choices: [{ finish_reason: 'stop', message: { role: 'assistant', content: JSON.stringify({ tags: ['Databases', '  Query   Planning '] }), tool_calls: [] } }] });
 const message = (id: string): EnrichmentMessage => ({ version: 1, kind: 'enrichment', articleId: id });
-function configured(run = vi.fn(async () => response()), daily = '100'): Env {
+function configured(run: NonNullable<Env['AI']>['run'] = vi.fn(async () => response()), daily = '100'): Env {
   return { ...testEnv, ARTICLE_ENRICHMENT_ENABLED: 'true', ARTICLE_ENRICHMENT_DAILY_LIMIT: daily,
     AI: { run } };
 }
@@ -189,22 +190,32 @@ describe('durable enrichment', () => {
     await processEnrichmentMessage(configured(), message(supplied.id));
     expect(await getArticle(testEnv.DB, supplied.id)).toMatchObject({ description: 'A supplied description', descriptionOrigin: 'manual' });
   });
-  it('generates a description only from saved article text, in the same request as tags', async () => {
+  it('makes one tagging-only request and leaves generated descriptions disabled', async () => {
     const article = await add(); await copy(article.id);
-    const run = vi.fn(async () => ({ response: JSON.stringify({ tags: ['databases'], description: 'Indeksy przyspieszają wyszukiwanie danych w bazie.' }) }));
+    const run = vi.fn(async () => response());
     await processEnrichmentMessage(configured(run), message(article.id));
-    expect(await getArticle(testEnv.DB, article.id)).toMatchObject({ descriptionOrigin: 'generated', description: 'Indeksy przyspieszają wyszukiwanie danych w bazie.' });
+    expect(await getArticle(testEnv.DB, article.id)).toMatchObject({ descriptionOrigin: null, description: null, tags: ['databases','query planning'] });
     expect(run).toHaveBeenCalledTimes(1);
-    const link = await add('link'); await processEnrichmentMessage(configured(), message(link.id));
+    const link = await add('link'); await processEnrichmentMessage(configured(run), message(link.id));
     expect((await getArticle(testEnv.DB, link.id))!.description).toBeNull();
+    expect(run).toHaveBeenCalledTimes(2);
   });
-  it('fails unwanted generated descriptions on link-only saves without a second request', async () => {
+  it('rejects unwanted description fields without salvaging tags or making a repair call', async () => {
     const article = await add('unwanted');
-    const run = vi.fn(async () => ({ response: JSON.stringify({ tags: ['databases'], description: 'Invented from the title.' }) }));
+    const run = vi.fn(async () => ({ choices: [{ finish_reason: 'stop', message: { role: 'assistant', content: JSON.stringify({ tags: ['databases'], description: 'Invented from the title.' }) } }] }));
     await processEnrichmentMessage(configured(run), message(article.id));
     expect(run).toHaveBeenCalledTimes(1);
     expect(await getArticle(testEnv.DB, article.id)).toMatchObject({ description: null, tags: [] });
     expect(await job(article.id)).toMatchObject({ state: 'failed', error_code: 'invalid_output', attempts: 1 });
+  });
+  it('skips a manual tag edit even if missing descriptions could previously trigger generation', async () => {
+    const article = await add('manual-tags'); await copy(article.id);
+    await updateArticle(testEnv.DB, article.id, { tags: ['owner tag'] });
+    const run = vi.fn(async () => response());
+    await processEnrichmentMessage(configured(run), message(article.id));
+    expect(run).not.toHaveBeenCalled(); expect(await usage()).toBe(0);
+    expect(await getArticle(testEnv.DB, article.id)).toMatchObject({ tags: ['owner tag'], description: null });
+    expect(await job(article.id)).toMatchObject({ state: 'skipped', error_code: 'manually_edited' });
   });
   it('fingerprints the entire request and logs failed-call usage without source text', async () => {
     const article = await add('accounting');
@@ -212,8 +223,8 @@ describe('durable enrichment', () => {
     const run = vi.fn(async (..._args: unknown[]) => ({ response: 'private source text is not JSON', usage: { prompt_tokens: 111, completion_tokens: 192 } }));
     await processEnrichmentMessage(configured(run), message(article.id));
     const [model, request] = run.mock.calls[0];
-    expect(model).toBe('@cf/meta/llama-3.2-1b-instruct');
-    expect(request).toMatchObject({ max_tokens: 192, temperature: 0, stream: false });
+    expect(model).toBe('@cf/zai-org/glm-4.7-flash');
+    expect(request).toMatchObject({ max_completion_tokens: 192, temperature: 0, stream: false, chat_template_kwargs: { enable_thinking: false } });
     const hash = [...new Uint8Array(await crypto.subtle.digest('SHA-256', new TextEncoder().encode(`${model}\n${JSON.stringify(request)}`)))]
       .map(b => b.toString(16).padStart(2, '0')).join('');
     expect(await job(article.id)).toMatchObject({ input_fingerprint: hash });
@@ -281,7 +292,7 @@ describe('durable enrichment', () => {
     const input = await testEnv.DB.prepare(`SELECT a.title,a.title_origin,a.description,a.description_origin,a.tags_manual,c.markdown,c.revision,
       json_array(a.title,a.title_origin,a.description,a.description_origin,a.tags_manual) AS baseline
       FROM articles a LEFT JOIN article_copies c ON c.article_id=a.id WHERE a.id=?`).bind(article.id).first<EnrichmentInput>();
-    expect(await completeEnrichment(testEnv.DB, article.id, 'stale-token', input!, { tags: ['bad'], description: 'Must not be written.' })).toBe(false);
+    expect(await completeEnrichment(testEnv.DB, article.id, 'stale-token', input!, { tags: ['bad'] })).toBe(false);
     expect((await getArticle(testEnv.DB, article.id))!.description).toBeNull();
     await testEnv.DB.prepare('DROP TRIGGER reject_enrichment').run();
   });

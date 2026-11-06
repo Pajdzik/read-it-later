@@ -2,7 +2,7 @@ import { createHash } from 'node:crypto';
 import { mkdir, open, readFile, rename, unlink, writeFile } from 'node:fs/promises';
 import path from 'node:path';
 import { parseDiagnosticOutput } from '../benchmarks/enrichment-diagnostics.ts';
-import { canGenerateDescription, parseEnrichmentOutput, ENRICHMENT_MODEL, MAX_OUTPUT_TOKENS, MAX_PROMPT_BYTES, enrichmentPromptBytes } from '../src/articles/enrichment.ts';
+import { canGenerateDescription, parseEnrichmentOutput, ENRICHMENT_MODEL, MAX_OUTPUT_TOKENS, MAX_PROMPT_BYTES, enrichmentPromptBytes } from '../benchmarks/legacy-enrichment.ts';
 
 export const digest = value => createHash('sha256').update(typeof value === 'string' ? value : JSON.stringify(value)).digest('hex');
 export const resultDigest = result => digest({ id: result.id, input: result.input, request: result.request, raw: result.raw, output: result.output ?? null, error: result.error ?? null });
@@ -13,15 +13,15 @@ export async function atomicJson(file, value) {
   await rename(temporary, file);
 }
 /** A durable reservation precedes dispatch, including attempts with uncertain outcomes. */
-export async function reserveCall(file, metadata) {
+export async function reserveCall(file, metadata, policy = { task: 'article-enrichment-quality', maximum: 100 }) {
   await mkdir(path.dirname(file), { recursive: true });
   const lock = await open(`${file}.lock`, 'wx', 0o600);
   try {
     let ledger;
     try { ledger = JSON.parse(await readFile(file, 'utf8')); }
-    catch (error) { if (error.code !== 'ENOENT') throw error; ledger = { task: 'article-enrichment-quality', maximum: 100, calls: [] }; }
-    if (ledger.task !== 'article-enrichment-quality' || ledger.maximum !== 100 || !Array.isArray(ledger.calls)) throw new Error('Invalid call ledger');
-    if (ledger.calls.length >= 100) throw new Error('Live-call budget exhausted (100)');
+    catch (error) { if (error.code !== 'ENOENT') throw error; ledger = { ...policy, calls: [] }; }
+    if (ledger.task !== policy.task || ledger.maximum !== policy.maximum || !Array.isArray(ledger.calls)) throw new Error('Invalid call ledger');
+    if (ledger.maximum !== null && ledger.calls.length >= ledger.maximum) throw new Error(`Live-call budget exhausted (${ledger.maximum})`);
     if (!ledger.calls.every((call,i) => call.number === i+1)) throw new Error('Invalid call ledger sequence');
     const reservation = { ...metadata, number: ledger.calls.length + 1, reservedAt: new Date().toISOString() };
     ledger.calls.push(reservation);

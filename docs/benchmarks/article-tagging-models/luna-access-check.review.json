@@ -1,0 +1,18 @@
+{
+  "reportDigest": "1d81c286d27bd7a6f5a59d6b132d3b90ef1a7fae0e1b2c5fd78e2744c7d8d1fa",
+  "reviewerType": "agent",
+  "reviewer": "Codex",
+  "reviewedAt": "2026-11-04T23:16:41.158Z",
+  "rubric": "review-rubric.md",
+  "judgments": [
+    {
+      "id": "development-1-en",
+      "resultDigest": "cbce506ad0a9c7f4e6c195757b6b3c4b2664aed006425cd88a481044de28ab16",
+      "useful": false,
+      "topicCoverage": "poor",
+      "tags": [],
+      "structuralJudgment": "rejected",
+      "notes": "Provider failed before returning model output. This is an availability/billing failure, not evidence of poor semantic quality. No usage was returned; inference cost is unknown. The access check classified billing and recorded code 2021."
+    }
+  ]
+}

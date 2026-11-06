@@ -1,0 +1,122 @@
+{
+  "reportDigest": "e6aba7d45e3d0a9301d44d861bc18f7547164abf6f0df76092bdbdf8c98deb61",
+  "reviewerType": "agent",
+  "reviewer": "Codex",
+  "reviewedAt": "2026-11-06T06:42:44.515Z",
+  "judgments": [
+    {
+      "id": "development-2-en",
+      "resultDigest": "fdabcb85dac40c56a41adf4b9578b5e9636594a3cb84b932c48270af8b08cff4",
+      "useful": true,
+      "topicCoverage": "good",
+      "notes": "All four English topics match the supplied email excerpt, including protocols, architecture and security.",
+      "tags": [
+        {
+          "tag": "cybersecurity",
+          "english": true,
+          "relationship": "central",
+          "evidence": "The supplied text covers privacy, IT security, TLS, authentication, encryption and disclosures."
+        },
+        {
+          "tag": "email",
+          "english": true,
+          "relationship": "central",
+          "evidence": "The title and excerpt explain email from first principles."
+        },
+        {
+          "tag": "internet protocols",
+          "english": true,
+          "relationship": "central",
+          "evidence": "The source explicitly discusses SMTP, RFCs, TLS, DNS and Internet protocols."
+        },
+        {
+          "tag": "network architecture",
+          "english": true,
+          "relationship": "related",
+          "evidence": "The text introduces email architecture, servers, clients and the entities that communicate over Internet protocols."
+        }
+      ]
+    },
+    {
+      "id": "development-3-en",
+      "resultDigest": "cecb1d545389a55bf2df33cb4049be7983b82d60a8dbd9a89b94073e8291e171",
+      "useful": true,
+      "topicCoverage": "good",
+      "notes": "The set covers queueing for HTTP servers and the distributed software context. Every tag is English and useful.",
+      "tags": [
+        {
+          "tag": "distributed systems",
+          "english": true,
+          "relationship": "central",
+          "evidence": "The introduction explicitly names distributed systems and event-driven applications."
+        },
+        {
+          "tag": "queueing theory",
+          "english": true,
+          "relationship": "central",
+          "evidence": "The excerpt explains FIFO queues, arrival rates, full queues, timeouts and queueing strategies."
+        },
+        {
+          "tag": "software engineering",
+          "english": true,
+          "relationship": "related",
+          "evidence": "The article teaches developers how to handle HTTP request flow and avoid dropped server requests."
+        }
+      ]
+    },
+    {
+      "id": "development-4-en",
+      "resultDigest": "b059858dbb66a41a1a52cd8b39d3cd2aeb81befdca67b8fa8f94973114814727",
+      "useful": true,
+      "topicCoverage": "partial",
+      "notes": "The actual model request contains the recognizable paper title and arXiv identifier 1706.03762, followed mostly by bibliographic navigation; the abstract is absent after preprocessing. These are useful English classifications of the identifiable paper, inferred from its identity, not evidence that the model read a technical abstract. This source/input limitation applies to the earlier GLM run too.",
+      "tags": [
+        {
+          "tag": "deep learning",
+          "english": true,
+          "relationship": "related",
+          "evidence": "Inferred category for the identifiable paper Attention Is All You Need (arXiv:1706.03762); detailed neural-network prose is absent from the actual request."
+        },
+        {
+          "tag": "natural language processing",
+          "english": true,
+          "relationship": "central",
+          "evidence": "Topic classification inferred from the paper title and arXiv identity; translation details are not present in the supplied request."
+        },
+        {
+          "tag": "transformer architecture",
+          "english": true,
+          "relationship": "central",
+          "evidence": "The supplied title identifies the Transformer paper; this label relies on recognizing that paper rather than extracting an explicit architecture claim from body text."
+        }
+      ]
+    },
+    {
+      "id": "development-6-pl",
+      "resultDigest": "ab737bfb9cf6997570a95ce1b9b96bb51421604c716483c975ed800940ff9954",
+      "useful": true,
+      "topicCoverage": "good",
+      "notes": "The Polish article explicitly discusses phishing and social engineering. All three returned labels are English and relevant.",
+      "tags": [
+        {
+          "tag": "cybersecurity",
+          "english": true,
+          "relationship": "related",
+          "evidence": "The text describes credential theft, malware, malicious websites and defensive security measures."
+        },
+        {
+          "tag": "phishing",
+          "english": true,
+          "relationship": "central",
+          "evidence": "Phishing is the title and principal subject throughout the supplied Polish excerpt."
+        },
+        {
+          "tag": "social engineering",
+          "english": true,
+          "relationship": "central",
+          "evidence": "The source explicitly describes phishing as an attack based on inżynierii społecznej."
+        }
+      ]
+    }
+  ]
+}
