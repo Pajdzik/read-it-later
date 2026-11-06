@@ -1,0 +1,28 @@
+{
+  "passed": true,
+  "usefulTagSets": 28,
+  "valid": 30,
+  "language": {
+    "en": {
+      "total": 25,
+      "valid": 25,
+      "useful": 25
+    },
+    "pl": {
+      "total": 5,
+      "valid": 5,
+      "useful": 3
+    }
+  },
+  "reasons": [],
+  "failures": [
+    {
+      "id": "public-1-pl",
+      "reason": "not_useful_complete_set"
+    },
+    {
+      "id": "public-2-pl",
+      "reason": "not_useful_complete_set"
+    }
+  ]
+}

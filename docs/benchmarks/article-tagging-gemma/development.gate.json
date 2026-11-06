@@ -1,0 +1,19 @@
+{
+  "passed": true,
+  "usefulTagSets": 4,
+  "valid": 4,
+  "language": {
+    "en": {
+      "total": 3,
+      "valid": 3,
+      "useful": 3
+    },
+    "pl": {
+      "total": 1,
+      "valid": 1,
+      "useful": 1
+    }
+  },
+  "reasons": [],
+  "failures": []
+}

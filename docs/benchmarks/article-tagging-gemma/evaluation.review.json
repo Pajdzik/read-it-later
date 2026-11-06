@@ -1,0 +1,866 @@
+{
+  "reportDigest": "c3840497eb16f88b956b3924e2af43ccf8dae2af968e5868297195a4256635fc",
+  "reviewerType": "agent",
+  "reviewer": "Codex",
+  "reviewedAt": "2026-11-06T06:45:56.312Z",
+  "judgments": [
+    {
+      "id": "archive-01-en",
+      "resultDigest": "364d4169ffdfacda35b7de1e1769c0a9fca2924689306f8c8f29921c7ef56c8b",
+      "useful": true,
+      "topicCoverage": "good",
+      "notes": "The set identifies LLM inference reproducibility. Computer science and machine learning are broad supplements to two precise central labels.",
+      "tags": [
+        {
+          "tag": "computer science",
+          "english": true,
+          "relationship": "related",
+          "evidence": "The text explains deterministic GPU kernels, floating-point arithmetic and inference software."
+        },
+        {
+          "tag": "large language models",
+          "english": true,
+          "relationship": "central",
+          "evidence": "The title and body repeatedly discuss LLM inference and language-model APIs."
+        },
+        {
+          "tag": "machine learning",
+          "english": true,
+          "relationship": "related",
+          "evidence": "The supplied body explicitly discusses machine learning models and their numerical behavior."
+        },
+        {
+          "tag": "reproducibility",
+          "english": true,
+          "relationship": "central",
+          "evidence": "Reproducible results and defeating inference nondeterminism are the stated goal."
+        }
+      ]
+    },
+    {
+      "id": "archive-02-en",
+      "resultDigest": "a514f6dfdf5f2ca7a7c8818fbd60309da2a2e03fd690d275e23bcc928c081121",
+      "useful": true,
+      "topicCoverage": "good",
+      "notes": "All four English tags identify the system, application, hardware and positioning method described in the actual excerpt.",
+      "tags": [
+        {
+          "tag": "gps",
+          "english": true,
+          "relationship": "central",
+          "evidence": "GPS is the title and the body expands it as Global Positioning System."
+        },
+        {
+          "tag": "navigation",
+          "english": true,
+          "relationship": "related",
+          "evidence": "The introduction describes ships, airplanes, cars and hikers finding their position."
+        },
+        {
+          "tag": "satellite technology",
+          "english": true,
+          "relationship": "central",
+          "evidence": "The source describes satellite constellations and signals sent from space to receivers."
+        },
+        {
+          "tag": "trilateration",
+          "english": true,
+          "relationship": "central",
+          "evidence": "The excerpt explicitly names trilateration and explains distance-based location."
+        }
+      ]
+    },
+    {
+      "id": "archive-03-en",
+      "resultDigest": "def51af3b16cf806299609c5f62528fb397fd2cb06c6f64876b9dc59f8484ea0",
+      "useful": true,
+      "topicCoverage": "good",
+      "notes": "The complete set captures startup founder liquidity and equity in venture-backed companies.",
+      "tags": [
+        {
+          "tag": "entrepreneurship",
+          "english": true,
+          "relationship": "related",
+          "evidence": "The text concerns founders starting companies and their risk relative to early employees."
+        },
+        {
+          "tag": "founder liquidity",
+          "english": true,
+          "relationship": "central",
+          "evidence": "The title and body define founder liquidity as selling shares during funding rounds."
+        },
+        {
+          "tag": "startup equity",
+          "english": true,
+          "relationship": "central",
+          "evidence": "The excerpt compares founders and employees equity stakes and access to liquidity."
+        },
+        {
+          "tag": "venture capital",
+          "english": true,
+          "relationship": "central",
+          "evidence": "The article describes venture funding rounds, investors, cap tables, Series A and Series B."
+        }
+      ]
+    },
+    {
+      "id": "archive-04-en",
+      "resultDigest": "077da1b871876a2392524869b7a9ce04378e9cc53bc9e8ac127e44b5b0a47364",
+      "useful": true,
+      "topicCoverage": "good",
+      "notes": "The excerpt explains raw sensor values, normalization and color filters. The three tags are accurate English topics.",
+      "tags": [
+        {
+          "tag": "digital imaging",
+          "english": true,
+          "relationship": "central",
+          "evidence": "The source describes camera sensor data, ADC values and RGB mapping."
+        },
+        {
+          "tag": "image processing",
+          "english": true,
+          "relationship": "central",
+          "evidence": "The article rescales black and white levels and applies color-filter information."
+        },
+        {
+          "tag": "photography",
+          "english": true,
+          "relationship": "central",
+          "evidence": "The title and opening show an unprocessed camera photo of a Christmas tree."
+        }
+      ]
+    },
+    {
+      "id": "archive-05-en",
+      "resultDigest": "6135f001f9ad706c92970e24bcc698da1c415882cfecd1fa797c8c5bba4c2a24",
+      "useful": true,
+      "topicCoverage": "good",
+      "notes": "The central concurrency/WebKit labels preserve specificity while the other two labels describe the surrounding engineering domain.",
+      "tags": [
+        {
+          "tag": "concurrency",
+          "english": true,
+          "relationship": "central",
+          "evidence": "The source covers locks, mutexes, condition variables, atomics and concurrent memory access."
+        },
+        {
+          "tag": "parallel computing",
+          "english": true,
+          "relationship": "central",
+          "evidence": "Parallel algorithms, contention and CPU primitives are explicitly discussed."
+        },
+        {
+          "tag": "software engineering",
+          "english": true,
+          "relationship": "related",
+          "evidence": "The excerpt describes the design and performance of locking primitives in production software."
+        },
+        {
+          "tag": "webkit",
+          "english": true,
+          "relationship": "central",
+          "evidence": "The title and body discuss replacing WebKit locks with WTF::Lock and WTF::Condition."
+        }
+      ]
+    },
+    {
+      "id": "archive-06-en",
+      "resultDigest": "44786420c43940522315193d46527652214c6ed1417d12724ac47867a0c5ed6c",
+      "useful": true,
+      "topicCoverage": "good",
+      "notes": "The short supplied description and title support competitive programming and its broader computer-science category without invented book details.",
+      "tags": [
+        {
+          "tag": "competitive programming",
+          "english": true,
+          "relationship": "central",
+          "evidence": "The title says Competitive programming books; the body names competitive-programming practice problems."
+        },
+        {
+          "tag": "computer science",
+          "english": true,
+          "relationship": "related",
+          "evidence": "The CSES programming problem collection is a useful broader computer-science topic."
+        }
+      ]
+    },
+    {
+      "id": "archive-07-en",
+      "resultDigest": "89470c7743708677670d27631d216d16037c0adb5daa21cd440d02c8f5a89395",
+      "useful": true,
+      "topicCoverage": "good",
+      "notes": "The set accurately covers JavaScript event-loop scheduling in the browser.",
+      "tags": [
+        {
+          "tag": "event loop",
+          "english": true,
+          "relationship": "central",
+          "evidence": "The title and body explain event-loop iterations, task queues and microtask queues."
+        },
+        {
+          "tag": "javascript",
+          "english": true,
+          "relationship": "central",
+          "evidence": "JavaScript is named in the title and body, with Promise.then, setTimeout and queueMicrotask examples."
+        },
+        {
+          "tag": "web development",
+          "english": true,
+          "relationship": "related",
+          "evidence": "The excerpt discusses browser rendering, network events, user input and UI responsiveness."
+        }
+      ]
+    },
+    {
+      "id": "archive-08-en",
+      "resultDigest": "18bf6f9364658702a86be517533895edb2c124a4e85d85b0427c939043b43597",
+      "useful": true,
+      "topicCoverage": "partial",
+      "notes": "Preprocessing removes the fenced prose, leaving the informative anti-AI-hype title and visit metadata. The labels are useful title-based classification, with limited specificity; this is not evidence of full-body comprehension.",
+      "tags": [
+        {
+          "tag": "artificial intelligence",
+          "english": true,
+          "relationship": "central",
+          "evidence": "AI is explicit in the supplied title Dont fall into the anti-AI hype."
+        },
+        {
+          "tag": "technology trends",
+          "english": true,
+          "relationship": "related",
+          "evidence": "The title concerns AI hype, supporting this broader trend category; the actual body contains only metadata."
+        }
+      ]
+    },
+    {
+      "id": "archive-09-en",
+      "resultDigest": "bf2ff4583921f9eb71663cd1dd2ee8b7a64d52cb78013a2c3d42470857a48453",
+      "useful": true,
+      "topicCoverage": "good",
+      "notes": "Every label is supported by the C/C++ Redis tutorial. The set is useful despite omitting a separate database tag.",
+      "tags": [
+        {
+          "tag": "c++",
+          "english": true,
+          "relationship": "central",
+          "evidence": "C/C++ appears in the supplied book title and closing text."
+        },
+        {
+          "tag": "redis",
+          "english": true,
+          "relationship": "central",
+          "evidence": "Building a Redis server from scratch is the title and primary learning project."
+        },
+        {
+          "tag": "software engineering",
+          "english": true,
+          "relationship": "related",
+          "evidence": "The article teaches building real-world software, networks, data structures and infrastructure."
+        },
+        {
+          "tag": "systems programming",
+          "english": true,
+          "relationship": "central",
+          "evidence": "The body explicitly describes low-level C as widely used for systems programming."
+        }
+      ]
+    },
+    {
+      "id": "archive-10-en",
+      "resultDigest": "374b23ef7323473c5043561b736832b3b22ab64ec34cf869bd6f2ab3a2b83fd3",
+      "useful": true,
+      "topicCoverage": "good",
+      "notes": "The set correctly covers image-to-ASCII rendering, shape-aware graphics and its programmatic implementation.",
+      "tags": [
+        {
+          "tag": "ascii art",
+          "english": true,
+          "relationship": "central",
+          "evidence": "The text discusses ASCII art and choosing printable characters to render images."
+        },
+        {
+          "tag": "computer graphics",
+          "english": true,
+          "relationship": "central",
+          "evidence": "Interactive 3D scenes, contours, luminance and rendering are described."
+        },
+        {
+          "tag": "image processing",
+          "english": true,
+          "relationship": "central",
+          "evidence": "The excerpt discusses RGB-to-lightness conversion and contrast enhancement."
+        },
+        {
+          "tag": "programming",
+          "english": true,
+          "relationship": "related",
+          "evidence": "The author describes programmatically building an image-to-ASCII renderer and its algorithms."
+        }
+      ]
+    },
+    {
+      "id": "archive-11-en",
+      "resultDigest": "75f3d56a5a681fffd1a31d656ebd22524da6125abdc22482ce81a118bd3cf7db",
+      "useful": true,
+      "topicCoverage": "good",
+      "notes": "The full set describes the supplied guide to Asian name order and polite usage in reporting.",
+      "tags": [
+        {
+          "tag": "asian naming conventions",
+          "english": true,
+          "relationship": "central",
+          "evidence": "The title and text discuss family-name/given-name order in Japan, China and Korea."
+        },
+        {
+          "tag": "etiquette",
+          "english": true,
+          "relationship": "related",
+          "evidence": "The source discusses polite forms of address and prioritizing the persons preference."
+        },
+        {
+          "tag": "style guide",
+          "english": true,
+          "relationship": "central",
+          "evidence": "The source explicitly calls itself a rough style guide for using Asian names in reporting."
+        }
+      ]
+    },
+    {
+      "id": "archive-12-en",
+      "resultDigest": "12edf473fcff46f67020845bc4718379c016a4f8b3b2fd3016f833db795959f8",
+      "useful": true,
+      "topicCoverage": "partial",
+      "notes": "Project management captures the organized delivery theme, while engineering and history fit the dated construction/launch examples. The set omits an explicit rapid-execution or speed label.",
+      "tags": [
+        {
+          "tag": "engineering",
+          "english": true,
+          "relationship": "central",
+          "evidence": "The examples describe designing aircraft, constructing roads, buildings, ships and other ambitious technical projects."
+        },
+        {
+          "tag": "history",
+          "english": true,
+          "relationship": "related",
+          "evidence": "The supplied examples include historical dates and elapsed construction or launch durations."
+        },
+        {
+          "tag": "project management",
+          "english": true,
+          "relationship": "central",
+          "evidence": "The excerpt concerns teams accomplishing ambitious projects quickly, with deadlines and delivery schedules."
+        }
+      ]
+    },
+    {
+      "id": "archive-13-en",
+      "resultDigest": "386b692ce3ab42cb6aaeb95a8738b960c1229a36edd7f993c2a172b45bb8bfea",
+      "useful": true,
+      "topicCoverage": "good",
+      "notes": "The tags accurately summarize refinement culture as cultural sameness in design, buildings, cars and accents.",
+      "tags": [
+        {
+          "tag": "cultural homogenization",
+          "english": true,
+          "relationship": "central",
+          "evidence": "The source defines refinement culture as removal of unique characteristics and variety."
+        },
+        {
+          "tag": "design trends",
+          "english": true,
+          "relationship": "central",
+          "evidence": "Contemporary logos, car designs/colors and architecture are explicit examples."
+        },
+        {
+          "tag": "sociology",
+          "english": true,
+          "relationship": "related",
+          "evidence": "The article discusses social and cultural convergence, including regional accents and interconnectedness."
+        }
+      ]
+    },
+    {
+      "id": "archive-14-en",
+      "resultDigest": "ad00bfea1df5c6c023ec511df12ee5725d836bcff366e6db91d0c588283bdb69",
+      "useful": true,
+      "topicCoverage": "partial",
+      "notes": "The set correctly classifies HTTP security techniques, but omits the more specific hop-by-hop/header subject. No unrelated tag is present.",
+      "tags": [
+        {
+          "tag": "cybersecurity",
+          "english": true,
+          "relationship": "related",
+          "evidence": "The writeup concerns exploiting web-system behavior and testing vulnerabilities."
+        },
+        {
+          "tag": "http protocol",
+          "english": true,
+          "relationship": "central",
+          "evidence": "HTTP/1.1 hop-by-hop headers, Connection, proxy forwarding and protocol compliance are the central mechanism."
+        },
+        {
+          "tag": "web security",
+          "english": true,
+          "relationship": "central",
+          "evidence": "The source discusses access-control changes, authentication cookies and unintended web-application behavior."
+        }
+      ]
+    },
+    {
+      "id": "archive-15-en",
+      "resultDigest": "9761ef4c2acd3c736fb941776fb12b01ffa2320b74579a7307e5ef4b79da3cec",
+      "useful": true,
+      "topicCoverage": "good",
+      "notes": "All four topics accurately describe the React/frontend critique and its explicit user-experience argument.",
+      "tags": [
+        {
+          "tag": "frontend development",
+          "english": true,
+          "relationship": "central",
+          "evidence": "The text discusses frontend framework and tooling choices."
+        },
+        {
+          "tag": "react.js",
+          "english": true,
+          "relationship": "central",
+          "evidence": "React is in the title and the body discusses its support for web components."
+        },
+        {
+          "tag": "user experience",
+          "english": true,
+          "relationship": "central",
+          "evidence": "The source explicitly prioritizes user experience over developer experience."
+        },
+        {
+          "tag": "web development",
+          "english": true,
+          "relationship": "related",
+          "evidence": "The article discusses browser-facing tools, frontend frameworks and web components."
+        }
+      ]
+    },
+    {
+      "id": "archive-16-en",
+      "resultDigest": "c6269ecdd1a49dc9bd6ff7b4fc35b30d3d09275ebb10bc957e58ebd6e33f2a6c",
+      "useful": true,
+      "topicCoverage": "partial",
+      "notes": "The tags correctly classify this Git tutorial but do not preserve the specific HEAD/detached-HEAD focus.",
+      "tags": [
+        {
+          "tag": "git",
+          "english": true,
+          "relationship": "central",
+          "evidence": "The title and text explain Git commands and the .git/HEAD file."
+        },
+        {
+          "tag": "software development",
+          "english": true,
+          "relationship": "related",
+          "evidence": "The excerpt teaches a developer tool used for branches, commits and rebasing."
+        },
+        {
+          "tag": "version control",
+          "english": true,
+          "relationship": "central",
+          "evidence": "The discussion concerns branches, commit identifiers, references and Git history."
+        }
+      ]
+    },
+    {
+      "id": "archive-17-en",
+      "resultDigest": "420552f96dfe1687ebf1e7f7ea64e5aaad8c4a9fe6affb6b0f298e97bb291a45",
+      "useful": true,
+      "topicCoverage": "good",
+      "notes": "The set identifies SSH port forwarding and its network-security/red-team context.",
+      "tags": [
+        {
+          "tag": "cybersecurity",
+          "english": true,
+          "relationship": "related",
+          "evidence": "The introduction explicitly mentions red-team network traversal and security-relevant SSH usage."
+        },
+        {
+          "tag": "network security",
+          "english": true,
+          "relationship": "central",
+          "evidence": "The examples traverse internal networks, loopback-only services and firewalls."
+        },
+        {
+          "tag": "port forwarding",
+          "english": true,
+          "relationship": "central",
+          "evidence": "Local, remote and dynamic port forwarding are explained in the supplied text."
+        },
+        {
+          "tag": "ssh",
+          "english": true,
+          "relationship": "central",
+          "evidence": "SSH is the title subject and every example uses SSH tunnels."
+        }
+      ]
+    },
+    {
+      "id": "archive-18-en",
+      "resultDigest": "cfb8a3a3fa239294be609a13a94ce7b739b1f7ec22b235881888c1514cd6dbf0",
+      "useful": true,
+      "topicCoverage": "good",
+      "notes": "The tags fit evaluating RSS readers and the bookmarking/reading workflow. The specific Readwise product name is absent but the retrieval topics remain useful.",
+      "tags": [
+        {
+          "tag": "content curation",
+          "english": true,
+          "relationship": "related",
+          "evidence": "The author describes triaging, saving, organizing and revisiting articles and newsletters."
+        },
+        {
+          "tag": "productivity tools",
+          "english": true,
+          "relationship": "related",
+          "evidence": "The excerpt compares tools for reading, notes, highlights and managing the reading workflow."
+        },
+        {
+          "tag": "rss readers",
+          "english": true,
+          "relationship": "central",
+          "evidence": "The title concerns Readwise Reader replacement; the text compares RSS readers and feed aggregators."
+        }
+      ]
+    },
+    {
+      "id": "archive-19-en",
+      "resultDigest": "8c2de87b36943f51a995c5e16c7d77a8dc188d14f8c2ce59f014974035219261",
+      "useful": true,
+      "topicCoverage": "good",
+      "notes": "All labels match the self-hosted, open-source reading/highlight workflow integrated with personal knowledge management.",
+      "tags": [
+        {
+          "tag": "knowledge management",
+          "english": true,
+          "relationship": "central",
+          "evidence": "The source explicitly describes a personal knowledge management system and syncing annotations into Obsidian notes."
+        },
+        {
+          "tag": "open source",
+          "english": true,
+          "relationship": "central",
+          "evidence": "The title and text describe an open-source alternative to Readwise."
+        },
+        {
+          "tag": "productivity tools",
+          "english": true,
+          "relationship": "related",
+          "evidence": "Wallabag and Obsidian support the authors reading, highlighting and note-making workflow."
+        },
+        {
+          "tag": "self-hosting",
+          "english": true,
+          "relationship": "central",
+          "evidence": "The source describes self-hosting Wallabag and installing it with a database using Docker Compose."
+        }
+      ]
+    },
+    {
+      "id": "archive-20-en",
+      "resultDigest": "6528671c5b77703d07fb47949f5822bc60ec77f174c1c4e3192e5d165e9eebc6",
+      "useful": true,
+      "topicCoverage": "good",
+      "notes": "The set accurately describes Bash command-line techniques to improve developer efficiency.",
+      "tags": [
+        {
+          "tag": "bash",
+          "english": true,
+          "relationship": "central",
+          "evidence": "The supplied article explicitly says every shell example is for Bash."
+        },
+        {
+          "tag": "command line",
+          "english": true,
+          "relationship": "central",
+          "evidence": "The title and body teach CLI shortcuts, history, wildcards and pipes."
+        },
+        {
+          "tag": "productivity",
+          "english": true,
+          "relationship": "central",
+          "evidence": "Improving productivity and saving time with keyboard shortcuts are explicit goals."
+        },
+        {
+          "tag": "software development",
+          "english": true,
+          "relationship": "related",
+          "evidence": "The guide is aimed at developers and calls the CLI a critical part of their toolkit."
+        }
+      ]
+    },
+    {
+      "id": "archive-21-en",
+      "resultDigest": "0762ac79d52317c24c2de2c039ab3d0d66335f23bde48b3db746e97c532e430e",
+      "useful": true,
+      "topicCoverage": "good",
+      "notes": "The complete set covers generative AI, LLMs and the Transformer mechanism explicitly described in the supplied excerpt.",
+      "tags": [
+        {
+          "tag": "artificial intelligence",
+          "english": true,
+          "relationship": "related",
+          "evidence": "The source frames the development as progress in building intelligent machines."
+        },
+        {
+          "tag": "generative ai",
+          "english": true,
+          "relationship": "central",
+          "evidence": "Generative AI is named in the title and defined as creating text, images and code."
+        },
+        {
+          "tag": "large language models",
+          "english": true,
+          "relationship": "central",
+          "evidence": "The excerpt repeatedly describes LLMs, tokenization and embeddings."
+        },
+        {
+          "tag": "transformer model",
+          "english": true,
+          "relationship": "central",
+          "evidence": "The title and body explicitly identify the transformer model as the scientific underpinning."
+        }
+      ]
+    },
+    {
+      "id": "archive-22-en",
+      "resultDigest": "391abef036ebfa11d46422ed576106526ddbc22c34f3661b47b29b67530eaa4a",
+      "useful": true,
+      "topicCoverage": "good",
+      "notes": "The set correctly covers open-source competition in language models and AI.",
+      "tags": [
+        {
+          "tag": "artificial intelligence",
+          "english": true,
+          "relationship": "related",
+          "evidence": "The body discusses AI foundation models, multimodality and image generation."
+        },
+        {
+          "tag": "large language models",
+          "english": true,
+          "relationship": "central",
+          "evidence": "The excerpt discusses LLMs, LLaMA, instruction tuning and fine-tuning."
+        },
+        {
+          "tag": "open source",
+          "english": true,
+          "relationship": "central",
+          "evidence": "Open source is the central competing faction in the supplied Google/OpenAI discussion."
+        }
+      ]
+    },
+    {
+      "id": "archive-23-en",
+      "resultDigest": "9ed6f96cb0d216c98908e61722640e376ff61b16b72a8ec22aeaed2b80242c98",
+      "useful": true,
+      "topicCoverage": "partial",
+      "notes": "The leadership and communication-skills labels are useful for organizing the workplace coaching advice, with management and professional development as broader supplements. A direct feedback label would improve specificity.",
+      "tags": [
+        {
+          "tag": "communication skills",
+          "english": true,
+          "relationship": "central",
+          "evidence": "The source gives scripts for clear, respectful feedback rather than avoiding difficult conversations."
+        },
+        {
+          "tag": "leadership",
+          "english": true,
+          "relationship": "central",
+          "evidence": "The author explicitly coaches leaders and frames clarity as a leadership responsibility."
+        },
+        {
+          "tag": "management",
+          "english": true,
+          "relationship": "related",
+          "evidence": "The scenarios concern employee performance, deliverables, meetings and team behavior."
+        },
+        {
+          "tag": "professional development",
+          "english": true,
+          "relationship": "related",
+          "evidence": "The excerpt describes leadership training and improving workplace feedback skills."
+        }
+      ]
+    },
+    {
+      "id": "archive-24-en",
+      "resultDigest": "a2b5896d9a64bf687b46d56c6f49caa8880f92f0594f2a6702b519b095e51fd6",
+      "useful": true,
+      "topicCoverage": "good",
+      "notes": "The set fits workplace communication, initiative and productive action while keeping a manager informed.",
+      "tags": [
+        {
+          "tag": "communication skills",
+          "english": true,
+          "relationship": "central",
+          "evidence": "The article contrasts two ways of communicating plans to a boss, with deadlines and a chance to object."
+        },
+        {
+          "tag": "leadership",
+          "english": true,
+          "relationship": "related",
+          "evidence": "The source discusses boss/employee coordination, role scope and opportunities to give feedback."
+        },
+        {
+          "tag": "productivity",
+          "english": true,
+          "relationship": "central",
+          "evidence": "Bias for action, moving forward and avoiding stalled permission requests are central goals."
+        },
+        {
+          "tag": "professional development",
+          "english": true,
+          "relationship": "related",
+          "evidence": "The article teaches a workplace habit based on the authors company experience."
+        }
+      ]
+    },
+    {
+      "id": "archive-25-en",
+      "resultDigest": "ccb345c1ceeeb1022486d7ff194855ce8d1f120775968f86e214d372e44a6a21",
+      "useful": true,
+      "topicCoverage": "good",
+      "notes": "The set captures simplifying products and business decisions by removing unnecessary complexity.",
+      "tags": [
+        {
+          "tag": "business strategy",
+          "english": true,
+          "relationship": "related",
+          "evidence": "The company tests pricing-page changes and evaluates signups, contacts, growth and revenue."
+        },
+        {
+          "tag": "complexity management",
+          "english": true,
+          "relationship": "central",
+          "evidence": "The source explicitly argues for reducing complexity by removing nonessential elements."
+        },
+        {
+          "tag": "product management",
+          "english": true,
+          "relationship": "central",
+          "evidence": "The example concerns a pricing calculator, customer confusion, product decisions and an A/B test."
+        }
+      ]
+    },
+    {
+      "id": "public-1-pl",
+      "resultDigest": "1bf1d502ae45f87497c4396f38738bdd35906ca77eedbb2db41109a0adfa05f8",
+      "useful": false,
+      "topicCoverage": "poor",
+      "notes": "All tags are English and related, but the complete set consists of broad subject buckets. It omits any label identifying B-trees or indexing and could describe many unrelated database/data-structure introductions. Under the frozen rubric, an entirely generic set does not count as useful.",
+      "tags": [
+        {
+          "tag": "computer science",
+          "english": true,
+          "relationship": "too_broad",
+          "evidence": "Computing is the overall domain, but this label does not identify B-trees or their indexing role."
+        },
+        {
+          "tag": "data structures",
+          "english": true,
+          "relationship": "too_broad",
+          "evidence": "The source describes a specific ordered tree structure; the category is accurate but insufficiently discriminating without a more specific tag."
+        },
+        {
+          "tag": "databases",
+          "english": true,
+          "relationship": "related",
+          "evidence": "The first paragraph explicitly says B-trees are used mainly in database systems, but this broad application category does not fix the complete sets lack of specificity."
+        }
+      ]
+    },
+    {
+      "id": "public-2-pl",
+      "resultDigest": "9f62002b1beb5f83e4547cf25020efd3578092cec1d27d7dee1fb237abb59a3c",
+      "useful": false,
+      "topicCoverage": "poor",
+      "notes": "Both English tags are accurate umbrella categories, but neither identifies queues, FIFO, priority queues or event processing. The complete set is too generic for the specific article and fails the frozen usefulness rubric.",
+      "tags": [
+        {
+          "tag": "computer science",
+          "english": true,
+          "relationship": "too_broad",
+          "evidence": "The title says informatyka, but the tag covers essentially any computing article."
+        },
+        {
+          "tag": "data structures",
+          "english": true,
+          "relationship": "too_broad",
+          "evidence": "The opening calls a queue a linear data structure, but this category alone does not distinguish the main queue/FIFO subject."
+        }
+      ]
+    },
+    {
+      "id": "public-3-pl",
+      "resultDigest": "7ac7ac981b6f4dfd60585e6d49cf8c999cc05ed6a6a68cf5043b7481b87e572a",
+      "useful": true,
+      "topicCoverage": "good",
+      "notes": "The precise digital-photography tag preserves the main subject; technology is a related broad supplement. Both labels are English.",
+      "tags": [
+        {
+          "tag": "digital photography",
+          "english": true,
+          "relationship": "central",
+          "evidence": "The Polish title and body define fotografia cyfrowa and discuss digital camera sensors, storage and resolution."
+        },
+        {
+          "tag": "technology",
+          "english": true,
+          "relationship": "related",
+          "evidence": "The excerpt discusses digital cameras, sensor miniaturization, smartphones and imaging hardware."
+        }
+      ]
+    },
+    {
+      "id": "public-4-pl",
+      "resultDigest": "f1a25fa2c0f2ba7f3afc925cffa1a9f9e9c528667999b7e75efb65d1b33b3b1c",
+      "useful": true,
+      "topicCoverage": "good",
+      "notes": "The English set covers encoding written characters numerically, Unicode and its computing context.",
+      "tags": [
+        {
+          "tag": "character encoding",
+          "english": true,
+          "relationship": "central",
+          "evidence": "The Polish text defines mapping written characters to binary or numeric codes for digital text."
+        },
+        {
+          "tag": "computing",
+          "english": true,
+          "relationship": "related",
+          "evidence": "The source discusses computer applications and operating systems using character standards."
+        },
+        {
+          "tag": "unicode",
+          "english": true,
+          "relationship": "central",
+          "evidence": "The final paragraph explicitly describes Unicode and UTF-8 as the modern international standard."
+        }
+      ]
+    },
+    {
+      "id": "public-5-pl",
+      "resultDigest": "d8700db4e1c6aff23d60fe1f36d9250de70da51fe2d19bf401a47b8680182614",
+      "useful": true,
+      "topicCoverage": "good",
+      "notes": "Both English labels match the Polish account-posting rule and accounting context without unrelated tags.",
+      "tags": [
+        {
+          "tag": "accounting",
+          "english": true,
+          "relationship": "central",
+          "evidence": "The supplied text describes business transactions, accounts, debit/credit entries and balance-sheet equality."
+        },
+        {
+          "tag": "double-entry bookkeeping",
+          "english": true,
+          "relationship": "central",
+          "evidence": "The title and body specify posting each transaction to at least two accounts, on different sides, for identical amounts."
+        }
+      ]
+    }
+  ]
+}

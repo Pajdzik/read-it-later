@@ -214,3 +214,37 @@ test('benchmark-only model adapters keep request limits and reject incomplete or
   assert.deepEqual(parseTaggingOutput({response:'{"tags":["databases"]}'},'llama'),{tags:['databases']});
   assert.deepEqual(taggingUsage({usage:{input_tokens:100,output_tokens:192}}),{prompt_tokens:100,completion_tokens:192,cached_tokens:0});
 });
+
+test('Gemma evidence preserves the frozen comparison, per-tag review and every additional reservation', async () => {
+  const {assessTaggingReport,summarizeTagging}=await import('./tagging-evaluation.mjs');
+  const directory='docs/benchmarks/article-tagging-gemma';
+  const summary=JSON.parse(await readFile(`${directory}/summary.json`,'utf8'));
+  const ledger=JSON.parse(await readFile(`${directory}/calls.json`,'utf8'));
+  const originalLedger=JSON.parse(await readFile('docs/benchmarks/article-tagging-models/calls.json','utf8'));
+  assert.deepEqual(ledger.calls.slice(0,45),originalLedger.calls);
+  const results=[];
+  for(const stage of summary.stages){
+    const report=JSON.parse(await readFile(`${directory}/${stage.report}`,'utf8'));
+    const review=JSON.parse(await readFile(`${directory}/${stage.review}`,'utf8'));
+    const gate=JSON.parse(await readFile(`${directory}/${stage.gate}`,'utf8'));
+    assert.deepEqual(assessTaggingReport(report,review),gate);
+    assert.equal(gate.passed,true);
+    for(const r of report.results){
+      assert.equal(review.judgments.find(j=>j.id===r.id).resultDigest,resultDigest(r));
+      assert.equal(ledger.calls[r.reservation-1].requestDigest,digest(r.request));
+    }
+    results.push(...report.results);
+  }
+  assert.equal(results.length,36);assert.equal(ledger.calls.length,81);
+  assert.equal(new Set(results.map(r=>r.reservation)).size,36);
+  assert.deepEqual([...results.map(r=>r.reservation)].sort((a,b)=>a-b),Array.from({length:36},(_,i)=>46+i));
+  const accounting=summarizeTagging(results,'gemma');
+  for(const key of ['attempts','valid','inputTokens','outputTokens','cachedTokens','inferenceCostBeforeAllowanceUsd'])assert.equal(summary[key],accounting[key]);
+  const evaluation=JSON.parse(await readFile(`${directory}/evaluation.json`,'utf8'));
+  const glm=JSON.parse(await readFile('docs/benchmarks/article-tagging-models/glm-evaluation.json','utf8'));
+  for(const r of evaluation.results)assert.deepEqual(r.request,glm.results.find(g=>g.id===r.id).request);
+  assert.equal(summary.representativeGate.usefulTagSets,28);
+  assert.equal(summary.activation,'disabled');
+  assert.equal(summary.productionModel,'@cf/zai-org/glm-4.7-flash');
+  assert.equal(summary.reviewRubricHash,digest(await readFile('docs/benchmarks/article-tagging-models/review-rubric.md','utf8')));
+});

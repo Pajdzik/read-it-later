@@ -1,0 +1,250 @@
+{
+  "date": "2026-11-06T06:47:27.879Z",
+  "task": "Gemma tagging-only evaluation",
+  "model": "@cf/google/gemma-4-26b-a4b-it",
+  "modelAlias": "gemma",
+  "activation": "disabled",
+  "productionModel": "@cf/zai-org/glm-4.7-flash",
+  "dispatches": 36,
+  "reservationRange": [
+    46,
+    81
+  ],
+  "ledgerTotalWithPriorComparison": 81,
+  "attempts": 36,
+  "valid": 36,
+  "latencyMedianMs": 618,
+  "latencyP95Ms": 2379,
+  "usageComplete": true,
+  "inputTokens": 29392,
+  "outputTokens": 506,
+  "inferenceCostBeforeAllowanceUsd": 0.0030910000000000004,
+  "knownUsageCostUsd": 0.0030910000000000004,
+  "pricing": {
+    "id": "@cf/google/gemma-4-26b-a4b-it",
+    "inputUsdPerMillion": 0.1,
+    "outputUsdPerMillion": 0.3,
+    "cachedInputUsdPerMillion": 0.1,
+    "documentation": "https://developers.cloudflare.com/workers-ai/models/gemma-4-26b-a4b-it/"
+  },
+  "cachedTokens": 640,
+  "reportedNeurons": 278.09089612960815,
+  "neuronRateUsdPerThousand": 0.011,
+  "reportedNeuronCostBeforeAllowanceUsd": 0.0030589998574256897,
+  "costMethod": "Standard token-rate estimate uses $0.10/M input and $0.30/M output, including cached input at the standard input rate because no cache tier is published on the model page. Separate neuron estimate uses returned raw usage.neurons at $0.011/1000 neurons. Neither is an invoice; both precede shared allowances.",
+  "stages": [
+    {
+      "name": "smoke",
+      "report": "smoke.json",
+      "review": "smoke.review.json",
+      "gate": "smoke.gate.json",
+      "attempts": 2,
+      "valid": 2,
+      "latencyMedianMs": 618,
+      "latencyP95Ms": 2379,
+      "usageComplete": true,
+      "inputTokens": 1183,
+      "outputTokens": 24,
+      "inferenceCostBeforeAllowanceUsd": 0.00012550000000000001,
+      "knownUsageCostUsd": 0.00012550000000000001,
+      "pricing": {
+        "id": "@cf/google/gemma-4-26b-a4b-it",
+        "inputUsdPerMillion": 0.1,
+        "outputUsdPerMillion": 0.3,
+        "cachedInputUsdPerMillion": 0.1,
+        "documentation": "https://developers.cloudflare.com/workers-ai/models/gemma-4-26b-a4b-it/"
+      },
+      "cachedTokens": 0,
+      "usefulTagSets": 2,
+      "passed": true
+    },
+    {
+      "name": "development",
+      "report": "development.json",
+      "review": "development.review.json",
+      "gate": "development.gate.json",
+      "attempts": 4,
+      "valid": 4,
+      "latencyMedianMs": 682,
+      "latencyP95Ms": 1021,
+      "usageComplete": true,
+      "inputTokens": 3464,
+      "outputTokens": 56,
+      "inferenceCostBeforeAllowanceUsd": 0.0003632,
+      "knownUsageCostUsd": 0.0003632,
+      "pricing": {
+        "id": "@cf/google/gemma-4-26b-a4b-it",
+        "inputUsdPerMillion": 0.1,
+        "outputUsdPerMillion": 0.3,
+        "cachedInputUsdPerMillion": 0.1,
+        "documentation": "https://developers.cloudflare.com/workers-ai/models/gemma-4-26b-a4b-it/"
+      },
+      "cachedTokens": 64,
+      "usefulTagSets": 4,
+      "passed": true
+    },
+    {
+      "name": "evaluation",
+      "report": "evaluation.json",
+      "review": "evaluation.review.json",
+      "gate": "evaluation.gate.json",
+      "attempts": 30,
+      "valid": 30,
+      "latencyMedianMs": 605,
+      "latencyP95Ms": 2259,
+      "usageComplete": true,
+      "inputTokens": 24745,
+      "outputTokens": 426,
+      "inferenceCostBeforeAllowanceUsd": 0.0026023,
+      "knownUsageCostUsd": 0.0026023,
+      "pricing": {
+        "id": "@cf/google/gemma-4-26b-a4b-it",
+        "inputUsdPerMillion": 0.1,
+        "outputUsdPerMillion": 0.3,
+        "cachedInputUsdPerMillion": 0.1,
+        "documentation": "https://developers.cloudflare.com/workers-ai/models/gemma-4-26b-a4b-it/"
+      },
+      "cachedTokens": 576,
+      "usefulTagSets": 28,
+      "passed": true
+    }
+  ],
+  "corpusHash": "579d9cf2549176f649a0b0b64452f9adc36ab28a60e2360699cbd207937b8966",
+  "reviewRubricHash": "d7635fb771555bf4656b71540384c08302a71f365f93df877ecc6a8042fbf4ac",
+  "representativeGate": {
+    "passed": true,
+    "usefulTagSets": 28,
+    "structurallyValid": 30,
+    "englishUseful": 25,
+    "englishTotal": 25,
+    "polishUseful": 3,
+    "polishTotal": 5
+  },
+  "comparison": {
+    "identicalCompleteRequests": true,
+    "glm": {
+      "attempts": 30,
+      "valid": 30,
+      "latencyMedianMs": 716,
+      "latencyP95Ms": 2477,
+      "usageComplete": true,
+      "inputTokens": 23941,
+      "outputTokens": 483,
+      "inferenceCostBeforeAllowanceUsd": 0.0016416305,
+      "knownUsageCostUsd": 0.0016416305,
+      "pricing": {
+        "id": "@cf/zai-org/glm-4.7-flash",
+        "inputUsdPerMillion": 0.0605,
+        "outputUsdPerMillion": 0.4,
+        "cachedInputUsdPerMillion": 0.0605,
+        "documentation": "https://developers.cloudflare.com/workers-ai/models/glm-4.7-flash/"
+      },
+      "cachedTokens": 0,
+      "usefulTagSets": 30
+    },
+    "gemma": {
+      "attempts": 30,
+      "valid": 30,
+      "latencyMedianMs": 605,
+      "latencyP95Ms": 2259,
+      "usageComplete": true,
+      "inputTokens": 24745,
+      "outputTokens": 426,
+      "inferenceCostBeforeAllowanceUsd": 0.0026023,
+      "knownUsageCostUsd": 0.0026023,
+      "pricing": {
+        "id": "@cf/google/gemma-4-26b-a4b-it",
+        "inputUsdPerMillion": 0.1,
+        "outputUsdPerMillion": 0.3,
+        "cachedInputUsdPerMillion": 0.1,
+        "documentation": "https://developers.cloudflare.com/workers-ai/models/gemma-4-26b-a4b-it/"
+      },
+      "cachedTokens": 576,
+      "usefulTagSets": 28
+    },
+    "pairedExamples": [
+      {
+        "id": "archive-12-en",
+        "gemma": [
+          "engineering",
+          "history",
+          "project management"
+        ],
+        "glm": [
+          "business",
+          "history",
+          "innovation",
+          "productivity"
+        ]
+      },
+      {
+        "id": "archive-21-en",
+        "gemma": [
+          "artificial intelligence",
+          "generative ai",
+          "large language models",
+          "transformer model"
+        ],
+        "glm": [
+          "artificial intelligence",
+          "generative ai",
+          "machine learning"
+        ]
+      },
+      {
+        "id": "public-1-pl",
+        "gemma": [
+          "computer science",
+          "data structures",
+          "databases"
+        ],
+        "glm": [
+          "b-trees",
+          "data structures",
+          "databases"
+        ]
+      },
+      {
+        "id": "public-2-pl",
+        "gemma": [
+          "computer science",
+          "data structures"
+        ],
+        "glm": [
+          "computer science",
+          "data structures",
+          "fifo",
+          "queue"
+        ]
+      }
+    ],
+    "limitation": "Separate single runs on a small frozen public-excerpt corpus, with agent rather than owner review. Latency differences are descriptive and not a controlled performance benchmark."
+  },
+  "conclusion": "Gemma meets the unchanged >=27/30 tagging-only gate, but the recorded comparison favors retaining GLM: 30/30 versus 28/30 useful sets and lower estimated cost. Gemma has slightly lower median/p95 latency in these separate samples. No production switch is made.",
+  "limitations": [
+    "Both rejected-usefulness sets are Polish data-structure articles whose tags are valid English but entirely generic categories.",
+    "Five English evaluation sets have partial specificity/coverage, including one based almost entirely on the title after fenced prose is removed.",
+    "The Attention Is All You Need development input contains the paper title/arXiv metadata rather than its technical abstract; recognizing this paper is title-based classification, not grounded body comprehension. See review-addendum.json for a correction to the older GLM development review.",
+    "Requested Gemma ID is @cf/google/gemma-4-26b-a4b-it; raw provider envelopes identify the backend with the suffix -external.",
+    "No descriptions were generated or evaluated. No private library/D1 data was accessed."
+  ],
+  "validation": {
+    "status": "passed",
+    "workerD1": {
+      "files": 17,
+      "tests": 198,
+      "remoteBindings": false,
+      "command": "CLOUDFLARE_LOAD_DEV_VARS_FROM_DOT_ENV=false pnpm exec vitest run --maxWorkers=1"
+    },
+    "evaluator": {
+      "tests": 15,
+      "command": "pnpm test:enrichment-evaluator"
+    },
+    "typecheck": "pnpm typecheck, including benchmark TypeScript",
+    "build": "pnpm build (Wrangler dry run only)",
+    "recordedGate": "Offline review passes 28/30 with current preprocessing and strict parser; all 30 requests match recorded GLM inputs",
+    "builtWorker": "GLM only; Gemma and other comparison models absent",
+    "browserBackup": "Unchanged paths; no browser/backup checks required",
+    "deployment": "none"
+  }
+}

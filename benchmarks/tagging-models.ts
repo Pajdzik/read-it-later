@@ -10,6 +10,8 @@ export const TAGGING_MODELS = {
     documentation: 'https://developers.cloudflare.com/workers-ai/models/llama-3.2-1b-instruct/' },
   glm: { id: TAGGING_MODEL, inputUsdPerMillion: .0605, outputUsdPerMillion: .4, cachedInputUsdPerMillion: .0605,
     documentation: 'https://developers.cloudflare.com/workers-ai/models/glm-4.7-flash/' },
+  gemma: { id: '@cf/google/gemma-4-26b-a4b-it', inputUsdPerMillion: .1, outputUsdPerMillion: .3, cachedInputUsdPerMillion: .1,
+    documentation: 'https://developers.cloudflare.com/workers-ai/models/gemma-4-26b-a4b-it/' },
   luna: { id: 'openai/gpt-6-luna', inputUsdPerMillion: .1, outputUsdPerMillion: .5, cachedInputUsdPerMillion: .01,
     documentation: 'https://developers.openai.com/api/docs/models/gpt-6-luna' },
 } as const;
@@ -22,7 +24,7 @@ function utf8(value: string, maximum: number): string {
   return result;
 }
 export function buildTaggingRequest(article: TaggingArticle, model: TaggingModel, existingTags: string[] = []) {
-  if (model === 'glm') return productionRequest(article, existingTags);
+  if (model === 'glm' || model === 'gemma') return productionRequest(article, existingTags);
   const evidence = new Set(`${article.title} ${article.description ?? ''} ${article.text}`.normalize('NFKC').toLowerCase().match(/[\p{L}\p{N}]+/gu) ?? []);
   const candidates = [...new Set(existingTags)].filter(tag => {
     const words = tag.normalize('NFKC').toLowerCase().match(/[\p{L}\p{N}]+/gu) ?? [];
@@ -48,7 +50,7 @@ function record(value: unknown): Record<string, unknown> {
   return value as Record<string, unknown>;
 }
 /** Decode documented provider envelopes only. Never search prose for a JSON object. */
-function taggingText(raw: unknown, model: Exclude<TaggingModel, 'glm'>): string {
+function taggingText(raw: unknown, model: Exclude<TaggingModel, 'glm' | 'gemma'>): string {
   const r = record(raw);
   if (r.error || r.finish_reason === 'length') throw new Error('invalid_output');
   if (model === 'llama') {
@@ -65,7 +67,7 @@ function taggingText(raw: unknown, model: Exclude<TaggingModel, 'glm'>): string 
   return content.text;
 }
 export function parseTaggingOutput(raw: unknown, model: TaggingModel): { tags: string[] } {
-  if (model === 'glm') return productionOutput(raw);
+  if (model === 'glm' || model === 'gemma') return productionOutput(raw);
   const text = taggingText(raw, model);
   if (text.length > 4096) throw new Error('invalid_output');
   const value = record(JSON.parse(text));

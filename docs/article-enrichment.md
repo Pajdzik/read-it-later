@@ -10,6 +10,8 @@ The paused production implementation now makes one **tagging-only** request. It 
 
 GLM is the sole application model. Alternative model adapters and the historical combined-generation implementation live only under `benchmarks/`, outside application imports. Their reports and reproduction commands remain available; there is no model fallback or automatic comparison traffic.
 
+The [November 5 Gemma 4 evaluation](benchmarks/article-tagging-gemma/README.md) passed the same tagging-only gate at 28/30 useful sets, versus GLM's recorded 30/30. Gemma's two generic Polish sets and higher estimated cost support retaining GLM; no production model or activation change was made.
+
 The revised tagging gate requires at least 27 useful complete tag sets across thirty cases, English consistency, current exact-request/output review bindings, and strict rejection of malformed output. Synonyms and reasonable related concepts count; generated descriptions no longer block tagging. Up to three unusable/rejected cases are allowed if rejected output is never accepted; any accepted non-English tag or invalid output fails the gate. Use `pnpm benchmark:tagging --live --model glm --stage evaluation --output .wrangler/my-tagging-run.json` for a new full evaluation, followed by recorded offline review. The original combined-generation failures below are historical evidence and were not re-scored as passing.
 
 ## Configuration and historical combined-generation gate

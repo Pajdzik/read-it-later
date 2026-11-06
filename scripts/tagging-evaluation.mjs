@@ -15,7 +15,7 @@ export function taggingRejectionChecks() {
   const invalid=['{"tags":["sql"]','{"tags":[],"description":null}','{"tags":[]}\n{"tags":[]}','```json\n{"tags":[]}\n```',
     JSON.stringify({tags:['sql','SQL']}),JSON.stringify({tags:Array(6).fill('sql')}),JSON.stringify({tags:['bad\ntext']})];
   return invalid.every(response=>Object.keys(TAGGING_MODELS).every(model=>{
-    const raw=model==='glm'?{choices:[{finish_reason:'stop',message:{role:'assistant',content:response}}]}
+    const raw=model==='glm'||model==='gemma'?{choices:[{finish_reason:'stop',message:{role:'assistant',content:response}}]}
       :model==='luna'?{status:'completed',output:[{type:'message',role:'assistant',status:'completed',content:[{type:'output_text',text:response}]}]}
       :{response};
     try{parseTaggingOutput(raw,model);return false;}catch{return true;}

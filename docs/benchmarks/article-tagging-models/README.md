@@ -1,5 +1,7 @@
 # Tagging-only model comparison — November 4, 2026
 
+Follow-up: the [November 5 Gemma evaluation](../article-tagging-gemma/README.md) passed at 28/30 useful sets with higher estimated cost. GLM remains the sole application model; the historical results below are unchanged.
+
 **GLM-4.7-Flash passes the tagging-only corpus gate: 30/30 useful English tag sets. Production remains disabled.** The corpus has 25 English excerpts from the owner's public Kamilpedia archive and five original Polish articles. All responses were schema-valid, and every tag and complete set has a recorded agent review against the exact supplied text. This qualifies GLM as the available candidate for a staging check; it is not a production activation or a ranking against an untested model.
 
 | Model / stage | Calls | Structurally valid | Useful sets | Outcome |

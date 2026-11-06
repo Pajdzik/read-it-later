@@ -1,0 +1,62 @@
+{
+  "reportDigest": "34d7d19c1348ef08a83edfbae88a7dbba1fb4876e77a3d5f984cafa0d59b1c9b",
+  "reviewerType": "agent",
+  "reviewer": "Codex",
+  "reviewedAt": "2026-11-06T06:41:33.050Z",
+  "judgments": [
+    {
+      "id": "development-1-en",
+      "resultDigest": "f0d4f5cd8f0af9c7afec279a07bc0b99ff8d7ecf3f2bcccc463f6785f326c918",
+      "useful": true,
+      "topicCoverage": "good",
+      "notes": "The supplied excerpt explains double-entry bookkeeping, accounts, balances and dollar postings. The full set accurately organizes it.",
+      "tags": [
+        {
+          "tag": "accounting",
+          "english": true,
+          "relationship": "central",
+          "evidence": "The author introduces the double-entry counting method and basic bookkeeping."
+        },
+        {
+          "tag": "bookkeeping",
+          "english": true,
+          "relationship": "central",
+          "evidence": "The excerpt explicitly explains bookkeeping and Beancount."
+        },
+        {
+          "tag": "finance",
+          "english": true,
+          "relationship": "related",
+          "evidence": "The worked example tracks dollars, balances and postings; finance is a useful broader category."
+        }
+      ]
+    },
+    {
+      "id": "development-5-pl",
+      "resultDigest": "a5dc9787284ae3ef9b48ead66685e2946406b181dd20d13de39fb3990d02813d",
+      "useful": true,
+      "topicCoverage": "good",
+      "notes": "English topic names correctly describe the original Polish UTF-8 encoding article. No Polish tag or unrelated category is present.",
+      "tags": [
+        {
+          "tag": "character encoding",
+          "english": true,
+          "relationship": "central",
+          "evidence": "The Polish source describes kodowanie znaków into one to four bytes."
+        },
+        {
+          "tag": "unicode",
+          "english": true,
+          "relationship": "central",
+          "evidence": "The opening defines UTF-8 as a Unicode encoding and later discusses Unicode ranges."
+        },
+        {
+          "tag": "utf-8",
+          "english": true,
+          "relationship": "central",
+          "evidence": "The title and all substantive paragraphs concern UTF-8."
+        }
+      ]
+    }
+  ]
+}
