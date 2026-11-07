@@ -48,11 +48,21 @@ export async function managedConversion(request: Request, env: ManagedEnv): Prom
         // Some sites put tiny data-URI placeholders beside their real media.
         // Cloudflare's HTML-to-Markdown converter picks those placeholders as
         // images, so remove only the decorative nodes before conversion.
-        const html = new HTMLRewriter().on('img[data-image-placeholder]', {
-          element(image) {
-            if (!image.hasAttribute('data-image-placeholder-media')) image.remove();
-          },
-        }).transform(new Response(bytes, { headers: { 'Content-Type': 'text/html; charset=utf-8' } }));
+        const html = new HTMLRewriter()
+          // Page metadata is captured separately; keep SEO fields out of the reading copy.
+          .on('meta[property^="og:"]', { element(meta) { meta.remove(); } })
+          .on('meta[name="description"]', { element(meta) { meta.remove(); } })
+          .on('meta[name^="twitter:"]', { element(meta) { meta.remove(); } })
+          // Skip-navigation links belong to the site's interface, not its article.
+          .on('a[href="#main-content"]', {
+            element(link) { link.remove(); },
+          })
+          .on('img[data-image-placeholder]', {
+            element(image) {
+              if (!image.hasAttribute('data-image-placeholder-media')) image.remove();
+            },
+          })
+          .transform(new Response(bytes, { headers: { 'Content-Type': 'text/html; charset=utf-8' } }));
         bytes = new Uint8Array(await html.arrayBuffer());
       }
     }
