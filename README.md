@@ -38,7 +38,7 @@ The frontend is bundled with esbuild. JavaScript and CSS use content-hashed file
 
 ### Private article podcast
 
-Optional **Prepare audio** generates an English narration of a saved copy and publishes the completed MP3 to a private podcast feed. Your phone's podcast app handles downloads, speed, queues, and background playback. Feed refreshes and downloads never start generation, and completed episodes stay in private R2 storage. The feature ships disabled pending Google credentials, budget configuration, and real-device validation. See [podcast setup and design](docs/podcast.md).
+Optional **Prepare audio** generates an English narration of a saved copy and publishes the completed MP3 to a private podcast feed. Your phone's podcast app handles downloads, speed, queues, and background playback. Feed refreshes and downloads never start generation, and completed episodes stay in private R2 storage. Production enables narration with the configured Google project and requires a separately stored Google credential secret; local and staging leave it disabled. See [podcast setup and design](docs/podcast.md).
 
 ### Automatic tags and fallback descriptions
 

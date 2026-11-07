@@ -6,7 +6,7 @@ Potem can prepare an English narration of a saved copy and expose completed epis
 
 ## Enable the feature
 
-The main Worker and capture service ship with `ARTICLE_AUDIO_ENABLED=false`. The production deployment workflow provisions the audio bucket and queue, applies migrations, and deploys both services, while leaving generation disabled. For staging, provision the corresponding resources and deploy both configurations to `--env staging`.
+Production enables `ARTICLE_AUDIO_ENABLED` in both the main Worker and capture service; local and staging configurations leave it disabled. The production deployment workflow provisions the audio bucket and queue, applies migrations, and deploys both services. Google credentials must be stored separately as the main Worker's secret. For staging, provision the corresponding resources and deploy both configurations to `--env staging`.
 
 1. Enable Google Cloud Text-to-Speech and billing on the intended project. Create a dedicated service account authorized to use the billed project's API. Use the [Google authentication guidance](https://docs.cloud.google.com/text-to-speech/docs/authentication); do not grant broad Owner/Editor access simply for narration.
 2. Store the service account JSON as the **main Worker's** `GOOGLE_TTS_SERVICE_ACCOUNT_JSON` secret. Keep the private key out of source, command arguments, logs, and chat. Wrangler's interactive secret input or a protected stdin file can accept the JSON. The capture service needs no Google credentials.
