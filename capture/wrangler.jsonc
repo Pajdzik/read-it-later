@@ -95,7 +95,7 @@
       "vars": {
         "APP_ORIGIN": "https://read.pajdzik.pl",
         "MANAGED_CONVERSION_ENABLED": "true",
-        "ARTICLE_AUDIO_ENABLED": "false"
+        "ARTICLE_AUDIO_ENABLED": "true"
       },
       "containers": [
         {
