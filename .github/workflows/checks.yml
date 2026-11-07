@@ -123,7 +123,13 @@ jobs:
         env:
           EXPECTED_PLAYWRIGHT_VERSION: ${{ matrix.playwright-version }}
         run: |
-          node -e 'const actual = require("./package.json").devDependencies.playwright; if (actual !== process.env.EXPECTED_PLAYWRIGHT_VERSION) { console.error(`Playwright image is ${process.env.EXPECTED_PLAYWRIGHT_VERSION}, package.json requires ${actual}`); process.exit(1); }'
+          node <<'NODE'
+          const actual = require("./package.json").devDependencies.playwright;
+          if (actual !== process.env.EXPECTED_PLAYWRIGHT_VERSION) {
+            console.error(`Playwright image is ${process.env.EXPECTED_PLAYWRIGHT_VERSION}, package.json requires ${actual}`);
+            process.exit(1);
+          }
+          NODE
 
       - name: Run browser smoke test
         if: matrix.suite == 'desktop'
@@ -243,7 +249,8 @@ jobs:
         env:
           BUILD_COMMIT_SHA: ${{ github.sha }}
         run: |
-          export BUILD_TIMESTAMP="$(date -u +%Y-%m-%dT%H:%M:%SZ)"
+          BUILD_TIMESTAMP="$(date -u +%Y-%m-%dT%H:%M:%SZ)"
+          export BUILD_TIMESTAMP
           pnpm build:web
 
       - name: Ensure production extraction queue
