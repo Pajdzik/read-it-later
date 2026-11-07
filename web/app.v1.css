@@ -1212,7 +1212,7 @@ body:has(#reader-dialog[open]) {
 .row-audio-status { border-top: 1px solid var(--line); }
 .row-audio-status .button { margin-top: 7px; }
 .feed-url { display: block; overflow-wrap: anywhere; margin: 8px 0; padding: 9px; border-radius: 8px; background: var(--paper); font-size: 12px; }
-.podcast-actions { display: flex; flex-wrap: wrap; gap: 8px; }
+.podcast-actions { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 12px; }
 .token-item {
   display: flex;
   justify-content: space-between;
@@ -1234,6 +1234,8 @@ body:has(#reader-dialog[open]) {
   background: var(--mint);
   overflow-wrap: anywhere;
 }
+.new-token .button { margin-top: 8px; }
+.new-token [role="status"] { margin-left: 8px; }
 .new-token p {
   margin: 3px 0;
 }
