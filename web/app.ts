@@ -59,9 +59,14 @@ type ExtractionStatus = {
   undoAvailable?: boolean;
   recovery?: { generation: number; state: 'queued' | 'running' | 'retry_wait' | 'succeeded' | 'failed'; attempts: number; errorCode: string | null; nextAttemptAt: string | null };
 };
-type Session = { authenticated: boolean; csrfToken?: string };
+type Session = { authenticated: boolean; csrfToken?: string; audioEnabled?: boolean };
 type Page = { items: Article[]; nextCursor: string | null; capture?: { paused: boolean } };
 type ArticleCopy = { markdown: string; capturedAt: string; source: "paste" | "upload"; revision: string };
+type AudioStatus = { enabled: boolean; state: "none" | "queued" | "generating" | "ready" | "failed"; episodeId: string | null; sourceRevision: string | null; characters: number; estimatedDurationSeconds: number; estimatedCostUsd: number; errorCode: string | null };
+type PodcastSettings = { enabled: boolean; token: { createdAt: string } | null; usage: { month: string; usedCharacters: number; reservedCharacters: number; freeCharacters: number; budgetUsd: number; estimatedCostUsd: number } };
+let privateFeedUrl: string | null = null;
+let audioPollTimer = 0;
+let audioPollGeneration = 0;
 type BrowserCaptureDraft = {
   sourceUrl: string; title: string; markdown: string; author?: string; description?: string;
   requestId?: string; mode?: 'review' | 'simple'; destination?: IntegrationConsent; extractionError?: string;
@@ -549,6 +554,8 @@ async function request<T>(path: string, init: RequestInit = {}): Promise<T> {
     cache: "no-store",
   });
   if (response.status === 401) {
+    privateFeedUrl = null;
+    clearAudioPoll();
     rememberReaderForAuthentication();
     stashDraft();
     copyDrafts.clear();
@@ -567,6 +574,71 @@ async function request<T>(path: string, init: RequestInit = {}): Promise<T> {
   }
   if (response.status === 204) return undefined as T;
   return response.json() as Promise<T>;
+}
+function formatAudioEstimate(audio: AudioStatus) {
+  const minutes = Math.max(1, Math.round(audio.estimatedDurationSeconds / 60));
+  return `About ${minutes} min · $${audio.estimatedCostUsd.toFixed(3)} at list rate, before free allowance`;
+}
+function audioStateLabel(audio: AudioStatus) {
+  return audio.state === "queued" ? "Audio queued" : audio.state === "generating" ? "Generating audio…"
+    : audio.state === "ready" ? "Audio ready in your podcast feed"
+      : audio.state === "failed" && audio.errorCode === "budget_exceeded" ? "Monthly audio budget reached"
+        : audio.state === "failed" && ["provider_timeout_ambiguous", "provider_outcome_unknown"].includes(audio.errorCode || "")
+          ? "Speech outcome is uncertain. Retrying could incur another charge."
+          : audio.state === "failed" ? "Audio preparation failed" : "Audio not prepared";
+}
+function clearAudioPoll() { window.clearTimeout(audioPollTimer); audioPollTimer = 0; audioPollGeneration++; }
+function scheduleAudioPoll(article: Article, active: () => boolean, refresh: () => Promise<void>) {
+  clearAudioPoll();
+  const generation = audioPollGeneration;
+  audioPollTimer = window.setTimeout(async () => {
+    if (generation !== audioPollGeneration || !state.session?.authenticated || document.visibilityState === "hidden" || !active()) return;
+    await refresh();
+  }, 3000);
+}
+async function fetchAudioStatus(article: Article) {
+  const result = await request<{ audio: AudioStatus }>(`/api/articles/${encodeURIComponent(article.id)}/audio`);
+  return result.audio;
+}
+async function prepareArticleAudio(article: Article, button: HTMLButtonElement, status: HTMLElement, done: (audio: AudioStatus) => void = () => {}) {
+  button.disabled = true;
+  status.textContent = "Checking the saved copy…";
+  try {
+    // The API supplies the revision used for generation. Never infer it from stale UI state.
+    const { copy } = await request<{ copy: ArticleCopy | null }>(`/api/articles/${encodeURIComponent(article.id)}/copy`);
+    if (!copy) { status.textContent = "Save a reading copy before preparing audio."; button.disabled = false; return; }
+    const result = await request<{ audio: AudioStatus }>(`/api/articles/${encodeURIComponent(article.id)}/audio`, { method: "POST", body: JSON.stringify({ expectedRevision: copy.revision }) });
+    status.textContent = audioStateLabel(result.audio);
+    done(result.audio);
+  } catch (error) {
+    status.textContent = `Couldn’t prepare audio. ${(error as Error).message}`;
+    button.disabled = false;
+  }
+}
+function attachAudioControl(parent: HTMLElement, article: Article, compact = false, copyAvailable = true) {
+  const section = el("div", undefined, compact ? "audio-menu-control" : "audio-panel-inner");
+  const status = el("p", "Checking audio…", "muted audio-status");
+  const button = el("button", "Prepare audio", compact ? "article-menu-item audio-prepare" : "button secondary");
+  button.type = "button";
+  button.disabled = true;
+  const renderStatus = (audio: AudioStatus) => {
+    parent.hidden = !audio.enabled;
+    status.textContent = !copyAvailable ? "Save a reading copy before preparing audio."
+      : `${audioStateLabel(audio)}${audio.state === "none" || audio.state === "failed" ? ` · ${formatAudioEstimate(audio)}` : ""}`;
+    button.hidden = !audio.enabled || audio.state === "ready";
+    button.textContent = !copyAvailable ? "Prepare audio" : audio.state === "failed" ? "Retry audio" : "Prepare audio";
+    button.disabled = !copyAvailable || !audio.enabled || audio.state === "queued" || audio.state === "generating";
+    if (audio.state === "queued" || audio.state === "generating") {
+      scheduleAudioPoll(article, () => parent.isConnected && readerArticleId === article.id && $<HTMLDialogElement>("#reader-dialog").open,
+        async () => { try { renderStatus(await fetchAudioStatus(article)); } catch { /* Keep the last known status. */ } });
+    }
+  };
+  button.addEventListener("click", () => { void prepareArticleAudio(article, button, status, renderStatus); });
+  section.append(status, button);
+  parent.append(section);
+  parent.hidden = true;
+  void fetchAudioStatus(article).then(renderStatus).catch(() => { status.textContent = "Couldn’t load audio status."; });
+  return section;
 }
 function stashDraft() {
   const url = $<HTMLInputElement>("#add-url").value.trim();
@@ -974,10 +1046,38 @@ function renderArticle(article: Article) {
   link.target = "_blank";
   link.rel = "noopener noreferrer";
   link.addEventListener("click", (e) => { e.stopPropagation(); menu.hidePopover(); });
+  const audioOpen = state.session?.audioEnabled === true ? el("button", "Prepare audio", "article-menu-item") : null;
+  if (audioOpen) audioOpen.type = "button";
+  audioOpen?.addEventListener("click", () => {
+    menu.querySelector(".row-audio-status")?.remove();
+    const status = el("p", "Checking audio status…", "muted audio-status");
+    const action = el("button", "Prepare audio", "button secondary"); action.type = "button";
+    action.disabled = true;
+    const showRowAudio = (audio: AudioStatus) => {
+      status.textContent = `${audioStateLabel(audio)}${audio.state === "none" || audio.state === "failed" ? ` · ${formatAudioEstimate(audio)}` : ""}`;
+      action.hidden = !audio.enabled || audio.state === "ready";
+      action.textContent = audio.state === "failed" ? "Retry audio" : "Prepare audio";
+      action.disabled = !audio.enabled || audio.state === "queued" || audio.state === "generating";
+      if (audio.state === "queued" || audio.state === "generating") {
+        scheduleAudioPoll(article, () => rowAudio.isConnected && menu.matches(":popover-open"),
+          async () => { try { showRowAudio(await fetchAudioStatus(article)); } catch { /* Keep last status and allow reopening the menu. */ } });
+      }
+    };
+    action.addEventListener("click", () => { void prepareArticleAudio(article, action, status, audio => {
+      showRowAudio(audio);
+    }); });
+    const rowAudio = el("div", undefined, "row-audio-status"); rowAudio.append(status, action);
+    menu.append(rowAudio);
+    void fetchAudioStatus(article).then(audio => {
+      showRowAudio(audio);
+    }).catch(() => { status.textContent = "Couldn’t load audio status."; });
+  });
   menu.append(edit, link);
+  if (audioOpen) menu.append(audioOpen);
   more.append(moreButton, menu);
   menu.addEventListener("beforetoggle", (event) => {
     if ((event as ToggleEvent).newState !== "open") return;
+    menu.querySelector(".row-audio-status")?.remove();
     // The popover has dimensions after it opens. Position it before the first paint.
     requestAnimationFrame(() => {
       if (!menu.matches(":popover-open")) return;
@@ -1775,6 +1875,8 @@ function openReader(article: Article, copy: ArticleCopy, opener?: HTMLElement) {
   body.hidden = false;
   original.href = safeHttpUrl(article.url) || "#";
   body.replaceChildren(renderMarkdown(copy.markdown, article.url, article.title));
+  const audioPanel = $("#reader-audio"); audioPanel.hidden = true; audioPanel.replaceChildren();
+  if (state.session?.audioEnabled === true) attachAudioControl(audioPanel, article);
   resetReaderCompletion(article);
   saveLastOpened(article);
   const positionContext = { id: article.id, revision: copy.revision };
@@ -1809,6 +1911,8 @@ function renderPendingReader(article: Article) {
   const canonicalPath = articlePath(article);
   if (location.pathname !== canonicalPath) history.replaceState(readerHistoryState(article.id, readerFromList), "", canonicalPath);
   $("#reader-metadata").textContent = [sourceHost(article.url), ...(article.author ? [`By ${article.author}`] : [])].join(" · ");
+  const audioPanel = $("#reader-audio"); audioPanel.hidden = true; audioPanel.replaceChildren();
+  if (state.session?.audioEnabled === true) attachAudioControl(audioPanel, article, false, false);
   const original = $<HTMLAnchorElement>("#reader-original");
   original.href = safeHttpUrl(article.url) || "#";
   $("#reader-pending-status").textContent = article.extraction?.state === "failed"
@@ -1855,6 +1959,7 @@ $("#reader-retry").addEventListener("click", async () => {
   }
 });
 function clearReader() {
+  clearAudioPoll();
   $("#reader-new-copy").hidden = true;
   resetReaderCompletion();
   saveReadingPosition();
@@ -1871,6 +1976,7 @@ function clearReader() {
   readerArticleId = null;
   dialog.scrollTop = 0;
   $("#reader-body").replaceChildren();
+  $("#reader-audio").replaceChildren(); $("#reader-audio").hidden = true;
   setReaderTitle("");
   $("#reader-metadata").textContent = "";
   $("#reader-pending").hidden = true;
@@ -2907,6 +3013,8 @@ $("#clear-search").addEventListener("click", () => {
 });
 $("#more").addEventListener("click", () => load(false));
 $("#logout").addEventListener("click", async () => {
+  privateFeedUrl = null;
+  clearAudioPoll();
   stopExtractionPolling();
   copyDrafts.clear();
   browserCaptureDraft = null;
@@ -2948,6 +3056,8 @@ $("#settings-dialog").addEventListener("close", () => {
   const box = $("#new-token");
   box.replaceChildren();
   box.hidden = true;
+  privateFeedUrl = null;
+  clearAudioPoll();
 });
 async function openSettings() {
   showDialog($<HTMLDialogElement>("#settings-dialog"), $<HTMLSelectElement>("#theme-toggle"));
@@ -2960,6 +3070,7 @@ async function openSettings() {
   }
   $("#settings-status").textContent = "Signed in";
   $("#token-form").hidden = false;
+  void loadPodcastSettings();
   void request<{ integrations: IntegrationConfiguration[] }>('/api/integrations').then(({ integrations }) => {
     const container = $('#settings-integrations');
     container.replaceChildren();
@@ -3017,6 +3128,49 @@ async function openSettings() {
   } catch (e) {
     $("#settings-status").textContent = (e as Error).message;
   }
+}
+async function loadPodcastSettings() {
+  const container = $("#podcast-settings");
+  container.replaceChildren(el("p", "Loading podcast settings…", "muted"));
+  try {
+    const data = await request<PodcastSettings & { readyEpisodes?: number }>("/api/podcast/settings");
+    container.replaceChildren();
+    const usage = el("p", "This month: " + data.usage.usedCharacters.toLocaleString() + " characters used · " + data.usage.reservedCharacters.toLocaleString() + " reserved · " + data.usage.freeCharacters.toLocaleString() + " free. Estimated spend $" + data.usage.estimatedCostUsd.toFixed(2) + " of $" + data.usage.budgetUsd.toFixed(2) + ".", "muted");
+    container.append(usage);
+    const tokenStatus = el("p", data.token ? "Private feed active · created " + dateLabel(data.token.createdAt) + "." : "No private feed token yet.", "muted");
+    container.append(tokenStatus);
+    if ((data.readyEpisodes ?? 0) > 0) container.append(el("p", "On iPhone: open Library → … → Follow a Show by URL, then paste your feed URL. Downloads and playback position are managed by your podcast app; Potem does not change article read status.", "muted"));
+    else container.append(el("p", "Prepare at least one episode in your library before following this feed in a podcast app.", "muted"));
+    if (privateFeedUrl) {
+      const reveal = el("div", undefined, "new-token"); reveal.append(el("strong", "Copy this private feed URL now"), el("p", "It is shown only once. Keep it private; anyone with this URL can access the feed."));
+      const code = el("code", privateFeedUrl); code.className = "feed-url"; reveal.append(code);
+      const copy = el("button", "Copy feed URL", "button secondary"); copy.type = "button";
+      const result = el("span", "", "muted"); result.setAttribute("role", "status");
+      copy.addEventListener("click", async () => { try { await navigator.clipboard.writeText(privateFeedUrl!); result.textContent = "Copied."; } catch { result.textContent = "Copy unavailable. Select the URL above."; } });
+      reveal.append(copy, result); container.append(reveal);
+    }
+    const controls = el("div", undefined, "podcast-actions");
+    const tokenButton = el("button", data.token ? "Rotate feed URL" : "Create private feed", "button secondary"); tokenButton.type = "button";
+    tokenButton.addEventListener("click", async () => {
+      if (data.token && !confirm("Rotate the private feed URL? Your current podcast subscription will stop working until you update it.")) return;
+      tokenButton.disabled = true;
+      try { const created = await request<{ feedUrl: string; createdAt: string }>("/api/podcast/token", { method: "POST", body: JSON.stringify({}) }); privateFeedUrl = created.feedUrl; await loadPodcastSettings(); }
+      catch (error) { tokenStatus.textContent = "Couldn’t create feed URL. " + (error as Error).message; tokenButton.disabled = false; }
+    });
+    controls.append(tokenButton);
+    if (data.token) {
+      const revoke = el("button", "Revoke feed", "button secondary danger-text"); revoke.type = "button";
+      revoke.addEventListener("click", async () => {
+        if (!confirm("Revoke this private podcast feed? Your podcast app will no longer be able to access it.")) return;
+        revoke.disabled = true;
+        try { await request("/api/podcast/token", { method: "DELETE" }); privateFeedUrl = null; await loadPodcastSettings(); }
+        catch (error) { tokenStatus.textContent = "Couldn’t revoke feed. " + (error as Error).message; revoke.disabled = false; }
+      });
+      controls.append(revoke);
+    }
+    container.append(controls);
+    if (!data.enabled) container.prepend(el("p", "New audio generation is paused. Existing episodes remain available through your private feed.", "muted"));
+  } catch (error) { container.replaceChildren(el("p", "Couldn’t load podcast settings. " + (error as Error).message, "muted")); }
 }
 $("#token-form").addEventListener("submit", async (e) => {
   e.preventDefault();

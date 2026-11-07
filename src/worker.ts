@@ -4,6 +4,8 @@ import { handleAuth } from "./auth/handler";
 import { handleArticles } from "./articles/handler";
 import { errorResponse, logUnexpectedError } from "./http";
 import { consumeExtractionBatch, recoverExtractionJobs } from "./articles/processor";
+import { consumeAudioBatch, recoverAudioJobs } from './audio';
+import { handleAudio } from './audio/handler';
 
 const securityHeaders = {
   "Cache-Control": "private, no-store",
@@ -24,11 +26,12 @@ function withSecurityHeaders(response: Response): Response {
 
 export default {
   async queue(batch: MessageBatch<unknown>, env: Env): Promise<void> {
-    await consumeExtractionBatch(batch, env);
+    if (batch.queue.startsWith('read-it-later-audio-')) await consumeAudioBatch(batch, env);
+    else await consumeExtractionBatch(batch, env);
   },
   async scheduled(_controller: ScheduledController, env: Env): Promise<void> {
     // Run independently: a paused or failed capture recovery must not block enrichment.
-    const results = await Promise.allSettled([recoverExtractionJobs(env), recoverEnrichmentJobs(env)]);
+    const results = await Promise.allSettled([recoverExtractionJobs(env), recoverEnrichmentJobs(env), recoverAudioJobs(env)]);
     try { if (results.some(result => result.status === 'rejected')) throw new Error('recovery_failed'); }
     catch {
       logUnexpectedError("worker.scheduled");
@@ -42,7 +45,7 @@ export default {
     }
     if (url.pathname === "/api" || url.pathname.startsWith("/api/") || url.pathname === "/auth" || url.pathname.startsWith("/auth/")) {
       try {
-        const response = await handleAuth(request, env) ?? await handleArticles(request, env, ctx);
+        const response = await handleAuth(request, env) ?? await handleAudio(request, env) ?? await handleArticles(request, env, ctx);
         return withSecurityHeaders(response ?? errorResponse(404, "not_found", "Route not found"));
       } catch {
         logUnexpectedError("worker.request");

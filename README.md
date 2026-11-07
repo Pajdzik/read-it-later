@@ -36,6 +36,10 @@ HTTP handlers perform authentication and validation, then call the article repos
 
 The frontend is bundled with esbuild. JavaScript and CSS use content-hashed filenames. A minimal service worker caches selected public assets only; it does not cache article data or support offline saves. Icon URLs are versioned. Local development runs the same Worker and migrations against Wrangler's local D1.
 
+### Private article podcast
+
+Optional **Prepare audio** generates an English narration of a saved copy and publishes the completed MP3 to a private podcast feed. Your phone's podcast app handles downloads, speed, queues, and background playback. Feed refreshes and downloads never start generation, and completed episodes stay in private R2 storage. The feature ships disabled pending Google credentials, budget configuration, and real-device validation. See [podcast setup and design](docs/podcast.md).
+
 ### Automatic tags and fallback descriptions
 
 Owner-editable tags appear below article leads and filter the library alongside search and read state. Article details also allow description editing and deliberate clearing. JSON/ZIP library exports use v3 and GitHub Markdown uses frontmatter v2. JSON v1/v2 and legacy IDs are not accepted.

@@ -12,7 +12,11 @@
     "BACKGROUND_CAPTURE_ENABLED": "false",
     "MANAGED_CONVERSION_ENABLED": "false",
     "ARTICLE_ENRICHMENT_ENABLED": "false",
-    "ARTICLE_ENRICHMENT_DAILY_LIMIT": "100"
+    "ARTICLE_ENRICHMENT_DAILY_LIMIT": "100",
+    "ARTICLE_AUDIO_ENABLED": "false",
+    "AUDIO_MONTHLY_BUDGET_USD": "10",
+    "AUDIO_FREE_CHARACTERS": "0",
+    "GOOGLE_TTS_PROJECT_ID": ""
   },
   "assets": {
     "directory": "./dist/web",
@@ -49,7 +53,11 @@
         "BACKGROUND_CAPTURE_ENABLED": "false",
         "MANAGED_CONVERSION_ENABLED": "false",
         "ARTICLE_ENRICHMENT_ENABLED": "false",
-        "ARTICLE_ENRICHMENT_DAILY_LIMIT": "100"
+        "ARTICLE_ENRICHMENT_DAILY_LIMIT": "100",
+        "ARTICLE_AUDIO_ENABLED": "false",
+        "AUDIO_MONTHLY_BUDGET_USD": "10",
+        "AUDIO_FREE_CHARACTERS": "0",
+        "GOOGLE_TTS_PROJECT_ID": ""
       },
       "d1_databases": [
         {
@@ -69,6 +77,10 @@
           {
             "binding": "EXTRACTION_QUEUE",
             "queue": "read-it-later-extraction-staging"
+          },
+          {
+            "binding": "AUDIO_QUEUE",
+            "queue": "read-it-later-audio-staging"
           }
         ],
         "consumers": [
@@ -79,6 +91,14 @@
             "max_concurrency": 1,
             "max_retries": 10,
             "retry_delay": 60
+          },
+          {
+            "queue": "read-it-later-audio-staging",
+            "max_batch_size": 1,
+            "max_batch_timeout": 0,
+            "max_concurrency": 1,
+            "max_retries": 3,
+            "retry_delay": 60
           }
         ]
       },
@@ -86,6 +106,10 @@
         {
           "binding": "PDF_BUCKET",
           "bucket_name": "read-it-later-pdfs-staging"
+        },
+        {
+          "binding": "AUDIO_BUCKET",
+          "bucket_name": "read-it-later-audio-staging"
         }
       ],
       "ai": {
@@ -109,7 +133,11 @@
         "BACKGROUND_CAPTURE_ENABLED": "true",
         "MANAGED_CONVERSION_ENABLED": "true",
         "ARTICLE_ENRICHMENT_ENABLED": "false",
-        "ARTICLE_ENRICHMENT_DAILY_LIMIT": "100"
+        "ARTICLE_ENRICHMENT_DAILY_LIMIT": "100",
+        "ARTICLE_AUDIO_ENABLED": "false",
+        "AUDIO_MONTHLY_BUDGET_USD": "10",
+        "AUDIO_FREE_CHARACTERS": "0",
+        "GOOGLE_TTS_PROJECT_ID": ""
       },
       "d1_databases": [
         {
@@ -129,6 +157,10 @@
           {
             "binding": "EXTRACTION_QUEUE",
             "queue": "read-it-later-extraction-production"
+          },
+          {
+            "binding": "AUDIO_QUEUE",
+            "queue": "read-it-later-audio-production"
           }
         ],
         "consumers": [
@@ -139,6 +171,14 @@
             "max_concurrency": 1,
             "max_retries": 10,
             "retry_delay": 60
+          },
+          {
+            "queue": "read-it-later-audio-production",
+            "max_batch_size": 1,
+            "max_batch_timeout": 0,
+            "max_concurrency": 1,
+            "max_retries": 3,
+            "retry_delay": 60
           }
         ]
       },
@@ -146,6 +186,10 @@
         {
           "binding": "PDF_BUCKET",
           "bucket_name": "read-it-later-pdfs-production"
+        },
+        {
+          "binding": "AUDIO_BUCKET",
+          "bucket_name": "read-it-later-audio-production"
         }
       ],
       "ai": {
@@ -163,6 +207,10 @@
       {
         "binding": "EXTRACTION_QUEUE",
         "queue": "read-it-later-extraction"
+      },
+      {
+        "binding": "AUDIO_QUEUE",
+        "queue": "read-it-later-audio-local"
       }
     ],
     "consumers": [
@@ -172,6 +220,14 @@
         "max_batch_timeout": 0,
         "max_concurrency": 1,
         "max_retries": 10,
+        "retry_delay": 60
+      },
+      {
+        "queue": "read-it-later-audio-local",
+        "max_batch_size": 1,
+        "max_batch_timeout": 0,
+        "max_concurrency": 1,
+        "max_retries": 3,
         "retry_delay": 60
       }
     ]
@@ -193,6 +249,10 @@
     {
       "binding": "PDF_BUCKET",
       "bucket_name": "read-it-later-pdfs-local"
+    },
+    {
+      "binding": "AUDIO_BUCKET",
+      "bucket_name": "read-it-later-audio-local"
     }
   ]
 }

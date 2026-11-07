@@ -129,6 +129,9 @@ jobs:
       - name: Run mobile browser smoke test
         run: pnpm test:mobile
 
+      - name: Verify explicit podcast preparation and private feed controls
+        run: pnpm test:podcast-ui
+
       - name: Rehearse archive restoration
         run: pnpm test:archive
 
@@ -203,6 +206,9 @@ jobs:
           if ! pnpm exec wrangler r2 bucket info read-it-later-pdfs-production --env production; then
             pnpm exec wrangler r2 bucket create read-it-later-pdfs-production --env production --update-config=false
           fi
+          if ! pnpm exec wrangler r2 bucket info read-it-later-audio-production --env production; then
+            pnpm exec wrangler r2 bucket create read-it-later-audio-production --env production --update-config=false
+          fi
 
       - name: Apply production D1 migrations
         env:
@@ -232,7 +238,9 @@ jobs:
           CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
           CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
           CLOUDFLARE_LOAD_DEV_VARS_FROM_DOT_ENV: "false"
-        run: pnpm queue:ensure --env production --execute
+        run: |
+          pnpm queue:ensure --env production --execute
+          pnpm audio:queue:ensure --env production --execute
 
       - name: Deploy production Worker
         env:

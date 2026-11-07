@@ -21,9 +21,9 @@ export async function handleAuth(request: Request, env: Env): Promise<Response |
   const method = request.method.toUpperCase();
   try {
     if (url.pathname === '/api/session' && method === 'GET') {
-      if (env.DEV_AUTH_BYPASS === 'true' && isLoopbackRequest(request, env)) return respond({ authenticated: true, csrfToken: 'dev-bypass' });
+      if (env.DEV_AUTH_BYPASS === 'true' && isLoopbackRequest(request, env)) return respond({ authenticated: true, csrfToken: 'dev-bypass', audioEnabled: env.ARTICLE_AUDIO_ENABLED === 'true' });
       const session = await getSession(request, env);
-      return respond(session ? { authenticated: true, csrfToken: session.csrfToken } : { authenticated: false });
+      return respond(session ? { authenticated: true, csrfToken: session.csrfToken, audioEnabled: env.ARTICLE_AUDIO_ENABLED === 'true' } : { authenticated: false });
     }
     if (url.pathname === '/auth/github' && method === 'GET') return await beginOAuth(env);
     if (url.pathname === '/auth/github/callback' && method === 'GET') return await finishOAuth(request, env);

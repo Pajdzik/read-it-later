@@ -1,0 +1,93 @@
+import { chromium } from "playwright";
+import assert from "node:assert/strict";
+import { createServer } from "node:http";
+import { readFile, stat } from "node:fs/promises";
+import path from "node:path";
+
+const webRoot = path.resolve("dist/web");
+const server = createServer(async (request, response) => {
+  const requested = new URL(request.url, "http://localhost").pathname;
+  const relative = requested === "/" ? "index.html" : requested.slice(1);
+  const file = path.join(webRoot, relative);
+  try {
+    const resolved = await stat(file);
+    if (!resolved.isFile() || !file.startsWith(webRoot)) throw new Error("not found");
+    const mime = file.endsWith(".html") ? "text/html" : file.endsWith(".js") ? "text/javascript" : file.endsWith(".css") ? "text/css" : "application/octet-stream";
+    response.writeHead(200, { "Content-Type": mime });
+    response.end(await readFile(file));
+  } catch {
+    response.writeHead(404); response.end("Not found");
+  }
+});
+await new Promise((resolve) => server.listen(0, "127.0.0.1", resolve));
+const base = `http://127.0.0.1:${server.address().port}`;
+const article = { id: "abc12345", url: "https://example.com/story", title: "Podcast UI Smoke", author: "Reader", description: "An English article.", tags: [], createdAt: new Date().toISOString(), updatedAt: new Date().toISOString(), readAt: null, hasCopy: true, extraction: { state: "ready", attempts: 1, errorCode: null, nextAttemptAt: null, paused: false } };
+const copy = { markdown: "# Podcast UI Smoke\n\nA private audio test.", capturedAt: new Date().toISOString(), source: "paste", revision: "rev_123" };
+let audio = { enabled: true, state: "none", episodeId: null, sourceRevision: null, characters: 1200, estimatedDurationSeconds: 390, estimatedCostUsd: 0.012, errorCode: null };
+let postedAudio = [];
+let tokenCreated = false;
+let audioEnabled = true;
+let browser;
+try {
+  browser = await chromium.launch({ headless: true, ...(process.env.BROWSER_EXECUTABLE ? { executablePath: process.env.BROWSER_EXECUTABLE } : {}) });
+  const page = await browser.newPage({ viewport: { width: 390, height: 844 } });
+  const apiCalls = [];
+  await page.route("**/api/**", async (route) => {
+    const request = route.request(); const url = new URL(request.url()); const method = request.method();
+    apiCalls.push({ path: url.pathname, method, body: request.postDataJSON() });
+    let payload = {};
+    if (url.pathname === "/api/session") payload = { authenticated: true, csrfToken: "smoke", audioEnabled: true };
+    else if (url.pathname === "/api/capture-tokens") payload = { items: [] };
+    else if (url.pathname === "/api/articles" && method === "GET") payload = { items: [article], nextCursor: null };
+    else if (url.pathname === `/api/articles/${article.id}` && method === "GET") payload = { article };
+    else if (url.pathname === `/api/articles/${article.id}/copy` && method === "GET") payload = { copy };
+    else if (url.pathname === `/api/articles/${article.id}/audio` && method === "GET") payload = { audio };
+    else if (url.pathname === `/api/articles/${article.id}/audio` && method === "POST") {
+      postedAudio.push(request.postDataJSON()); audio = { ...audio, state: "queued", episodeId: "episode-1", sourceRevision: copy.revision };
+      payload = { audio };
+    } else if (url.pathname === "/api/podcast/settings") payload = { enabled: audioEnabled, token: tokenCreated ? { createdAt: new Date().toISOString() } : null, readyEpisodes: 1, usage: { month: "2026-11", usedCharacters: 1200, reservedCharacters: 0, freeCharacters: 5000, budgetUsd: 5, estimatedCostUsd: 0.01 } };
+    else if (url.pathname === "/api/podcast/token" && method === "POST") { tokenCreated = true; payload = { feedUrl: "https://potem.test/api/podcast/feed.xml?token=pod_" + "x".repeat(43), createdAt: new Date().toISOString() }; }
+    await route.fulfill({ status: method === "POST" && url.pathname === `/api/articles/${article.id}/audio` ? 202 : 200, contentType: "application/json", body: JSON.stringify(payload) });
+  });
+  await page.goto(base);
+  await page.getByRole("link", { name: article.title, exact: true }).waitFor();
+  const row = page.locator(`.article[data-id="${article.id}"]`);
+  await row.getByRole("button", { name: "More actions" }).click();
+  assert.equal(apiCalls.filter((call) => call.path.endsWith("/audio")).length, 0, "Opening More must not request audio or start generation.");
+  await row.locator(".article-menu-item", { hasText: "Prepare audio" }).click();
+  await row.locator(".row-audio-status").getByText(/About 7 min/).waitFor();
+  await page.screenshot({ path: "/tmp/potem-podcast-more.png" });
+  assert.equal(postedAudio.length, 0, "Showing the estimate must not prepare audio.");
+  await row.locator(".row-audio-status").getByRole("button", { name: "Prepare audio" }).click();
+  await page.waitForFunction(() => document.querySelector(".row-audio-status")?.textContent?.includes("Audio queued"));
+  assert.equal(postedAudio.length, 1);
+  assert.equal(postedAudio[0].expectedRevision, copy.revision, "Audio must use the saved copy revision.");
+
+  audio = { enabled: true, state: "none", episodeId: null, sourceRevision: null, characters: 1200, estimatedDurationSeconds: 390, estimatedCostUsd: 0.012, errorCode: null };
+  await row.locator(".article-title").click();
+  await page.locator("#reader-dialog").waitFor({ state: "visible" });
+  await page.locator("#reader-audio").getByText(/About 7 min/).waitFor();
+  await page.screenshot({ path: "/tmp/potem-podcast-reader.png" });
+  assert.equal(postedAudio.length, 1, "Opening the reader must not generate audio.");
+  await page.locator("#reader-audio").getByRole("button", { name: "Prepare audio" }).click();
+  await page.waitForFunction(() => document.querySelector("#reader-audio")?.textContent?.includes("Audio queued"));
+  assert.equal(postedAudio.length, 2, "Reader preparation starts only after an explicit button press.");
+
+  await page.locator("#reader-dialog").getByRole("button", { name: "Close saved copy" }).click();
+  await page.locator("#settings-open").click();
+  await page.locator("#podcast-settings").getByRole("button", { name: "Create private feed" }).click();
+  await page.locator("#podcast-settings").getByText(/token=pod_/).waitFor();
+  await page.locator(".feed-url").evaluate((el) => el.scrollIntoView({ block: "center" }));
+  assert.equal(await page.locator(".feed-url").evaluate((el) => el.scrollWidth <= el.clientWidth), true, "The private feed URL should wrap inside the Settings panel.");
+  await page.screenshot({ path: "/tmp/potem-podcast-settings.png" });
+  assert.equal(apiCalls.some((call) => call.path === "/api/podcast/token" && call.method === "POST"), true);
+  audioEnabled = false;
+  await page.locator("#settings-dialog").locator(".dialog-close button").click();
+  await page.locator("#settings-open").click();
+  await page.locator("#podcast-settings").getByText(/New audio generation is paused/).waitFor();
+  await page.locator("#podcast-settings").getByRole("button", { name: "Revoke feed" }).waitFor();
+  console.log("Podcast UI smoke passed: explicit preparation, revision binding, reader behavior, and one-time feed URL.");
+} finally {
+  await browser?.close();
+  await new Promise((resolve) => server.close(resolve));
+}
