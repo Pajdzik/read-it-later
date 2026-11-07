@@ -21,3 +21,4 @@
 **/*.p12
 **/*.pfx
 capture/tests/
+**/.wrangler/

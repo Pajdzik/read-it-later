@@ -17,6 +17,7 @@ import path from 'node:path';
 appendFileSync(process.env.FIXTURE_CALLS, JSON.stringify({
   command: path.basename(process.argv[1]), args: process.argv.slice(2),
   stdin: readFileSync(0, 'utf8'), wrapper: process.env.WRANGLER_DOCKER_BIN,
+  dryRun: process.env.CAPTURE_DOCKER_DRY_RUN,
   runtime: process.env.ACTIONS_RUNTIME_TOKEN === 'fixture-runtime-token',
 }) + '\\n');
 process.exit(Number(process.env.FIXTURE_EXIT || 0));
@@ -43,6 +44,17 @@ test('Docker routing preserves stdin, image/platform arguments and command failu
   assert(call.args.includes('type=gha,version=2,scope=capture-amd64'));
   assert(call.args.some(arg => arg.startsWith('type=gha,version=2,scope=capture-amd64,mode=max,')));
   assert.equal(call.runtime, true, 'Buildx receives the runtime token through its environment');
+  const dryRun = spawnSync(process.execPath, [wrapper, 'build', ...args], { env: { ...env, CAPTURE_DOCKER_DRY_RUN: 'true' }, input: dockerfile, encoding: 'utf8' });
+  assert.equal(dryRun.status, 0, dryRun.stderr);
+  const dryCall = calls().at(-1);
+  assert(!dryCall.args.includes('--load'), 'dry runs do not load an unused image');
+  assert(dryCall.args.includes('type=cacheonly'));
+  assert.equal(dryCall.stdin, dockerfile);
+  assert.deepEqual(dryCall.args.slice(-args.length - 1), [...args.filter(arg => arg !== '--load'), '--output', 'type=cacheonly']);
+  const beforeCleanup = calls().length;
+  const cleanup = spawnSync(process.execPath, [wrapper, 'image', 'rm', 'capture:wrangler-fixture'], { env: { ...env, CAPTURE_DOCKER_DRY_RUN: 'true' }, encoding: 'utf8' });
+  assert.equal(cleanup.status, 0, cleanup.stderr);
+  assert.equal(calls().length, beforeCleanup, 'cache-only builds create no local tag to clean up');
   for (const command of [['info'], ['image', 'inspect', 'capture:fixture'], ['push', 'capture:fixture']]) {
     const passthrough = spawnSync(process.execPath, [wrapper, ...command], { env, encoding: 'utf8' });
     assert.equal(passthrough.status, 0, passthrough.stderr);
@@ -63,6 +75,7 @@ test('action selects the existing staging dry run and production deploy without 
       ...(dryRun === 'true' ? ['--dry-run', '--outdir', 'dist/capture-worker'] : [])]);
     assert.equal(wrangler.wrapper, wrapper);
     assert.equal(wrangler.runtime, true);
+    assert.equal(wrangler.dryRun, dryRun);
     assert(!result.stdout.includes(env.ACTIONS_RUNTIME_TOKEN));
     assert(!result.stderr.includes(env.ACTIONS_RUNTIME_TOKEN));
   }

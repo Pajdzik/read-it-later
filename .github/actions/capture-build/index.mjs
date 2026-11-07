@@ -15,6 +15,7 @@ const env = {
   WRANGLER_DOCKER_BIN: fileURLToPath(new URL('./docker.mjs', import.meta.url)),
   CLOUDFLARE_LOAD_DEV_VARS_FROM_DOT_ENV: 'false',
   CAPTURE_BUILDX_BUILDER: `capture-${process.env.GITHUB_RUN_ID}-${process.env.GITHUB_RUN_ATTEMPT}`,
+  CAPTURE_DOCKER_DRY_RUN: dryRun,
 };
 function run(command, args) {
   const result = spawnSync(command, args, { stdio: 'inherit', env });
