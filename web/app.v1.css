@@ -1291,8 +1291,8 @@ body:has(#reader-dialog[open]) {
   }
   .article {
     display: grid;
-    grid-template-columns: minmax(0, 1fr) 38px;
-    grid-template-rows: auto auto auto;
+    grid-template-columns: minmax(0, 1fr);
+    grid-template-rows: auto auto auto auto;
     align-items: start;
     gap: 8px 10px;
     padding: 16px 3px;
@@ -1303,12 +1303,13 @@ body:has(#reader-dialog[open]) {
   .article-meta-row { grid-column: 1; grid-row: 3; }
   .article-tags { grid-column: 1 / -1; }
   .article-actions {
-    grid-column: 2;
-    grid-row: 1 / 4;
-    align-self: stretch;
-    flex-direction: column;
+    grid-column: 1;
+    grid-row: 4;
+    align-self: start;
+    justify-self: end;
+    flex-direction: row;
     align-items: center;
-    justify-content: center;
+    justify-content: flex-end;
   }
   .article-title {
     font-size: 18px;
