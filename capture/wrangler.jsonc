@@ -9,7 +9,8 @@
     "enabled": true,
     "traces": {
       "enabled": true
-    }
+    },
+    "redact_query_string": true
   },
   "containers": [
     {
@@ -38,14 +39,16 @@
   ],
   "vars": {
     "APP_ORIGIN": "http://localhost:8787",
-    "MANAGED_CONVERSION_ENABLED": "false"
+    "MANAGED_CONVERSION_ENABLED": "false",
+    "ARTICLE_AUDIO_ENABLED": "false"
   },
   "env": {
     "staging": {
       "name": "read-it-later-capture-staging",
       "vars": {
         "APP_ORIGIN": "https://read-it-later-staging.<account-subdomain>.workers.dev",
-        "MANAGED_CONVERSION_ENABLED": "false"
+        "MANAGED_CONVERSION_ENABLED": "false",
+        "ARTICLE_AUDIO_ENABLED": "false"
       },
       "containers": [
         {
@@ -72,6 +75,10 @@
         {
           "binding": "PDF_BUCKET",
           "bucket_name": "read-it-later-pdfs-staging"
+        },
+        {
+          "binding": "AUDIO_BUCKET",
+          "bucket_name": "read-it-later-audio-staging"
         }
       ],
       "d1_databases": [
@@ -87,7 +94,8 @@
       "name": "read-it-later-capture-production",
       "vars": {
         "APP_ORIGIN": "https://read.pajdzik.pl",
-        "MANAGED_CONVERSION_ENABLED": "true"
+        "MANAGED_CONVERSION_ENABLED": "true",
+        "ARTICLE_AUDIO_ENABLED": "false"
       },
       "containers": [
         {
@@ -114,6 +122,10 @@
         {
           "binding": "PDF_BUCKET",
           "bucket_name": "read-it-later-pdfs-production"
+        },
+        {
+          "binding": "AUDIO_BUCKET",
+          "bucket_name": "read-it-later-audio-production"
         }
       ],
       "d1_databases": [
@@ -134,6 +146,10 @@
     {
       "binding": "PDF_BUCKET",
       "bucket_name": "read-it-later-pdfs-local"
+    },
+    {
+      "binding": "AUDIO_BUCKET",
+      "bucket_name": "read-it-later-audio-local"
     }
   ],
   "d1_databases": [

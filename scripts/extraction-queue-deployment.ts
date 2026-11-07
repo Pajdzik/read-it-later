@@ -20,7 +20,17 @@ const runWrangler: QueueCommandRunner = args => {
 export function ensureExtractionQueue(
   environment: string, config: string, execute: boolean, run: QueueCommandRunner = runWrangler,
 ): string {
-  const name = extractionQueueName(environment);
+  return ensureQueue(extractionQueueName(environment), environment, config, execute, run);
+}
+
+export function ensureAudioQueue(
+  environment: string, config: string, execute: boolean, run: QueueCommandRunner = runWrangler,
+): string {
+  if (environment !== 'staging' && environment !== 'production') throw new Error('Queue environment must be staging or production.');
+  return ensureQueue(`read-it-later-audio-${environment}`, environment, config, execute, run);
+}
+
+function ensureQueue(name: string, environment: string, config: string, execute: boolean, run: QueueCommandRunner): string {
   if (!execute) return `Ensure ${name}: inspect queue, create only if missing (config=${config}, env=${environment}).`;
   const options = ['--config', config, '--env', environment];
   const inspect = () => run(['queues', 'info', name, ...options]);

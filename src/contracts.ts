@@ -1,4 +1,6 @@
 /// <reference path="./worker-bindings.d.ts" />
+import type { AudioMessage } from './audio/contracts';
+
 export interface ExtractionMessage {
   version: 1;
   articleId: string;
@@ -7,6 +9,7 @@ export interface ExtractionMessage {
 
 export interface EnrichmentMessage { version: 1; kind: 'enrichment'; articleId: string }
 export type ArticleMessage = ExtractionMessage | EnrichmentMessage;
+export type { AudioMessage } from './audio/contracts';
 export type DescriptionOrigin = 'manual' | 'extracted' | 'generated' | null;
 export interface EnrichmentStatus {
   state: 'queued' | 'running' | 'retry_wait' | 'deferred' | 'succeeded' | 'failed' | 'skipped';
@@ -35,6 +38,14 @@ export interface Env extends Pick<WorkerBindings, "DB" | "ASSETS">, Partial<Pick
   ARTICLE_ENRICHMENT_DAILY_LIMIT?: string;
   /** Private Cloudflare Container capture service; returns Markdown and metadata, never source HTML. */
   ARTICLE_EXTRACTOR?: Fetcher;
+  /** Narration is explicitly requested by the owner; feed reads never create jobs. */
+  AUDIO_BUCKET?: WorkerBindings['AUDIO_BUCKET'];
+  AUDIO_QUEUE?: Queue<AudioMessage>;
+  ARTICLE_AUDIO_ENABLED?: string;
+  AUDIO_MONTHLY_BUDGET_USD?: string;
+  AUDIO_FREE_CHARACTERS?: string;
+  GOOGLE_TTS_PROJECT_ID?: string;
+  GOOGLE_TTS_SERVICE_ACCOUNT_JSON?: string;
 }
 
 export interface ExtractionStatus {

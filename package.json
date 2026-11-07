@@ -35,6 +35,8 @@
     "test:github": "node --import tsx --test scripts/github-convert.test.mjs && node --import tsx scripts/github-integration.mjs",
     "types": "CLOUDFLARE_LOAD_DEV_VARS_FROM_DOT_ENV=false wrangler types src/worker-bindings.d.ts --env-interface WorkerBindings --include-runtime=false --strict-vars=false",
     "queue:ensure": "tsx scripts/ensure-extraction-queue.ts",
+    "audio:queue:ensure": "tsx scripts/ensure-audio-queue.ts",
+    "test:podcast-ui": "node scripts/podcast-ui-smoke.mjs",
     "test:queues-deployment": "node --import tsx --test scripts/extraction-queue-deployment.test.ts",
     "types:capture": "CLOUDFLARE_LOAD_DEV_VARS_FROM_DOT_ENV=false wrangler types capture/bindings.d.ts --config capture/wrangler.jsonc --env-interface CaptureBindings --include-runtime=false --strict-vars=false",
     "benchmark:enrichment": "node --import tsx scripts/evaluate-enrichment.mjs",

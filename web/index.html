@@ -217,6 +217,7 @@
         <header class="reader-header">
           <h2 id="reader-title" tabindex="-1"></h2>
           <p id="reader-metadata" class="muted reader-metadata"></p>
+          <div id="reader-audio" class="audio-panel" hidden></div>
           <p id="reader-pdf-actions" class="reader-pdf-actions" hidden>
             <a id="reader-pdf-open" target="_blank" rel="noopener noreferrer">Open saved PDF</a>
             <a id="reader-pdf-download" target="_blank" rel="noopener noreferrer">Download PDF</a>
@@ -267,6 +268,11 @@
           <button id="import-open" class="button secondary" type="button">Import JSON</button>
           <input id="import-file" type="file" accept="application/json,.json" hidden />
         </div>
+      </section>
+      <section class="settings-section">
+        <h3>Private podcast</h3>
+        <p>Prepare English audio for saved articles, then follow your private feed in a podcast app. Episodes stay in Potem. Keep the feed URL private; rotating it requires updating your podcast subscription.</p>
+        <div id="podcast-settings" class="podcast-settings"><p class="muted">Loading podcast settings…</p></div>
       </section>
       <section class="settings-section">
         <h3>Capture tokens</h3>

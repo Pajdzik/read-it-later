@@ -1204,6 +1204,15 @@ body:has(#reader-dialog[open]) {
   list-style: none;
   padding: 0;
 }
+.audio-panel { margin: 12px 0 18px; padding: 12px 14px; border: 1px solid var(--line); border-radius: 12px; background: var(--paper); }
+.audio-panel[hidden] { display: none; }
+.audio-panel-inner { display: grid; grid-template-columns: 1fr auto; align-items: center; gap: 4px 12px; }
+.audio-status { margin: 0; font-size: 13px; }
+.audio-menu-host, .row-audio-status { padding: 6px 8px 8px; }
+.row-audio-status { border-top: 1px solid var(--line); }
+.row-audio-status .button { margin-top: 7px; }
+.feed-url { display: block; overflow-wrap: anywhere; margin: 8px 0; padding: 9px; border-radius: 8px; background: var(--paper); font-size: 12px; }
+.podcast-actions { display: flex; flex-wrap: wrap; gap: 8px; }
 .token-item {
   display: flex;
   justify-content: space-between;

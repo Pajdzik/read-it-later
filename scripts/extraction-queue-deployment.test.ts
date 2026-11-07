@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
-import { ensureExtractionQueue, extractionQueueName, type QueueCommandRunner } from './extraction-queue-deployment';
+import { ensureAudioQueue, ensureExtractionQueue, extractionQueueName, type QueueCommandRunner } from './extraction-queue-deployment';
 
 function runner(results: { status: number; output: string }[]) {
   const calls: string[][] = [];
@@ -40,4 +40,14 @@ test('authentication, network, and creation failures stop provisioning', () => {
   }
   const failed = runner([missing, { status: 1, output: 'Denied' }, missing]);
   assert.throws(() => ensureExtractionQueue('staging', 'wrangler.jsonc', true, failed.run), /Could not provision/);
+});
+
+test('audio queue provisioning stays separate and validates the target environment', () => {
+  const stub = runner([{ status: 0, output: 'Queue information' }]);
+  assert.match(ensureAudioQueue('production', 'wrangler.jsonc', true, stub.run), /already exists/);
+  assert.equal(stub.calls[0][2], 'read-it-later-audio-production');
+  assert.throws(() => ensureAudioQueue('preview', 'wrangler.jsonc', false), /staging or production/);
+  const denied = runner([{ status: 1, output: 'Authentication error' }]);
+  assert.throws(() => ensureAudioQueue('production', 'wrangler.jsonc', true, denied.run), /Cannot inspect/);
+  assert.equal(denied.calls.length, 1);
 });
