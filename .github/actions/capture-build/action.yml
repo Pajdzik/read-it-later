@@ -1,0 +1,14 @@
+name: Cached capture build
+description: Build and check or deploy capture with a persistent BuildKit cache
+inputs:
+  environment:
+    description: Wrangler environment
+    default: staging
+  dry-run:
+    description: Check packaging without deploying
+    default: 'true'
+runs:
+  # JavaScript actions receive the Actions cache runtime credentials directly;
+  # keep them inside the action's child processes, out of GITHUB_ENV and logs.
+  using: node24
+  main: index.mjs
