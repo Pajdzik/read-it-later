@@ -1093,7 +1093,7 @@ function renderArticle(article: Article) {
   if (description) title.after(description);
   const tags = renderTags(article);
   if (article.descriptionOrigin === 'generated') tags.prepend(el('span', 'Generated description', 'generated-label'));
-  if (tags.childElementCount) metaRow.before(tags);
+  if (tags.childElementCount) metaRow.append(tags);
   li.append(main, actions);
   return li;
 }
