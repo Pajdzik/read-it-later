@@ -56,8 +56,8 @@ export function renderFeed(origin: string, token: string, episodes: PodcastEpiso
 <itunes:type>episodic</itunes:type>
 <itunes:block>Yes</itunes:block>
 <itunes:category text="Education" />
-<itunes:image href="${xml(`${origin}/icons/podcast-cover.png`)}" />
-<image><url>${xml(`${origin}/icons/podcast-cover.png`)}</url><title>Potem — saved articles</title><link>${xml(origin)}</link></image>
+<itunes:image href="${xml(`${origin}/icons/podcast-cover.v2.png`)}" />
+<image><url>${xml(`${origin}/icons/podcast-cover.v2.png`)}</url><title>Potem — saved articles</title><link>${xml(origin)}</link></image>
 <atom:link href="${xml(`${origin}/api/podcast/feed.xml?token=${encodeURIComponent(token)}`)}" rel="self" type="application/rss+xml" />
 ${items}
 </channel>

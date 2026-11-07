@@ -32,7 +32,7 @@ for (const browserName of ['chrome', 'firefox'] as const) {
   await cp('extension/options.html', path.join(directory, 'options.html'));
   await cp('extension/options.css', path.join(directory, 'options.css'));
   const icons = path.join(directory, 'icons'); await mkdir(icons);
-  const icon = await readFile('web/icons/icon-512.v3.png');
+  const icon = await readFile('web/icons/icon-512.v4.png');
   for (const size of [16, 32, 48, 128]) {
     await sharp(icon).resize(size, size).png().toFile(path.join(icons, `icon-${size}.png`));
   }
