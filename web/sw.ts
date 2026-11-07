@@ -1,5 +1,5 @@
-const CACHE = "later-public-v1";
-const PUBLIC_ASSETS = ["/app.v1.css", "/app.v1.js", "/icons/icon.v3.svg", "/icons/maskable.v3.svg", "/icons/icon-192.v3.png", "/icons/icon-512.v3.png", "/icons/apple-touch-icon.png"];
+const CACHE = "later-public-v2";
+const PUBLIC_ASSETS = ["/app.v1.css", "/app.v1.js", "/icons/icon.v4.svg", "/icons/maskable.v4.svg", "/icons/icon-192.v4.png", "/icons/icon-512.v4.png", "/icons/apple-touch-icon.v4.png"];
 const serviceWorker = self as unknown as ServiceWorkerGlobalScope;
 
 serviceWorker.addEventListener("install", (event: ExtendableEvent) => {
