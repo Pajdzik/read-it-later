@@ -143,4 +143,3 @@ export async function assembleAudio(options: AssembleAudioOptions): Promise<Audi
     try { await (options.fetcher ?? fetch)(`http://potem.audio/${capability}/revoke`, { method: "DELETE", signal: AbortSignal.timeout(1_000) }); } catch { /* capability expires in the Worker as a fallback */ }
   }
 }
-
