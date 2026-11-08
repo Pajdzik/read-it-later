@@ -98,6 +98,10 @@ let readerPositionTimer = 0;
 let restoringReaderPosition = false;
 let readerPositionRestorePending = false;
 let readerPositionRestoreGeneration = 0;
+function readerToolbarAnchorY(dialog: HTMLDialogElement, toolbar: HTMLElement): number {
+  // Use the sticky slot's layout edge; its visual rect moves when the toolbar slides away.
+  return dialog.getBoundingClientRect().top + toolbar.offsetHeight;
+}
 function readReadingPosition(context: { id: string; revision: string }): ReadingPosition | null {
   try {
     const raw = localStorage.getItem(`${READING_POSITION_PREFIX}${encodeURIComponent(context.id)}`);
@@ -122,7 +126,7 @@ function saveReadingPosition() {
   const scrollTop = Math.min(MAX_READER_SCROLL, Math.max(0, dialog.scrollTop));
   const body = $("#reader-body");
   const toolbar = $(".reader-toolbar");
-  const anchorY = toolbar.getBoundingClientRect().bottom;
+  const anchorY = readerToolbarAnchorY(dialog, toolbar);
   const children = Array.from(body.children) as HTMLElement[];
   let block = -1;
   let fraction = 0;
@@ -166,7 +170,7 @@ function restoreReadingPosition(context: { id: string; revision: string }) {
         const toolbar = $(".reader-toolbar");
         const bounds = block.getBoundingClientRect();
         dialog.scrollTop = Math.max(0, Math.min(MAX_READER_SCROLL,
-          dialog.scrollTop + bounds.top + position.fraction * bounds.height - toolbar.getBoundingClientRect().bottom));
+          dialog.scrollTop + bounds.top + position.fraction * bounds.height - readerToolbarAnchorY(dialog, toolbar)));
       } else dialog.scrollTop = position.scrollTop;
     }
     requestAnimationFrame(() => {
@@ -1913,7 +1917,7 @@ function updateReaderToolbarCompactState() {
   const dialog = $<HTMLDialogElement>("#reader-dialog");
   const title = $("#reader-title");
   const toolbar = $(".reader-toolbar");
-  const shownToolbarBottom = dialog.getBoundingClientRect().top + toolbar.offsetHeight;
+  const shownToolbarBottom = readerToolbarAnchorY(dialog, toolbar);
   toolbar.classList.toggle("is-compact", dialog.open && Boolean(title.textContent) &&
     title.getBoundingClientRect().bottom <= shownToolbarBottom);
 }
