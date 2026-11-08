@@ -536,7 +536,7 @@ button {
 .extraction-badge-ready svg {
   width: 11px;
   height: 11px;
-  stroke-width: 2.5;
+  stroke-width: 1.7;
 }
 .extraction-badge-failed {
   width: 18px;
