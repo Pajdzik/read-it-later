@@ -499,8 +499,8 @@ button {
   font-weight: 700;
   letter-spacing: .02em;
 }
-.podcast-fit-icon-button.action-button.icon-action { position: relative; overflow: visible; width: 30px; height: 30px; flex-basis: 30px; border-color: transparent; }
-.podcast-fit-icon-button.action-button.icon-action svg { width: 16px; height: 16px; }
+.podcast-fit-icon-button.action-button.icon-action { position: relative; overflow: visible; width: 34px; height: 34px; flex-basis: 34px; border-color: transparent; }
+.podcast-fit-icon-button.action-button.icon-action svg { width: 17px; height: 17px; }
 .podcast-fit-icon-button.action-button.icon-action.podcast-fit-good { background: color-mix(in srgb, var(--accent) 12%, var(--white)); border-color: transparent; color: var(--accent); }
 .podcast-fit-icon-button.action-button.icon-action.podcast-fit-mixed { background: color-mix(in srgb, var(--orange) 12%, var(--white)); border-color: transparent; color: var(--orange); }
 .podcast-fit-icon-button.action-button.icon-action.podcast-fit-poor { background: var(--paper); border-color: transparent; color: var(--muted); }
