@@ -1818,6 +1818,9 @@ function resetReaderCompletion(article?: Article) {
   const button = $<HTMLButtonElement>("#reader-read-toggle");
   button.disabled = false;
   button.removeAttribute("aria-busy");
+  const deleteButton = $<HTMLButtonElement>("#reader-delete-button");
+  deleteButton.disabled = false;
+  deleteButton.removeAttribute("aria-busy");
   $("#reader-read-label").textContent = article?.readAt ? "Mark as unread" : "Mark as read";
   button.querySelector("svg")!.outerHTML = iconMarkup(article?.readAt ? "mark-unread" : "mark-read");
 }
@@ -1831,6 +1834,7 @@ $("#reader-read-toggle").addEventListener("click", async () => {
   const isCurrent = () => generation === readerLoadGeneration && readerReadRequest === operation && readerArticleId === article.id && dialog.open;
   const button = $<HTMLButtonElement>("#reader-read-toggle");
   button.disabled = true;
+  $<HTMLButtonElement>("#reader-delete-button").disabled = true;
   button.setAttribute("aria-busy", "true");
   $("#reader-read-label").textContent = "Saving…";
   $("#reader-read-error").hidden = true;
@@ -1852,6 +1856,49 @@ $("#reader-read-toggle").addEventListener("click", async () => {
     resetReaderCompletion(article);
     const feedback = $("#reader-read-error");
     feedback.textContent = `Couldn’t update this article. ${(error as Error).message} Try again.`;
+    feedback.hidden = false;
+  }
+});
+$("#reader-delete-button").addEventListener("click", async () => {
+  const article = state.selected;
+  const dialog = $<HTMLDialogElement>("#reader-dialog");
+  const button = $<HTMLButtonElement>("#reader-delete-button");
+  if (!article || readerArticleId !== article.id || !dialog.open || $("#reader-completion").hidden || button.disabled || readerReadRequest) return;
+  if (!confirm(`Delete “${article.title}”? This can’t be undone.`)) return;
+
+  const generation = readerLoadGeneration;
+  button.disabled = true;
+  button.setAttribute("aria-busy", "true");
+  $<HTMLButtonElement>("#reader-read-toggle").disabled = true;
+  $("#reader-read-error").hidden = true;
+  try {
+    invalidateLoads();
+    await request(`/api/articles/${encodeURIComponent(article.id)}`, { method: "DELETE" });
+    const isCurrent = generation === readerLoadGeneration && readerArticleId === article.id && dialog.open;
+    clearLastOpened(article.id);
+    copyDrafts.delete(article.id);
+    if (listSnapshot) {
+      listSnapshot = { ...listSnapshot, forceRefresh: true, focus: null, focusArticleId: null, focusKind: "title" };
+    }
+    if (!isCurrent) {
+      const refreshed = await load();
+      showNotice(refreshed === false ? "Article deleted. Couldn’t refresh your library." : "Article deleted.", refreshed === false);
+      return;
+    }
+
+    pendingReadCompletion = "Article deleted.";
+    state.selected = null;
+    const detail = $<HTMLDialogElement>("#detail-dialog");
+    if (detail.open) detail.close();
+    navigateReaderAway();
+    clearReader();
+  } catch (error) {
+    if (generation !== readerLoadGeneration || readerArticleId !== article.id || !dialog.open) return;
+    button.disabled = false;
+    button.removeAttribute("aria-busy");
+    $<HTMLButtonElement>("#reader-read-toggle").disabled = false;
+    const feedback = $("#reader-read-error");
+    feedback.textContent = `Couldn’t delete this article. ${(error as Error).message} Try again.`;
     feedback.hidden = false;
   }
 });
