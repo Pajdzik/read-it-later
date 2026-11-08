@@ -999,8 +999,11 @@ button {
 .reader-header > .muted {
   margin: 0 0 12px;
 }
+.reader-meta-row { display: flex; align-items: center; gap: 8px; margin-bottom: 12px; }
 .reader-metadata {
-  margin: 0 0 12px;
+  flex: 1 1 auto;
+  min-width: 0;
+  margin: 0;
   font-size: 12px;
   line-height: 1.5;
 }
@@ -1230,7 +1233,7 @@ body:has(#reader-dialog[open]) {
   list-style: none;
   padding: 0;
 }
-.reader-podcast-control { margin: 8px 0 14px; }
+.reader-podcast-control { flex: 0 0 auto; margin: 0; }
 .reader-podcast-control[hidden] { display: none; }
 .podcast-options-button { display: inline-flex; align-items: center; gap: 7px; border: 0; border-radius: 7px; padding: 4px 6px; background: transparent; color: var(--accent); font-size: 13px; font-weight: 650; cursor: pointer; }
 .podcast-options-button:hover { background: var(--highlight); }

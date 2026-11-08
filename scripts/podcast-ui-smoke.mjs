@@ -79,6 +79,8 @@ try {
   const readerPodcastControl = page.locator("#reader-audio");
   const readerPodcastButton = readerPodcastControl.getByRole("button", { name: "Podcast options" });
   await readerPodcastButton.waitFor();
+  assert.equal(await readerPodcastControl.evaluate((el) => el.parentElement?.classList.contains("reader-meta-row")), true, "The podcast launcher should sit beside the reader date metadata.");
+  assert.equal(await readerPodcastControl.evaluate((el) => getComputedStyle(el.parentElement).display), "flex", "Reader metadata and podcast options should share a flex row.");
   assert.equal(await readerPodcastControl.locator(".audio-panel-inner").count(), 0, "The detail view should use a compact podcast launcher, not the old fit panel.");
   assert.equal(await readerPodcastControl.evaluate((el) => getComputedStyle(el).paddingTop), "0px", "The detail podcast launcher should not have panel padding.");
   await page.screenshot({ path: "/tmp/potem-podcast-reader.png" });
