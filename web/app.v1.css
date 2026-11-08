@@ -925,11 +925,11 @@ button {
   transform: translateY(0);
 }
 .reader-toolbar.is-hidden {
-  clip-path: inset(0 0 100% 0);
+  transform: translateY(-100%);
   pointer-events: none;
 }
 .reader-toolbar:has(:focus-visible) {
-  clip-path: inset(0);
+  transform: translateY(0);
   pointer-events: auto;
 }
 .reader-toolbar-inner {
@@ -1400,7 +1400,10 @@ body:has(#reader-dialog[open]) {
     transition-delay: 0s, 0s, 140ms;
   }
   .reader-toolbar {
-    transition: clip-path 180ms ease;
+    transition: transform 360ms cubic-bezier(0.2, 0.8, 0.2, 1);
+  }
+  .reader-toolbar.is-hidden {
+    transition-duration: 420ms;
   }
 }
 .extension-actions { display: flex; flex-wrap: wrap; gap: .65rem; margin-top: 1rem; align-items: center; }
