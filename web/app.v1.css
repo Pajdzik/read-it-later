@@ -1240,11 +1240,12 @@ body:has(#reader-dialog[open]) {
 .podcast-options-button svg { width: 17px; height: 17px; flex: 0 0 17px; fill: none; stroke: currentColor; stroke-width: 1.7; stroke-linecap: round; stroke-linejoin: round; }
 .audio-status { margin: 0; font-size: 13px; }
 .podcast-dialog { width: min(440px, calc(100% - 30px)); }
-.podcast-dialog h2 { margin: 0 0 5px; font-size: 26px; }
 .podcast-article-heading { display: flex; align-items: center; justify-content: space-between; gap: 12px; margin-bottom: 18px; }
+.podcast-article-copy { min-width: 0; }
+.podcast-dialog h2 { margin: 0 0 5px; font-size: 26px; }
 .podcast-article-title { min-width: 0; margin: 0; color: var(--muted); font-size: 14px; overflow-wrap: anywhere; }
-.podcast-fit-indicator { display: grid; place-items: center; width: 24px; height: 24px; flex: 0 0 24px; border-radius: 50%; background: var(--paper); color: var(--muted); }
-.podcast-fit-indicator svg { width: 14px; height: 14px; fill: none; stroke: currentColor; stroke-width: 1.7; stroke-linecap: round; stroke-linejoin: round; }
+.podcast-fit-indicator { display: grid; place-items: center; width: 48px; height: 48px; flex: 0 0 48px; border-radius: 50%; background: var(--paper); color: var(--muted); }
+.podcast-fit-indicator svg { width: 26px; height: 26px; fill: none; stroke: currentColor; stroke-width: 1.7; stroke-linecap: round; stroke-linejoin: round; }
 .podcast-fit-indicator.podcast-fit-good { background: color-mix(in srgb, var(--accent) 12%, var(--white)); color: var(--accent); }
 .podcast-fit-indicator.podcast-fit-mixed { background: color-mix(in srgb, var(--orange) 12%, var(--white)); color: var(--orange); }
 .podcast-fit-indicator.podcast-fit-poor { background: var(--paper); color: var(--muted); }
