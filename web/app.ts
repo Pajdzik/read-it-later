@@ -430,7 +430,7 @@ const state = {
   tag: "",
   cursor: null as string | null,
   loading: false,
-  theme: (() => { try { return localStorage.getItem("later-theme") || "system"; } catch { return "system"; } })(),
+  theme: (() => { try { const value = localStorage.getItem("later-theme"); return value === "light" || value === "dark" ? value : "system"; } catch { return "system"; } })(),
   selected: null as Article | null,
 };
 const copyDrafts = new Map<string, { markdown: string; source: "paste" | "upload" }>();
@@ -3137,22 +3137,13 @@ $("#logout").addEventListener("click", async () => {
   }
 });
 function applyTheme() {
-  const theme =
-    state.theme === "system"
-      ? matchMedia("(prefers-color-scheme: dark)").matches
-        ? "dark"
-        : "light"
-      : state.theme;
-  document.documentElement.dataset.theme = theme;
+  (window as Window & { potemTheme?: { apply(preference: string): void } }).potemTheme?.apply(state.theme);
   $<HTMLSelectElement>("#theme-toggle").value = state.theme;
 }
 $("#theme-toggle").addEventListener("change", (e) => {
   state.theme = (e.target as HTMLSelectElement).value;
   try { localStorage.setItem("later-theme", state.theme); } catch { /* Theme selection still applies in memory. */ }
   applyTheme();
-});
-matchMedia("(prefers-color-scheme: dark)").addEventListener("change", () => {
-  if (state.theme === "system") applyTheme();
 });
 $("#settings-open").addEventListener("click", openSettings);
 $("#settings-dialog").addEventListener("close", () => {
