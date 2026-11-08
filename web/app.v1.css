@@ -1050,6 +1050,11 @@ button {
   padding-top: 24px;
   border-top: 1px solid var(--line);
 }
+.reader-completion-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+}
 .reader-completion .button {
   display: inline-flex;
   align-items: center;
@@ -1181,6 +1186,7 @@ body:has(#reader-dialog[open]) {
   .reader-content-column { padding-top: 12px; }
   .reader-header { margin-bottom: 14px; }
   .reader-header h2 { font-size: clamp(26px, 8vw, 32px); }
+  .reader-completion-actions { flex-direction: column; }
   .reader-completion .button { width: 100%; }
   .reader-body {
     font-size: 1.125rem;
