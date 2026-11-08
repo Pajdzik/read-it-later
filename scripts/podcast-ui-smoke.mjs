@@ -56,9 +56,13 @@ try {
   const row = page.locator(`.article[data-id="${article.id}"]`);
   await row.waitFor();
   assert.equal(await page.locator(`.article[data-id="${codeArticle.id}"]`).count(), 0, "Podcast picks should exclude code-heavy articles.");
-  await row.getByRole("button", { name: "More actions" }).click();
+  const fitIcon = row.locator(".podcast-fit-icon-button");
+  assert.equal((await fitIcon.textContent()).trim(), "", "The library fit indicator should be icon-only.");
+  const moreButton = row.getByRole("button", { name: "More actions" });
+  await moreButton.click();
   assert.equal(apiCalls.filter((call) => call.path.endsWith("/audio")).length, 0, "Opening More must not request audio or start generation.");
-  await row.locator(".article-menu-item", { hasText: "Podcast options" }).click();
+  await moreButton.click();
+  await fitIcon.click();
   await page.locator("#podcast-dialog").waitFor({ state: "visible" });
   await page.locator("#podcast-estimate").getByText(/About 7 min/).waitFor();
   await page.screenshot({ path: "/tmp/potem-podcast-more.png" });
@@ -75,7 +79,9 @@ try {
   await page.locator("#reader-audio").getByText("Good for audio").waitFor();
   await page.screenshot({ path: "/tmp/potem-podcast-reader.png" });
   assert.equal(postedAudio.length, 1, "Opening the reader must not generate audio.");
-  await page.locator("#reader-audio").getByRole("button", { name: "Podcast options" }).click();
+  const readerPodcastButton = page.locator("#reader-audio").getByRole("button", { name: "Podcast options" });
+  assert.match(await readerPodcastButton.textContent(), /Podcast options/, "Reader podcast options should pair the icon with a text label.");
+  await readerPodcastButton.click();
   await page.locator("#podcast-dialog").waitFor({ state: "visible" });
   await page.locator("#podcast-dialog").getByRole("button", { name: "Prepare audio" }).click();
   await page.waitForFunction(() => document.querySelector("#podcast-status")?.textContent?.includes("Audio queued"));

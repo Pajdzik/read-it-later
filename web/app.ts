@@ -697,8 +697,10 @@ function attachAudioControl(parent: HTMLElement, article: Article, copyAvailable
   if (fit) label.classList.add(`podcast-fit-text-${fit.tier}`);
   summary.append(label);
   if (fit) summary.append(el("span", fit.reason, "muted audio-fit-reason"));
-  const button = el("button", "Podcast options", "button secondary");
+  const button = el("button", undefined, "button secondary podcast-options-button");
   button.type = "button";
+  button.setAttribute("aria-label", "Podcast options");
+  button.innerHTML = `${iconMarkup("podcast")}<span>Podcast options</span>`;
   button.addEventListener("click", () => openPodcastDialog(article, copyAvailable));
   section.append(summary, button);
   parent.append(section);
@@ -982,7 +984,7 @@ function el<K extends keyof HTMLElementTagNameMap>(
   if (className) node.className = className;
   return node;
 }
-type IconName = "capture-failed"  | "mark-read" | "mark-unread" | "more";
+type IconName = "capture-failed" | "mark-read" | "mark-unread" | "more" | "podcast";
 function iconMarkup(name: IconName): string {
   switch (name) {
     case "capture-failed":
@@ -993,6 +995,8 @@ function iconMarkup(name: IconName): string {
       return '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="m5 12 4.5 4.5L19 7" /></svg>';
     case "more":
       return '<svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="5" cy="12" r="1.5"/><circle cx="12" cy="12" r="1.5"/><circle cx="19" cy="12" r="1.5"/></svg>';
+    case "podcast":
+      return '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 13v-1a8 8 0 0 1 16 0v1"/><path d="M4 13h3v7H6a2 2 0 0 1-2-2v-3a2 2 0 0 1 2-2m13 0h1a2 2 0 0 1 2 2v3a2 2 0 0 1-2 2h-1z"/></svg>';
   }
 }
 function iconButton(label: string, icon: IconName, className = "") {
@@ -1096,9 +1100,9 @@ function renderArticle(article: Article) {
   metaRow.append(meta, extractionBadge);
   if (state.session?.audioEnabled === true && article.podcastFit) {
     const label = article.podcastFit.tier === "good" ? "Good audio fit" : article.podcastFit.tier === "mixed" ? "Mixed audio fit" : "Less suitable for audio";
-    const fitBadge = el("span", label, `podcast-fit-badge podcast-fit-${article.podcastFit.tier}`);
-    fitBadge.setAttribute("aria-label", `${label}. ${article.podcastFit.reason}`);
-    metaRow.append(fitBadge);
+    const fitIcon = iconButton(`${label}. ${article.podcastFit.reason}`, "podcast", `podcast-fit-icon-button podcast-fit-${article.podcastFit.tier}`);
+    fitIcon.addEventListener("click", () => openPodcastDialog(article, article.hasCopy === true));
+    metaRow.append(fitIcon);
   }
   const more = el("div", undefined, "article-more");
   const moreButton = iconButton("More actions", "more", "subtle more-action");
@@ -1117,14 +1121,7 @@ function renderArticle(article: Article) {
   link.target = "_blank";
   link.rel = "noopener noreferrer";
   link.addEventListener("click", (e) => { e.stopPropagation(); menu.hidePopover(); });
-  const audioOpen = state.session?.audioEnabled === true ? el("button", "Podcast options", "article-menu-item") : null;
-  if (audioOpen) audioOpen.type = "button";
-  audioOpen?.addEventListener("click", () => {
-    menu.hidePopover();
-    openPodcastDialog(article, article.hasCopy === true);
-  });
   menu.append(edit, link);
-  if (audioOpen) menu.append(audioOpen);
   more.append(moreButton, menu);
   menu.addEventListener("beforetoggle", (event) => {
     if ((event as ToggleEvent).newState !== "open") return;
