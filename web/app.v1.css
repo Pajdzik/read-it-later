@@ -499,15 +499,8 @@ button {
   font-weight: 700;
   letter-spacing: .02em;
 }
-.podcast-fit-badge {
-  display: inline-block;
-  flex: 0 0 auto;
-  padding: 3px 7px;
-  border-radius: 999px;
-  font-size: 10px;
-  font-weight: 650;
-  letter-spacing: .01em;
-}
+.podcast-fit-icon-button.action-button.icon-action { width: 30px; height: 30px; flex-basis: 30px; border-color: transparent; }
+.podcast-fit-icon-button.action-button.icon-action svg { width: 16px; height: 16px; }
 .podcast-fit-good { background: color-mix(in srgb, var(--accent) 12%, var(--white)); color: var(--accent); }
 .podcast-fit-mixed { background: color-mix(in srgb, var(--orange) 12%, var(--white)); color: var(--orange); }
 .podcast-fit-poor { background: var(--paper); color: var(--muted); }
@@ -1239,6 +1232,8 @@ body:has(#reader-dialog[open]) {
 .audio-launch-summary { display: grid; gap: 2px; min-width: 0; }
 .podcast-fit-inline { font-size: 13px; font-weight: 650; }
 .audio-fit-reason { font-size: 12px; }
+.podcast-options-button { display: inline-flex; align-items: center; gap: 8px; }
+.podcast-options-button svg { width: 17px; height: 17px; flex: 0 0 17px; }
 .audio-status { margin: 0; font-size: 13px; }
 .podcast-dialog { width: min(440px, calc(100% - 30px)); }
 .podcast-article-title { margin: 0 0 12px; color: var(--muted); font-size: 14px; }
