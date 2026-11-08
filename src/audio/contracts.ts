@@ -7,6 +7,15 @@ export interface AudioStatus {
   estimatedDurationSeconds: number;
   estimatedCostUsd: number;
   errorCode: string | null;
+  suitability: PodcastSuitability | null;
+}
+
+export interface PodcastSuitability {
+  tier: 'good' | 'mixed' | 'poor';
+  reason: string;
+  spokenWords: number;
+  codeBlocks: number;
+  codeSharePercent: number;
 }
 
 export interface AudioMessage {

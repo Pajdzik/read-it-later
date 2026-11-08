@@ -1,4 +1,4 @@
-import { AudioError, type AudioEnv, type AudioMessage, type AudioStatus } from './contracts';
+import { AudioError, type AudioEnv, type AudioMessage, type AudioStatus, type PodcastSuitability } from './contracts';
 import MarkdownIt from 'markdown-it';
 
 const VOICE = 'en-US-Chirp3-HD-Charon';
@@ -28,15 +28,23 @@ function budget(env: AudioEnv): number {
 function cost(chars: number): number { return chars * RATE_PER_MILLION / 1_000_000; }
 async function notify(env:AudioEnv,message:AudioMessage):Promise<void>{try{await env.AUDIO_QUEUE?.send(message);}catch{/* D1 remains authoritative; recovery republishes queued work. */}}
 
-export function normalizeMarkdown(markdown: string, title?: string, author?: string | null): string {
+type MarkdownAudioAnalysis = { narration: string; suitability: PodcastSuitability };
+
+function analyzeMarkdown(markdown: string, title?: string, author?: string | null): MarkdownAudioAnalysis {
   // MarkdownIt's token stream preserves readable inline text and table cells while
   // dropping raw HTML (including script/style bodies) and link destinations.
   const safeMarkdown=markdown.replace(/<(script|style|iframe|object|svg|noscript)\b[^>]*>[\s\S]*?<\/\1\s*>/gi,'').replace(/<[^>]*>/g,'');
   const tokens = new MarkdownIt({ html: false, linkify: false, typographer: false }).parse(safeMarkdown.replace(/\r\n?/g,'\n'),{});
   const blocks: string[] = [];
+  const proseBlocks: string[] = [];
   let current: string[] = [];
-  let heading=false; let titleHeadingSkipped=false; let rowCells:string[]=[];
-  const flush = () => { const text=current.join('').replace(/[\t ]+/g,' ').trim(); if(text && !(heading && !titleHeadingSkipped && title && text.toLocaleLowerCase()===title.trim().toLocaleLowerCase())) blocks.push(text); if(text && heading && title && text.toLocaleLowerCase()===title.trim().toLocaleLowerCase())titleHeadingSkipped=true; current=[]; };
+  let heading=false; let titleHeadingSkipped=false; let rowCells:string[]=[]; let codeBlocks=0; let codeCharacters=0;
+  const flush = () => {
+    const text=current.join('').replace(/[\t ]+/g,' ').trim();
+    if(text && !(heading && !titleHeadingSkipped && title && text.toLocaleLowerCase()===title.trim().toLocaleLowerCase())) { blocks.push(text); proseBlocks.push(text); }
+    if(text && heading && title && text.toLocaleLowerCase()===title.trim().toLocaleLowerCase())titleHeadingSkipped=true;
+    current=[];
+  };
   for (const token of tokens) {
     if (token.type === 'heading_open') { flush(); heading=true; }
     else if (token.type === 'heading_close') { flush(); heading=false; }
@@ -44,8 +52,8 @@ export function normalizeMarkdown(markdown: string, title?: string, author?: str
     else if (token.type === 'paragraph_close' || token.type === 'list_item_close') flush();
     else if (token.type === 'td_open' || token.type === 'th_open') flush();
     else if (token.type === 'td_close' || token.type === 'th_close') { const cell=current.join('').replace(/[\t ]+/g,' ').trim(); if(cell)rowCells.push(cell); current=[]; }
-    else if (token.type === 'tr_close') { flush(); if(rowCells.length)blocks.push(rowCells.join(', ')); rowCells=[]; }
-    else if (token.type === 'fence' || token.type === 'code_block') { flush(); blocks.push('Code block omitted. Read it in the saved article.'); }
+    else if (token.type === 'tr_close') { flush(); if(rowCells.length) { const row=rowCells.join(', '); blocks.push(row); proseBlocks.push(row); } rowCells=[]; }
+    else if (token.type === 'fence' || token.type === 'code_block') { flush(); codeBlocks++; codeCharacters += encoder.encode(token.content).byteLength; blocks.push('Code block omitted. Read it in the saved article.'); }
     else if (token.type === 'inline') {
       for (const child of token.children ?? []) {
         if (child.type === 'text' || child.type === 'code_inline' || child.type === 'html_inline') { if(child.type!=='html_inline') current.push(child.content); }
@@ -56,7 +64,38 @@ export function normalizeMarkdown(markdown: string, title?: string, author?: str
   }
   flush();
   const intro=[title?.trim(),author?.trim() ? `By ${author.trim()}` : ''].filter(Boolean);
-  return [...intro,...blocks].join('\n\n').replace(/[\t ]+/g,' ').trim();
+  const narration=[...intro,...blocks].join('\n\n').replace(/[\t ]+/g,' ').trim();
+  const spokenText=proseBlocks.join('\n\n');
+  const spokenWords=spokenText.split(/\s+/).filter(Boolean).length;
+  const spokenCharacters=encoder.encode(spokenText).byteLength;
+  const codeShare=codeCharacters+spokenCharacters ? codeCharacters/(codeCharacters+spokenCharacters) : 0;
+  const codeSharePercent=Math.round(codeShare*100);
+  const tier: PodcastSuitability['tier'] = spokenWords < 50 || (codeShare > 0.5 && spokenWords < 300)
+    ? 'poor'
+    : spokenWords >= 150 && codeShare <= 0.15 ? 'good' : 'mixed';
+  const reason=tier === 'good'
+    ? codeBlocks ? `Mostly prose; ${codeBlocks} code ${codeBlocks === 1 ? 'block is' : 'blocks are'} skipped in narration.` : 'Mostly prose with no code blocks.'
+    : codeShare > 0.15 ? `Code makes up about ${codeSharePercent}% of the copy, and is skipped in narration.`
+      : tier === 'poor' ? 'There is very little prose to narrate.' : 'This is a short narration.';
+  return { narration, suitability: { tier, reason, spokenWords, codeBlocks, codeSharePercent } };
+}
+
+export function normalizeMarkdown(markdown: string, title?: string, author?: string | null): string {
+  return analyzeMarkdown(markdown, title, author).narration;
+}
+
+export async function getPodcastFitStatuses(db: D1Database, articleIds: string[]): Promise<Map<string, PodcastSuitability>> {
+  if (!articleIds.length) return new Map();
+  const placeholders=articleIds.map(() => '?').join(',');
+  const rows=await db.prepare(`SELECT c.article_id,c.markdown,a.title,a.author
+    FROM article_copies c JOIN articles a ON a.id=c.article_id
+    WHERE c.article_id IN (${placeholders})`).bind(...articleIds).all<Record<string,unknown>>();
+  const result=new Map<string,PodcastSuitability>();
+  for(const row of rows.results ?? []) {
+    const analysis=analyzeMarkdown(String(row.markdown),String(row.title),row.author == null ? null : String(row.author));
+    result.set(String(row.article_id),analysis.suitability);
+  }
+  return result;
 }
 
 export function chunkNarration(text: string, maxBytes = MAX_CHUNK_BYTES): string[] {
@@ -88,20 +127,22 @@ export function chunkNarration(text: string, maxBytes = MAX_CHUNK_BYTES): string
 
 function estimateSeconds(text: string): number { return Math.max(1, Math.ceil(text.trim().split(/\s+/).filter(Boolean).length / 2.5)); }
 
-function status(row: Record<string, unknown> | null, env: AudioEnv): AudioStatus {
-  if (!row || row.state === 'deleted') return { enabled: enabled(env), state: 'none', episodeId: null, sourceRevision: null, characters: 0, estimatedDurationSeconds: 0, estimatedCostUsd: 0, errorCode: null };
+function status(row: Record<string, unknown> | null, env: AudioEnv, suitability: PodcastSuitability | null = null): AudioStatus {
+  if (!row || row.state === 'deleted') return { enabled: enabled(env), state: 'none', episodeId: null, sourceRevision: null, characters: 0, estimatedDurationSeconds: 0, estimatedCostUsd: 0, errorCode: null, suitability };
   const state = String(row.state);
-  return { enabled: enabled(env), state: (['queued','generating','ready','failed'].includes(state) ? state : 'none') as AudioStatus['state'], episodeId: String(row.id), sourceRevision: String(row.copy_revision), characters: Number(row.characters ?? encoder.encode(String(row.narration_text ?? '')).byteLength), estimatedDurationSeconds: Number(row.duration_seconds) || estimateSeconds(String(row.narration_text ?? '')), estimatedCostUsd: cost(Number(row.characters ?? encoder.encode(String(row.narration_text ?? '')).byteLength)), errorCode: row.error_code == null ? null : String(row.error_code) };
+  return { enabled: enabled(env), state: (['queued','generating','ready','failed'].includes(state) ? state : 'none') as AudioStatus['state'], episodeId: String(row.id), sourceRevision: String(row.copy_revision), characters: Number(row.characters ?? encoder.encode(String(row.narration_text ?? '')).byteLength), estimatedDurationSeconds: Number(row.duration_seconds) || estimateSeconds(String(row.narration_text ?? '')), estimatedCostUsd: cost(Number(row.characters ?? encoder.encode(String(row.narration_text ?? '')).byteLength)), errorCode: row.error_code == null ? null : String(row.error_code), suitability };
 }
 
 export async function getAudioStatus(env: AudioEnv, articleId: string): Promise<AudioStatus> {
-  const row = await env.DB.prepare(`SELECT e.*, (SELECT SUM(request_characters) FROM audio_chunks c WHERE c.episode_id=e.id) AS characters FROM audio_episodes e WHERE e.article_id=? AND e.state!='deleted'`).bind(articleId).first<Record<string, unknown>>();
-  if (row) return status(row, env);
   const copy = await env.DB.prepare(`SELECT c.revision,c.markdown,a.title,a.author FROM article_copies c JOIN articles a ON a.id=c.article_id WHERE c.article_id=?`).bind(articleId).first<Record<string,unknown>>();
-  if (!copy) return status(null,env);
-  const narration = normalizeMarkdown(String(copy.markdown),String(copy.title),copy.author == null ? null : String(copy.author));
+  const analysis = copy ? analyzeMarkdown(String(copy.markdown),String(copy.title),copy.author == null ? null : String(copy.author)) : null;
+  const suitability = analysis?.suitability ?? null;
+  const row = await env.DB.prepare(`SELECT e.*, (SELECT SUM(request_characters) FROM audio_chunks c WHERE c.episode_id=e.id) AS characters FROM audio_episodes e WHERE e.article_id=? AND e.state!='deleted'`).bind(articleId).first<Record<string, unknown>>();
+  if (row) return status(row, env, suitability);
+  if (!copy) return status(null,env,null);
+  const narration = analysis!.narration;
   const characters = encoder.encode(narration).byteLength;
-  return {enabled:enabled(env),state:'none',episodeId:null,sourceRevision:String(copy.revision),characters,estimatedDurationSeconds:estimateSeconds(narration),estimatedCostUsd:cost(characters),errorCode:null};
+  return {enabled:enabled(env),state:'none',episodeId:null,sourceRevision:String(copy.revision),characters,estimatedDurationSeconds:estimateSeconds(narration),estimatedCostUsd:cost(characters),errorCode:null,suitability};
 }
 
 export async function prepareAudio(env: AudioEnv, articleId: string, expectedRevision: string): Promise<AudioStatus> {
@@ -134,7 +175,7 @@ export async function prepareAudio(env: AudioEnv, articleId: string, expectedRev
   const source = await env.DB.prepare(`SELECT a.title,a.author,a.url,c.markdown,c.revision FROM articles a JOIN article_copies c ON c.article_id=a.id WHERE a.id=?`).bind(articleId).first<Record<string, unknown>>();
   if (!source) throw new AudioError(404, 'copy_not_found', 'Save an article copy before preparing audio.');
   if (String(source.revision) !== expectedRevision) throw new AudioError(409, 'revision_conflict', 'The saved copy changed. Refresh it before preparing audio.');
-  const narration = normalizeMarkdown(String(source.markdown),String(source.title),source.author == null ? null : String(source.author));
+  const narration = analyzeMarkdown(String(source.markdown),String(source.title),source.author == null ? null : String(source.author)).narration;
   if (!narration) throw new AudioError(422, 'empty_narration', 'The saved copy has no narratable text.');
   const chunks = chunkNarration(narration);
   const total = chunks.reduce((n, chunk) => n + encoder.encode(chunk).byteLength, 0);
