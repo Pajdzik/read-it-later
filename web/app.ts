@@ -1101,6 +1101,8 @@ function renderArticle(article: Article) {
   if (state.session?.audioEnabled === true && article.podcastFit) {
     const label = article.podcastFit.tier === "good" ? "Good audio fit" : article.podcastFit.tier === "mixed" ? "Mixed audio fit" : "Less suitable for audio";
     const fitIcon = iconButton(`${label}. ${article.podcastFit.reason}`, "podcast", `podcast-fit-icon-button podcast-fit-${article.podcastFit.tier}`);
+    const fitMarker = article.podcastFit.tier === "good" ? "✓" : article.podcastFit.tier === "mixed" ? "~" : "−";
+    fitIcon.innerHTML = `${iconMarkup("podcast")}<span class="podcast-fit-marker" aria-hidden="true">${fitMarker}</span>`;
     fitIcon.addEventListener("click", () => openPodcastDialog(article, article.hasCopy === true));
     metaRow.append(fitIcon);
   }
