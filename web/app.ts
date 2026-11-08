@@ -52,6 +52,7 @@ type Article = {
   readAt: string | null;
   hasCopy?: boolean;
   extraction?: ExtractionStatus;
+  podcastFit?: PodcastSuitability;
 };
 type ExtractionState = "none" | "queued" | "running" | "retry_wait" | "ready" | "failed";
 type ExtractionStatus = {
@@ -62,7 +63,8 @@ type ExtractionStatus = {
 type Session = { authenticated: boolean; csrfToken?: string; audioEnabled?: boolean };
 type Page = { items: Article[]; nextCursor: string | null; capture?: { paused: boolean } };
 type ArticleCopy = { markdown: string; capturedAt: string; source: "paste" | "upload"; revision: string };
-type AudioStatus = { enabled: boolean; state: "none" | "queued" | "generating" | "ready" | "failed"; episodeId: string | null; sourceRevision: string | null; characters: number; estimatedDurationSeconds: number; estimatedCostUsd: number; errorCode: string | null };
+type PodcastSuitability = { tier: "good" | "mixed" | "poor"; reason: string; spokenWords: number; codeBlocks: number; codeSharePercent: number };
+type AudioStatus = { enabled: boolean; state: "none" | "queued" | "generating" | "ready" | "failed"; episodeId: string | null; sourceRevision: string | null; characters: number; estimatedDurationSeconds: number; estimatedCostUsd: number; errorCode: string | null; suitability: PodcastSuitability | null };
 type PodcastSettings = { enabled: boolean; token: { createdAt: string } | null; usage: { month: string; usedCharacters: number; reservedCharacters: number; freeCharacters: number; budgetUsd: number; estimatedCostUsd: number } };
 let privateFeedUrl: string | null = null;
 let audioPollTimer = 0;
@@ -608,36 +610,99 @@ async function prepareArticleAudio(article: Article, button: HTMLButtonElement, 
     const { copy } = await request<{ copy: ArticleCopy | null }>(`/api/articles/${encodeURIComponent(article.id)}/copy`);
     if (!copy) { status.textContent = "Save a reading copy before preparing audio."; button.disabled = false; return; }
     const result = await request<{ audio: AudioStatus }>(`/api/articles/${encodeURIComponent(article.id)}/audio`, { method: "POST", body: JSON.stringify({ expectedRevision: copy.revision }) });
-    status.textContent = audioStateLabel(result.audio);
-    done(result.audio);
+    let audio = result.audio;
+    try { audio = await fetchAudioStatus(article); } catch { /* The prepare response still carries the authoritative job state. */ }
+    status.textContent = audioStateLabel(audio);
+    done(audio);
   } catch (error) {
     status.textContent = `Couldn’t prepare audio. ${(error as Error).message}`;
     button.disabled = false;
   }
 }
-function attachAudioControl(parent: HTMLElement, article: Article, compact = false, copyAvailable = true) {
-  const section = el("div", undefined, compact ? "audio-menu-control" : "audio-panel-inner");
-  const status = el("p", "Checking audio…", "muted audio-status");
-  const button = el("button", "Prepare audio", compact ? "article-menu-item audio-prepare" : "button secondary");
+let podcastDialogArticle: Article | null = null;
+let podcastDialogCopyAvailable = true;
+let podcastDialogGeneration = 0;
+function renderPodcastStatus(audio: AudioStatus, generation = podcastDialogGeneration) {
+  if (generation !== podcastDialogGeneration) return;
+  const article = podcastDialogArticle;
+  if (!article) return;
+  const fit = audio.suitability;
+  const card = $<HTMLElement>("#podcast-fit-card");
+  card.classList.remove("podcast-fit-good", "podcast-fit-mixed", "podcast-fit-poor");
+  if (!podcastDialogCopyAvailable) {
+    $("#podcast-fit-label").textContent = "Fit unavailable";
+    $("#podcast-fit-reason").textContent = "Save a reading copy to check podcast fit.";
+  } else if (fit) {
+    card.classList.add(`podcast-fit-${fit.tier}`);
+    $("#podcast-fit-label").textContent = fit.tier === "good" ? "Good fit" : fit.tier === "mixed" ? "Mixed fit" : "Less suitable";
+    $("#podcast-fit-reason").textContent = fit.reason;
+  } else {
+    $("#podcast-fit-label").textContent = "Fit unavailable";
+    $("#podcast-fit-reason").textContent = "Couldn’t check the saved copy’s format.";
+  }
+  $("#podcast-estimate").textContent = podcastDialogCopyAvailable ? formatAudioEstimate(audio) : "";
+  const status = $<HTMLElement>("#podcast-status");
+  status.textContent = !podcastDialogCopyAvailable ? "Save a reading copy before preparing audio." : audioStateLabel(audio);
+  const button = $<HTMLButtonElement>("#podcast-prepare");
+  button.hidden = !audio.enabled || audio.state === "ready";
+  button.textContent = audio.state === "failed" ? "Retry audio" : "Prepare audio";
+  button.disabled = !podcastDialogCopyAvailable || !audio.enabled || audio.state === "queued" || audio.state === "generating";
+  if (audio.state === "queued" || audio.state === "generating") {
+    scheduleAudioPoll(article, () => generation === podcastDialogGeneration && $<HTMLDialogElement>("#podcast-dialog").open,
+      async () => { try { renderPodcastStatus(await fetchAudioStatus(article), generation); } catch { /* Keep the last known status. */ } });
+  }
+}
+function openPodcastDialog(article: Article, copyAvailable = article.hasCopy !== false) {
+  const dialog = $<HTMLDialogElement>("#podcast-dialog");
+  podcastDialogArticle = article;
+  podcastDialogCopyAvailable = copyAvailable;
+  const generation = ++podcastDialogGeneration;
+  $("#podcast-article-title").textContent = article.title;
+  $("#podcast-fit-card").classList.remove("podcast-fit-good", "podcast-fit-mixed", "podcast-fit-poor");
+  $("#podcast-fit-label").textContent = "Checking fit…";
+  $("#podcast-fit-reason").textContent = "";
+  $("#podcast-estimate").textContent = "";
+  $("#podcast-status").textContent = "Checking audio status…";
+  const prepare = $<HTMLButtonElement>("#podcast-prepare");
+  prepare.hidden = false;
+  prepare.disabled = true;
+  prepare.textContent = "Prepare audio";
+  showDialog(dialog, $("#podcast-heading"));
+  void fetchAudioStatus(article).then(audio => renderPodcastStatus(audio, generation)).catch(() => {
+    if (generation !== podcastDialogGeneration) return;
+    $("#podcast-fit-label").textContent = "Fit unavailable";
+    $("#podcast-fit-reason").textContent = copyAvailable ? "Couldn’t check this saved copy." : "Save a reading copy to check podcast fit.";
+    $("#podcast-estimate").textContent = "";
+    $("#podcast-status").textContent = "Couldn’t load podcast status.";
+    prepare.disabled = true;
+  });
+}
+$<HTMLButtonElement>("#podcast-prepare").addEventListener("click", () => {
+  const article = podcastDialogArticle;
+  if (!article) return;
+  void prepareArticleAudio(article, $<HTMLButtonElement>("#podcast-prepare"), $("#podcast-status"), audio => renderPodcastStatus(audio));
+});
+$<HTMLDialogElement>("#podcast-dialog").addEventListener("close", () => {
+  podcastDialogGeneration++;
+  podcastDialogArticle = null;
+  clearAudioPoll();
+});
+function attachAudioControl(parent: HTMLElement, article: Article, copyAvailable = true) {
+  parent.replaceChildren();
+  const section = el("div", undefined, "audio-panel-inner");
+  const summary = el("div", undefined, "audio-launch-summary");
+  const fit = article.podcastFit;
+  const label = el("strong", !copyAvailable ? "Save a copy to check podcast fit" : fit ? `${fit.tier === "good" ? "Good" : fit.tier === "mixed" ? "Mixed" : "Less suitable"} for audio` : "Podcast fit");
+  label.classList.add("podcast-fit-inline");
+  if (fit) label.classList.add(`podcast-fit-text-${fit.tier}`);
+  summary.append(label);
+  if (fit) summary.append(el("span", fit.reason, "muted audio-fit-reason"));
+  const button = el("button", "Podcast options", "button secondary");
   button.type = "button";
-  button.disabled = true;
-  const renderStatus = (audio: AudioStatus) => {
-    parent.hidden = !audio.enabled;
-    status.textContent = !copyAvailable ? "Save a reading copy before preparing audio."
-      : `${audioStateLabel(audio)}${audio.state === "none" || audio.state === "failed" ? ` · ${formatAudioEstimate(audio)}` : ""}`;
-    button.hidden = !audio.enabled || audio.state === "ready";
-    button.textContent = !copyAvailable ? "Prepare audio" : audio.state === "failed" ? "Retry audio" : "Prepare audio";
-    button.disabled = !copyAvailable || !audio.enabled || audio.state === "queued" || audio.state === "generating";
-    if (audio.state === "queued" || audio.state === "generating") {
-      scheduleAudioPoll(article, () => parent.isConnected && readerArticleId === article.id && $<HTMLDialogElement>("#reader-dialog").open,
-        async () => { try { renderStatus(await fetchAudioStatus(article)); } catch { /* Keep the last known status. */ } });
-    }
-  };
-  button.addEventListener("click", () => { void prepareArticleAudio(article, button, status, renderStatus); });
-  section.append(status, button);
+  button.addEventListener("click", () => openPodcastDialog(article, copyAvailable));
+  section.append(summary, button);
   parent.append(section);
-  parent.hidden = true;
-  void fetchAudioStatus(article).then(renderStatus).catch(() => { status.textContent = "Couldn’t load audio status."; });
+  parent.hidden = false;
   return section;
 }
 function stashDraft() {
@@ -1029,6 +1094,12 @@ function renderArticle(article: Article) {
   );
   read.addEventListener("click", () => mutateRead(article, !article.readAt));
   metaRow.append(meta, extractionBadge);
+  if (state.session?.audioEnabled === true && article.podcastFit) {
+    const label = article.podcastFit.tier === "good" ? "Good audio fit" : article.podcastFit.tier === "mixed" ? "Mixed audio fit" : "Less suitable for audio";
+    const fitBadge = el("span", label, `podcast-fit-badge podcast-fit-${article.podcastFit.tier}`);
+    fitBadge.setAttribute("aria-label", `${label}. ${article.podcastFit.reason}`);
+    metaRow.append(fitBadge);
+  }
   const more = el("div", undefined, "article-more");
   const moreButton = iconButton("More actions", "more", "subtle more-action");
   const menu = el("div", undefined, "article-action-menu");
@@ -1046,38 +1117,17 @@ function renderArticle(article: Article) {
   link.target = "_blank";
   link.rel = "noopener noreferrer";
   link.addEventListener("click", (e) => { e.stopPropagation(); menu.hidePopover(); });
-  const audioOpen = state.session?.audioEnabled === true ? el("button", "Prepare audio", "article-menu-item") : null;
+  const audioOpen = state.session?.audioEnabled === true ? el("button", "Podcast options", "article-menu-item") : null;
   if (audioOpen) audioOpen.type = "button";
   audioOpen?.addEventListener("click", () => {
-    menu.querySelector(".row-audio-status")?.remove();
-    const status = el("p", "Checking audio status…", "muted audio-status");
-    const action = el("button", "Prepare audio", "button secondary"); action.type = "button";
-    action.disabled = true;
-    const showRowAudio = (audio: AudioStatus) => {
-      status.textContent = `${audioStateLabel(audio)}${audio.state === "none" || audio.state === "failed" ? ` · ${formatAudioEstimate(audio)}` : ""}`;
-      action.hidden = !audio.enabled || audio.state === "ready";
-      action.textContent = audio.state === "failed" ? "Retry audio" : "Prepare audio";
-      action.disabled = !audio.enabled || audio.state === "queued" || audio.state === "generating";
-      if (audio.state === "queued" || audio.state === "generating") {
-        scheduleAudioPoll(article, () => rowAudio.isConnected && menu.matches(":popover-open"),
-          async () => { try { showRowAudio(await fetchAudioStatus(article)); } catch { /* Keep last status and allow reopening the menu. */ } });
-      }
-    };
-    action.addEventListener("click", () => { void prepareArticleAudio(article, action, status, audio => {
-      showRowAudio(audio);
-    }); });
-    const rowAudio = el("div", undefined, "row-audio-status"); rowAudio.append(status, action);
-    menu.append(rowAudio);
-    void fetchAudioStatus(article).then(audio => {
-      showRowAudio(audio);
-    }).catch(() => { status.textContent = "Couldn’t load audio status."; });
+    menu.hidePopover();
+    openPodcastDialog(article, article.hasCopy === true);
   });
   menu.append(edit, link);
   if (audioOpen) menu.append(audioOpen);
   more.append(moreButton, menu);
   menu.addEventListener("beforetoggle", (event) => {
     if ((event as ToggleEvent).newState !== "open") return;
-    menu.querySelector(".row-audio-status")?.remove();
     // The popover has dimensions after it opens. Position it before the first paint.
     requestAnimationFrame(() => {
       if (!menu.matches(":popover-open")) return;
@@ -1102,7 +1152,8 @@ window.addEventListener("scroll", () => {
 }, { passive: true });
 function render(items: Article[], append = false) {
   if (!append) list.replaceChildren();
-  for (const item of items) list.append(renderArticle(item));
+  const visibleItems = state.status === "podcast" ? items.filter(item => item.podcastFit?.tier === "good") : items;
+  for (const item of visibleItems) list.append(renderArticle(item));
   const count = list.children.length;
   $("#result-count").textContent = count ? `${count} shown` : "";
   empty.hidden = count !== 0;
@@ -1115,6 +1166,9 @@ function render(items: Article[], append = false) {
     if (state.query) {
       heading.textContent = `No matches for ‘${state.query}’`;
       message.textContent = state.tag ? `No matches in this tag.` : "Try a different search.";
+    } else if (state.status === "podcast") {
+      heading.textContent = "No podcast picks on this page";
+      message.textContent = state.cursor ? "Show more to check older articles." : "Save more prose-focused articles to find good podcast candidates.";
     } else if (state.tag) {
       heading.textContent = `No ${state.status === "all" ? "" : state.status + " "}articles tagged ‘${state.tag}’`;
       message.textContent = "Try another tag or change the list filter.";
@@ -1143,7 +1197,7 @@ async function load(reset = true) {
   setBusy(true);
   $<HTMLButtonElement>("#more").disabled = true;
   try {
-    const p = new URLSearchParams({ status: state.status, limit: "50" });
+    const p = new URLSearchParams({ status: state.status === "podcast" ? "all" : state.status, limit: "50" });
     if (state.query) p.set("q", state.query);
     if (state.tag) p.set("tag", state.tag);
     if (state.cursor && !reset) p.set("cursor", state.cursor);
@@ -1876,7 +1930,7 @@ function openReader(article: Article, copy: ArticleCopy, opener?: HTMLElement) {
   original.href = safeHttpUrl(article.url) || "#";
   body.replaceChildren(renderMarkdown(copy.markdown, article.url, article.title));
   const audioPanel = $("#reader-audio"); audioPanel.hidden = true; audioPanel.replaceChildren();
-  if (state.session?.audioEnabled === true) attachAudioControl(audioPanel, article);
+  if (state.session?.audioEnabled === true) attachAudioControl(audioPanel, article, true);
   resetReaderCompletion(article);
   saveLastOpened(article);
   const positionContext = { id: article.id, revision: copy.revision };
@@ -1912,7 +1966,7 @@ function renderPendingReader(article: Article) {
   if (location.pathname !== canonicalPath) history.replaceState(readerHistoryState(article.id, readerFromList), "", canonicalPath);
   $("#reader-metadata").textContent = [sourceHost(article.url), ...(article.author ? [`By ${article.author}`] : [])].join(" · ");
   const audioPanel = $("#reader-audio"); audioPanel.hidden = true; audioPanel.replaceChildren();
-  if (state.session?.audioEnabled === true) attachAudioControl(audioPanel, article, false, false);
+  if (state.session?.audioEnabled === true) attachAudioControl(audioPanel, article, false);
   const original = $<HTMLAnchorElement>("#reader-original");
   original.href = safeHttpUrl(article.url) || "#";
   $("#reader-pending-status").textContent = article.extraction?.state === "failed"
@@ -2014,6 +2068,7 @@ function discardPrivateContent() {
 }
 $("#reader-dialog").addEventListener("close", () => {
   const dialog = $<HTMLDialogElement>("#reader-dialog");
+  if ($<HTMLDialogElement>("#podcast-dialog").open) $<HTMLDialogElement>("#podcast-dialog").close();
   // Closing queues an event. Ignore its cleanup if another navigation has
   // started, including while that navigation is still fetching its copy.
   const closed = readerCloseEvents.shift();
@@ -2200,6 +2255,7 @@ $("#detail-dialog").addEventListener("close", () => {
 async function initialize() {
   try {
     state.session = await request<Session>("/api/session");
+    $<HTMLButtonElement>('[data-status="podcast"]').hidden = state.session.audioEnabled !== true;
     if (state.session.authenticated) await completeExtensionConnection();
     if (state.session.authenticated && browserCaptureDraft) void loadCaptureIntegrationConfiguration();
   } catch (error) {
@@ -2928,10 +2984,11 @@ $("#add-form").addEventListener("submit", async (e) => {
     if (!browserCaptureDraft?.savedCopyRevision) button.disabled = false;
   }
 });
-const statusOrder = ["unread", "read", "all"] as const;
+const statusOrder = ["unread", "read", "all", "podcast"] as const;
 let searchTimer: number;
 function setStatus(status: string) {
   if (!statusOrder.includes(status as (typeof statusOrder)[number])) return;
+  if (status === "podcast" && $<HTMLButtonElement>('[data-status="podcast"]').hidden) return;
   clearTimeout(searchTimer);
   setSearchOpen(false);
   invalidateLoads();
@@ -2974,11 +3031,12 @@ library.addEventListener("touchend", (event) => {
   const dx = touch.clientX - start.x;
   const dy = touch.clientY - start.y;
   if (Math.abs(dx) < 48 || Math.abs(dx) <= Math.abs(dy) * 1.25) return;
-  const current = statusOrder.indexOf(state.status as (typeof statusOrder)[number]);
-  const next = Math.max(0, Math.min(statusOrder.length - 1, current + (dx < 0 ? 1 : -1)));
+  const availableStatuses = statusOrder.filter(status => status !== "podcast" || !$<HTMLButtonElement>('[data-status="podcast"]').hidden);
+  const current = availableStatuses.indexOf(state.status as (typeof statusOrder)[number]);
+  const next = Math.max(0, Math.min(availableStatuses.length - 1, current + (dx < 0 ? 1 : -1)));
   // Swiping over a link or button should not also activate it on release.
   if (event.cancelable) event.preventDefault();
-  if (next !== current) setStatus(statusOrder[next]);
+  if (next !== current) setStatus(availableStatuses[next]!);
 }, { passive: false });
 library.addEventListener("touchcancel", () => { statusSwipeStart = null; }, { passive: true });
 

@@ -19,6 +19,7 @@ import { IntegrationError } from '../integrations/types';
 import { enrichmentEnabled, enrichmentStatuses, scheduleEnrichment } from "./enrichment";
 import { listTags, normalizeTags } from "./tags";
 import { requestRecapture, undoRecapture } from './recovery.js';
+import { getPodcastFitStatuses } from '../audio';
 
 const PRIVATE = PRIVATE_HEADERS;
 const MAX_COPY_BYTES = 256 * 1024;
@@ -223,9 +224,13 @@ async function listRoute(url: URL, env: Env): Promise<Response> {
   const statuses = await getExtractionStatuses(env.DB, page.items.map(article => article.id), paused);
   const enrichments = await enrichmentStatuses(env, page.items.map(a => a.id));
   const pdfs = await originalPdfSummaries(env.DB, page.items.map(a => a.id));
+  const podcastFits = env.ARTICLE_AUDIO_ENABLED === 'true'
+    ? await getPodcastFitStatuses(env.DB, page.items.map(article => article.id))
+    : new Map();
   return jsonResponse({ ...page, capture: { paused }, items: page.items.map(article => {
     const extraction = statuses.get(article.id);
-    return { ...article, enrichment: enrichments.get(article.id), originalPdf: pdfs.get(article.id), hasCopy: extraction?.state === 'ready', extraction };
+    return { ...article, enrichment: enrichments.get(article.id), originalPdf: pdfs.get(article.id), hasCopy: extraction?.state === 'ready', extraction,
+      ...(podcastFits.has(article.id) ? { podcastFit: podcastFits.get(article.id) } : {}) };
   }) });
 }
 

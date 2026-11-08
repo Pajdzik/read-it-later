@@ -4,6 +4,8 @@ Potem can prepare an English narration of a saved copy and expose completed epis
 
 **Prepare audio** is the only generation trigger. Viewing articles, reading the feed, polling status, and downloading audio never call the speech provider. Completed episodes stay in private R2 storage until their article or audio is explicitly deleted. There is no automatic removal after listening. A podcast download is not evidence that an episode was heard.
 
+When audio is enabled, the library shows a podcast-fit label for each saved copy and offers a **Podcast picks** filter. Fit is a deterministic format estimate based on narratable prose, article length, and the share of text in code blocks. It is recalculated from the current saved-copy revision. **Good**, **Mixed**, and **Less suitable** are suggestions only; preparation remains available for every copy. The article's podcast controls, fit explanation, duration and cost estimate, and preparation action appear together in a modal.
+
 ## Enable the feature
 
 Production enables `ARTICLE_AUDIO_ENABLED` in both the main Worker and capture service; local and staging configurations leave it disabled. The production deployment workflow provisions the audio bucket and queue, applies migrations, and deploys both services. Google credentials must be stored separately as the main Worker's secret. For staging, provision the corresponding resources and deploy both configurations to `--env staging`.
