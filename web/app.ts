@@ -587,7 +587,7 @@ function audioStateLabel(audio: AudioStatus) {
       : audio.state === "failed" && audio.errorCode === "budget_exceeded" ? "Monthly audio budget reached"
         : audio.state === "failed" && ["provider_timeout_ambiguous", "provider_outcome_unknown"].includes(audio.errorCode || "")
           ? "Speech outcome is uncertain. Retrying could incur another charge."
-          : audio.state === "failed" ? "Audio preparation failed" : "Audio not prepared";
+          : audio.state === "failed" ? "Audio preparation failed" : "";
 }
 function clearAudioPoll() { window.clearTimeout(audioPollTimer); audioPollTimer = 0; audioPollGeneration++; }
 function scheduleAudioPoll(article: Article, active: () => boolean, refresh: () => Promise<void>) {
@@ -648,7 +648,9 @@ function renderPodcastStatus(audio: AudioStatus, generation = podcastDialogGener
   }
   $("#podcast-estimate").textContent = podcastDialogCopyAvailable ? formatAudioEstimate(audio) : "";
   const status = $<HTMLElement>("#podcast-status");
-  status.textContent = !podcastDialogCopyAvailable ? "Save a reading copy before preparing audio." : audioStateLabel(audio);
+  status.textContent = !podcastDialogCopyAvailable ? "Save a reading copy before preparing audio."
+    : audio.state === "none" && !audio.enabled ? "Audio preparation is unavailable."
+      : audioStateLabel(audio);
   const button = $<HTMLButtonElement>("#podcast-prepare");
   button.hidden = !audio.enabled || audio.state === "ready";
   button.textContent = audio.state === "failed" ? "Retry audio" : "Prepare audio";
