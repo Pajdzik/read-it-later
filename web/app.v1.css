@@ -9,9 +9,6 @@
   --brand: #145a42;
   --highlight: #e7eee4;
   --orange: #b76543;
-  --podcast-fit-good: #145a42;
-  --podcast-fit-mixed: #9a531b;
-  --podcast-fit-poor: #756b60;
   --shadow: 0 16px 45px #4a332010;
   --focus: #5b8d72;
 }
@@ -26,9 +23,6 @@
   --brand: #eaa184;
   --highlight: #293b32;
   --orange: #eaa184;
-  --podcast-fit-good: #9ad4b2;
-  --podcast-fit-mixed: #f0b46f;
-  --podcast-fit-poor: #b8b1a3;
   --shadow: 0 16px 45px #0004;
   --focus: #e6a27c;
 }
@@ -507,13 +501,13 @@ button {
 }
 .podcast-fit-icon-button.action-button.icon-action { position: relative; overflow: visible; width: 30px; height: 30px; flex-basis: 30px; border-color: transparent; }
 .podcast-fit-icon-button.action-button.icon-action svg { width: 16px; height: 16px; }
-.podcast-fit-icon-button.action-button.icon-action.podcast-fit-good { background: color-mix(in srgb, var(--podcast-fit-good) 16%, var(--white)); border-color: color-mix(in srgb, var(--podcast-fit-good) 30%, var(--line)); color: var(--podcast-fit-good); }
-.podcast-fit-icon-button.action-button.icon-action.podcast-fit-mixed { background: color-mix(in srgb, var(--podcast-fit-mixed) 16%, var(--white)); border-color: color-mix(in srgb, var(--podcast-fit-mixed) 30%, var(--line)); color: var(--podcast-fit-mixed); }
-.podcast-fit-icon-button.action-button.icon-action.podcast-fit-poor { background: color-mix(in srgb, var(--podcast-fit-poor) 14%, var(--white)); border-color: color-mix(in srgb, var(--podcast-fit-poor) 30%, var(--line)); color: var(--podcast-fit-poor); }
-.podcast-fit-marker { position: absolute; right: -4px; bottom: -4px; width: 15px; height: 15px; display: grid; place-items: center; border: 2px solid var(--white); border-radius: 50%; color: var(--white); font: 800 9px/1 ui-sans-serif, system-ui, sans-serif; }
-.podcast-fit-good .podcast-fit-marker { background: var(--podcast-fit-good); }
-.podcast-fit-mixed .podcast-fit-marker { background: var(--podcast-fit-mixed); }
-.podcast-fit-poor .podcast-fit-marker { background: var(--podcast-fit-poor); font-size: 11px; }
+.podcast-fit-icon-button.action-button.icon-action.podcast-fit-good { background: color-mix(in srgb, var(--accent) 12%, var(--white)); border-color: transparent; color: var(--accent); }
+.podcast-fit-icon-button.action-button.icon-action.podcast-fit-mixed { background: color-mix(in srgb, var(--orange) 12%, var(--white)); border-color: transparent; color: var(--orange); }
+.podcast-fit-icon-button.action-button.icon-action.podcast-fit-poor { background: var(--paper); border-color: transparent; color: var(--muted); }
+.podcast-fit-marker { position: absolute; right: 1px; bottom: 1px; width: 12px; height: 12px; display: grid; place-items: center; border: 1px solid var(--white); border-radius: 50%; color: var(--white); font: 800 7px/1 ui-sans-serif, system-ui, sans-serif; }
+.podcast-fit-good .podcast-fit-marker { background: var(--accent); }
+.podcast-fit-mixed .podcast-fit-marker { background: var(--orange); }
+.podcast-fit-poor .podcast-fit-marker { background: var(--muted); font-size: 8px; }
 .podcast-fit-text-good { color: var(--accent); }
 .podcast-fit-text-mixed { color: var(--orange); }
 .podcast-fit-text-poor { color: var(--muted); }
