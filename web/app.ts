@@ -689,23 +689,14 @@ $<HTMLDialogElement>("#podcast-dialog").addEventListener("close", () => {
 });
 function attachAudioControl(parent: HTMLElement, article: Article, copyAvailable = true) {
   parent.replaceChildren();
-  const section = el("div", undefined, "audio-panel-inner");
-  const summary = el("div", undefined, "audio-launch-summary");
-  const fit = article.podcastFit;
-  const label = el("strong", !copyAvailable ? "Save a copy to check podcast fit" : fit ? `${fit.tier === "good" ? "Good" : fit.tier === "mixed" ? "Mixed" : "Less suitable"} for audio` : "Podcast fit");
-  label.classList.add("podcast-fit-inline");
-  if (fit) label.classList.add(`podcast-fit-text-${fit.tier}`);
-  summary.append(label);
-  if (fit) summary.append(el("span", fit.reason, "muted audio-fit-reason"));
-  const button = el("button", undefined, "button secondary podcast-options-button");
+  const button = el("button", undefined, "podcast-options-button");
   button.type = "button";
   button.setAttribute("aria-label", "Podcast options");
   button.innerHTML = `${iconMarkup("podcast")}<span>Podcast options</span>`;
   button.addEventListener("click", () => openPodcastDialog(article, copyAvailable));
-  section.append(summary, button);
-  parent.append(section);
+  parent.append(button);
   parent.hidden = false;
-  return section;
+  return button;
 }
 function stashDraft() {
   const url = $<HTMLInputElement>("#add-url").value.trim();

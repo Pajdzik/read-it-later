@@ -76,10 +76,13 @@ try {
   audio = { enabled: true, state: "none", episodeId: null, sourceRevision: null, characters: 1200, estimatedDurationSeconds: 390, estimatedCostUsd: 0.012, errorCode: null, suitability: article.podcastFit };
   await row.locator(".article-title").click();
   await page.locator("#reader-dialog").waitFor({ state: "visible" });
-  await page.locator("#reader-audio").getByText("Good for audio").waitFor();
+  const readerPodcastControl = page.locator("#reader-audio");
+  const readerPodcastButton = readerPodcastControl.getByRole("button", { name: "Podcast options" });
+  await readerPodcastButton.waitFor();
+  assert.equal(await readerPodcastControl.locator(".audio-panel-inner").count(), 0, "The detail view should use a compact podcast launcher, not the old fit panel.");
+  assert.equal(await readerPodcastControl.evaluate((el) => getComputedStyle(el).paddingTop), "0px", "The detail podcast launcher should not have panel padding.");
   await page.screenshot({ path: "/tmp/potem-podcast-reader.png" });
   assert.equal(postedAudio.length, 1, "Opening the reader must not generate audio.");
-  const readerPodcastButton = page.locator("#reader-audio").getByRole("button", { name: "Podcast options" });
   assert.match(await readerPodcastButton.textContent(), /Podcast options/, "Reader podcast options should pair the icon with a text label.");
   await readerPodcastButton.click();
   await page.locator("#podcast-dialog").waitFor({ state: "visible" });
