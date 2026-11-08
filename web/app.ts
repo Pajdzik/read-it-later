@@ -579,7 +579,7 @@ async function request<T>(path: string, init: RequestInit = {}): Promise<T> {
 }
 function formatAudioEstimate(audio: AudioStatus) {
   const minutes = Math.max(1, Math.round(audio.estimatedDurationSeconds / 60));
-  return `About ${minutes} min · $${audio.estimatedCostUsd.toFixed(3)} at list rate, before free allowance`;
+  return `About ${minutes} min · $${audio.estimatedCostUsd.toFixed(3)}`;
 }
 function audioStateLabel(audio: AudioStatus) {
   return audio.state === "queued" ? "Audio queued" : audio.state === "generating" ? "Generating audio…"
@@ -587,7 +587,7 @@ function audioStateLabel(audio: AudioStatus) {
       : audio.state === "failed" && audio.errorCode === "budget_exceeded" ? "Monthly audio budget reached"
         : audio.state === "failed" && ["provider_timeout_ambiguous", "provider_outcome_unknown"].includes(audio.errorCode || "")
           ? "Speech outcome is uncertain. Retrying could incur another charge."
-          : audio.state === "failed" ? "Audio preparation failed" : "Audio not prepared";
+          : audio.state === "failed" ? "Audio preparation failed" : "";
 }
 function clearAudioPoll() { window.clearTimeout(audioPollTimer); audioPollTimer = 0; audioPollGeneration++; }
 function scheduleAudioPoll(article: Article, active: () => boolean, refresh: () => Promise<void>) {
@@ -622,27 +622,35 @@ async function prepareArticleAudio(article: Article, button: HTMLButtonElement, 
 let podcastDialogArticle: Article | null = null;
 let podcastDialogCopyAvailable = true;
 let podcastDialogGeneration = 0;
+function setPodcastFitIndicator(tier: PodcastSuitability["tier"] | null, label: string) {
+  const indicator = $<HTMLElement>("#podcast-fit-icon");
+  indicator.classList.remove("podcast-fit-good", "podcast-fit-mixed", "podcast-fit-poor");
+  if (tier) indicator.classList.add(`podcast-fit-${tier}`);
+  indicator.setAttribute("aria-label", label);
+  indicator.title = label;
+  indicator.innerHTML = iconMarkup("podcast");
+}
 function renderPodcastStatus(audio: AudioStatus, generation = podcastDialogGeneration) {
   if (generation !== podcastDialogGeneration) return;
   const article = podcastDialogArticle;
   if (!article) return;
   const fit = audio.suitability;
-  const card = $<HTMLElement>("#podcast-fit-card");
-  card.classList.remove("podcast-fit-good", "podcast-fit-mixed", "podcast-fit-poor");
   if (!podcastDialogCopyAvailable) {
-    $("#podcast-fit-label").textContent = "Fit unavailable";
+    setPodcastFitIndicator(null, "Fit unavailable");
     $("#podcast-fit-reason").textContent = "Save a reading copy to check podcast fit.";
   } else if (fit) {
-    card.classList.add(`podcast-fit-${fit.tier}`);
-    $("#podcast-fit-label").textContent = fit.tier === "good" ? "Good fit" : fit.tier === "mixed" ? "Mixed fit" : "Less suitable";
+    const label = fit.tier === "good" ? "Good fit" : fit.tier === "mixed" ? "Mixed fit" : "Less suitable";
+    setPodcastFitIndicator(fit.tier, `${label}. ${fit.reason}`);
     $("#podcast-fit-reason").textContent = fit.reason;
   } else {
-    $("#podcast-fit-label").textContent = "Fit unavailable";
+    setPodcastFitIndicator(null, "Fit unavailable");
     $("#podcast-fit-reason").textContent = "Couldn’t check the saved copy’s format.";
   }
   $("#podcast-estimate").textContent = podcastDialogCopyAvailable ? formatAudioEstimate(audio) : "";
   const status = $<HTMLElement>("#podcast-status");
-  status.textContent = !podcastDialogCopyAvailable ? "Save a reading copy before preparing audio." : audioStateLabel(audio);
+  status.textContent = !podcastDialogCopyAvailable ? "Save a reading copy before preparing audio."
+    : audio.state === "none" && !audio.enabled ? "Audio preparation is unavailable."
+      : audioStateLabel(audio);
   const button = $<HTMLButtonElement>("#podcast-prepare");
   button.hidden = !audio.enabled || audio.state === "ready";
   button.textContent = audio.state === "failed" ? "Retry audio" : "Prepare audio";
@@ -658,8 +666,7 @@ function openPodcastDialog(article: Article, copyAvailable = article.hasCopy !==
   podcastDialogCopyAvailable = copyAvailable;
   const generation = ++podcastDialogGeneration;
   $("#podcast-article-title").textContent = article.title;
-  $("#podcast-fit-card").classList.remove("podcast-fit-good", "podcast-fit-mixed", "podcast-fit-poor");
-  $("#podcast-fit-label").textContent = "Checking fit…";
+  setPodcastFitIndicator(null, "Checking podcast fit…");
   $("#podcast-fit-reason").textContent = "";
   $("#podcast-estimate").textContent = "";
   $("#podcast-status").textContent = "Checking audio status…";
@@ -670,7 +677,7 @@ function openPodcastDialog(article: Article, copyAvailable = article.hasCopy !==
   showDialog(dialog, $("#podcast-heading"));
   void fetchAudioStatus(article).then(audio => renderPodcastStatus(audio, generation)).catch(() => {
     if (generation !== podcastDialogGeneration) return;
-    $("#podcast-fit-label").textContent = "Fit unavailable";
+    setPodcastFitIndicator(null, "Fit unavailable");
     $("#podcast-fit-reason").textContent = copyAvailable ? "Couldn’t check this saved copy." : "Save a reading copy to check podcast fit.";
     $("#podcast-estimate").textContent = "";
     $("#podcast-status").textContent = "Couldn’t load podcast status.";
@@ -689,21 +696,14 @@ $<HTMLDialogElement>("#podcast-dialog").addEventListener("close", () => {
 });
 function attachAudioControl(parent: HTMLElement, article: Article, copyAvailable = true) {
   parent.replaceChildren();
-  const section = el("div", undefined, "audio-panel-inner");
-  const summary = el("div", undefined, "audio-launch-summary");
-  const fit = article.podcastFit;
-  const label = el("strong", !copyAvailable ? "Save a copy to check podcast fit" : fit ? `${fit.tier === "good" ? "Good" : fit.tier === "mixed" ? "Mixed" : "Less suitable"} for audio` : "Podcast fit");
-  label.classList.add("podcast-fit-inline");
-  if (fit) label.classList.add(`podcast-fit-text-${fit.tier}`);
-  summary.append(label);
-  if (fit) summary.append(el("span", fit.reason, "muted audio-fit-reason"));
-  const button = el("button", "Podcast options", "button secondary");
+  const button = el("button", undefined, "podcast-options-button");
   button.type = "button";
+  button.setAttribute("aria-label", "Podcast options");
+  button.innerHTML = `${iconMarkup("podcast")}<span>Podcast options</span>`;
   button.addEventListener("click", () => openPodcastDialog(article, copyAvailable));
-  section.append(summary, button);
-  parent.append(section);
+  parent.append(button);
   parent.hidden = false;
-  return section;
+  return button;
 }
 function stashDraft() {
   const url = $<HTMLInputElement>("#add-url").value.trim();
@@ -982,7 +982,7 @@ function el<K extends keyof HTMLElementTagNameMap>(
   if (className) node.className = className;
   return node;
 }
-type IconName = "capture-failed"  | "mark-read" | "mark-unread" | "more";
+type IconName = "capture-failed" | "mark-read" | "mark-unread" | "more" | "podcast";
 function iconMarkup(name: IconName): string {
   switch (name) {
     case "capture-failed":
@@ -993,6 +993,8 @@ function iconMarkup(name: IconName): string {
       return '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="m5 12 4.5 4.5L19 7" /></svg>';
     case "more":
       return '<svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="5" cy="12" r="1.5"/><circle cx="12" cy="12" r="1.5"/><circle cx="19" cy="12" r="1.5"/></svg>';
+    case "podcast":
+      return '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 13v-1a8 8 0 0 1 16 0v1"/><path d="M4 13h3v7H6a2 2 0 0 1-2-2v-3a2 2 0 0 1 2-2m13 0h1a2 2 0 0 1 2 2v3a2 2 0 0 1-2 2h-1z"/></svg>';
   }
 }
 function iconButton(label: string, icon: IconName, className = "") {
@@ -1096,9 +1098,9 @@ function renderArticle(article: Article) {
   metaRow.append(meta, extractionBadge);
   if (state.session?.audioEnabled === true && article.podcastFit) {
     const label = article.podcastFit.tier === "good" ? "Good audio fit" : article.podcastFit.tier === "mixed" ? "Mixed audio fit" : "Less suitable for audio";
-    const fitBadge = el("span", label, `podcast-fit-badge podcast-fit-${article.podcastFit.tier}`);
-    fitBadge.setAttribute("aria-label", `${label}. ${article.podcastFit.reason}`);
-    metaRow.append(fitBadge);
+    const fitIcon = iconButton(`${label}. ${article.podcastFit.reason}`, "podcast", `podcast-fit-icon-button podcast-fit-${article.podcastFit.tier}`);
+    fitIcon.addEventListener("click", () => openPodcastDialog(article, article.hasCopy === true));
+    metaRow.append(fitIcon);
   }
   const more = el("div", undefined, "article-more");
   const moreButton = iconButton("More actions", "more", "subtle more-action");
@@ -1117,14 +1119,7 @@ function renderArticle(article: Article) {
   link.target = "_blank";
   link.rel = "noopener noreferrer";
   link.addEventListener("click", (e) => { e.stopPropagation(); menu.hidePopover(); });
-  const audioOpen = state.session?.audioEnabled === true ? el("button", "Podcast options", "article-menu-item") : null;
-  if (audioOpen) audioOpen.type = "button";
-  audioOpen?.addEventListener("click", () => {
-    menu.hidePopover();
-    openPodcastDialog(article, article.hasCopy === true);
-  });
   menu.append(edit, link);
-  if (audioOpen) menu.append(audioOpen);
   more.append(moreButton, menu);
   menu.addEventListener("beforetoggle", (event) => {
     if ((event as ToggleEvent).newState !== "open") return;
