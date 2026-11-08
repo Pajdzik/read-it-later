@@ -64,7 +64,14 @@ try {
   await moreButton.click();
   await fitIcon.click();
   await page.locator("#podcast-dialog").waitFor({ state: "visible" });
-  await page.locator("#podcast-estimate").getByText(/About 7 min/).waitFor();
+  const podcastEstimate = page.locator("#podcast-estimate");
+  await podcastEstimate.getByText(/About 7 min/).waitFor();
+  assert.equal((await podcastEstimate.textContent()).includes("before free allowance"), false, "The estimate should show cost without allowance copy.");
+  assert.match(await podcastEstimate.textContent(), /\$0\.012/, "The estimate should include the cost.");
+  const modalFitIcon = page.locator("#podcast-fit-icon");
+  assert.equal((await modalFitIcon.textContent()).trim(), "", "The modal fit indicator should be icon-only.");
+  assert.equal(await modalFitIcon.getAttribute("aria-label"), "Good fit. Mostly prose with no code blocks.");
+  assert.equal(await modalFitIcon.evaluate((el) => getComputedStyle(el.parentElement).display), "flex", "The fit icon should share the article title row.");
   await page.screenshot({ path: "/tmp/potem-podcast-more.png" });
   assert.equal(postedAudio.length, 0, "Showing the estimate must not prepare audio.");
   await page.locator("#podcast-dialog").getByRole("button", { name: "Prepare audio" }).click();

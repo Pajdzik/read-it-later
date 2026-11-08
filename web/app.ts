@@ -579,7 +579,7 @@ async function request<T>(path: string, init: RequestInit = {}): Promise<T> {
 }
 function formatAudioEstimate(audio: AudioStatus) {
   const minutes = Math.max(1, Math.round(audio.estimatedDurationSeconds / 60));
-  return `About ${minutes} min · $${audio.estimatedCostUsd.toFixed(3)} at list rate, before free allowance`;
+  return `About ${minutes} min · $${audio.estimatedCostUsd.toFixed(3)}`;
 }
 function audioStateLabel(audio: AudioStatus) {
   return audio.state === "queued" ? "Audio queued" : audio.state === "generating" ? "Generating audio…"
@@ -622,22 +622,28 @@ async function prepareArticleAudio(article: Article, button: HTMLButtonElement, 
 let podcastDialogArticle: Article | null = null;
 let podcastDialogCopyAvailable = true;
 let podcastDialogGeneration = 0;
+function setPodcastFitIndicator(tier: PodcastSuitability["tier"] | null, label: string) {
+  const indicator = $<HTMLElement>("#podcast-fit-icon");
+  indicator.classList.remove("podcast-fit-good", "podcast-fit-mixed", "podcast-fit-poor");
+  if (tier) indicator.classList.add(`podcast-fit-${tier}`);
+  indicator.setAttribute("aria-label", label);
+  indicator.title = label;
+  indicator.innerHTML = iconMarkup("podcast");
+}
 function renderPodcastStatus(audio: AudioStatus, generation = podcastDialogGeneration) {
   if (generation !== podcastDialogGeneration) return;
   const article = podcastDialogArticle;
   if (!article) return;
   const fit = audio.suitability;
-  const card = $<HTMLElement>("#podcast-fit-card");
-  card.classList.remove("podcast-fit-good", "podcast-fit-mixed", "podcast-fit-poor");
   if (!podcastDialogCopyAvailable) {
-    $("#podcast-fit-label").textContent = "Fit unavailable";
+    setPodcastFitIndicator(null, "Fit unavailable");
     $("#podcast-fit-reason").textContent = "Save a reading copy to check podcast fit.";
   } else if (fit) {
-    card.classList.add(`podcast-fit-${fit.tier}`);
-    $("#podcast-fit-label").textContent = fit.tier === "good" ? "Good fit" : fit.tier === "mixed" ? "Mixed fit" : "Less suitable";
+    const label = fit.tier === "good" ? "Good fit" : fit.tier === "mixed" ? "Mixed fit" : "Less suitable";
+    setPodcastFitIndicator(fit.tier, `${label}. ${fit.reason}`);
     $("#podcast-fit-reason").textContent = fit.reason;
   } else {
-    $("#podcast-fit-label").textContent = "Fit unavailable";
+    setPodcastFitIndicator(null, "Fit unavailable");
     $("#podcast-fit-reason").textContent = "Couldn’t check the saved copy’s format.";
   }
   $("#podcast-estimate").textContent = podcastDialogCopyAvailable ? formatAudioEstimate(audio) : "";
@@ -658,8 +664,7 @@ function openPodcastDialog(article: Article, copyAvailable = article.hasCopy !==
   podcastDialogCopyAvailable = copyAvailable;
   const generation = ++podcastDialogGeneration;
   $("#podcast-article-title").textContent = article.title;
-  $("#podcast-fit-card").classList.remove("podcast-fit-good", "podcast-fit-mixed", "podcast-fit-poor");
-  $("#podcast-fit-label").textContent = "Checking fit…";
+  setPodcastFitIndicator(null, "Checking podcast fit…");
   $("#podcast-fit-reason").textContent = "";
   $("#podcast-estimate").textContent = "";
   $("#podcast-status").textContent = "Checking audio status…";
@@ -670,7 +675,7 @@ function openPodcastDialog(article: Article, copyAvailable = article.hasCopy !==
   showDialog(dialog, $("#podcast-heading"));
   void fetchAudioStatus(article).then(audio => renderPodcastStatus(audio, generation)).catch(() => {
     if (generation !== podcastDialogGeneration) return;
-    $("#podcast-fit-label").textContent = "Fit unavailable";
+    setPodcastFitIndicator(null, "Fit unavailable");
     $("#podcast-fit-reason").textContent = copyAvailable ? "Couldn’t check this saved copy." : "Save a reading copy to check podcast fit.";
     $("#podcast-estimate").textContent = "";
     $("#podcast-status").textContent = "Couldn’t load podcast status.";
