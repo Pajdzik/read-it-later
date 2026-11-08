@@ -24,6 +24,23 @@ function withSecurityHeaders(response: Response): Response {
   return new Response(response.body, { status: response.status, statusText: response.statusText, headers });
 }
 
+function isAuthPath(pathname: string): boolean {
+  return pathname === '/api/session'
+    || pathname === '/api/capture-tokens'
+    || /^\/api\/capture-tokens\/[^/]+$/.test(pathname)
+    || pathname === '/auth/github'
+    || pathname === '/auth/github/callback'
+    || pathname === '/auth/logout';
+}
+
+function isAudioPath(pathname: string): boolean {
+  return /^\/api\/articles\/[^/]+\/audio$/.test(pathname)
+    || /^\/api\/podcast\/episodes\/[^/]+\.mp3$/.test(pathname)
+    || pathname === '/api/podcast/feed.xml'
+    || pathname === '/api/podcast/settings'
+    || pathname === '/api/podcast/token';
+}
+
 export default {
   async queue(batch: MessageBatch<unknown>, env: Env): Promise<void> {
     if (batch.queue.startsWith('read-it-later-audio-')) await consumeAudioBatch(batch, env);
@@ -45,7 +62,11 @@ export default {
     }
     if (url.pathname === "/api" || url.pathname.startsWith("/api/") || url.pathname === "/auth" || url.pathname.startsWith("/auth/")) {
       try {
-        const response = await handleAuth(request, env) ?? await handleAudio(request, env) ?? await handleArticles(request, env, ctx);
+        let response: Response | null;
+        if (isAuthPath(url.pathname)) response = await handleAuth(request, env);
+        else if (isAudioPath(url.pathname)) response = await handleAudio(request, env);
+        else if (url.pathname === '/api' || url.pathname.startsWith('/api/')) response = await handleArticles(request, env, ctx);
+        else response = null;
         return withSecurityHeaders(response ?? errorResponse(404, "not_found", "Route not found"));
       } catch {
         logUnexpectedError("worker.request");
