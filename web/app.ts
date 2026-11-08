@@ -1096,9 +1096,8 @@ function renderArticle(article: Article) {
   );
   read.addEventListener("click", () => mutateRead(article, !article.readAt));
   metaRow.append(meta, extractionBadge);
-  if (state.session?.audioEnabled === true && article.podcastFit) {
-    const label = article.podcastFit.tier === "good" ? "Good audio fit" : article.podcastFit.tier === "mixed" ? "Mixed audio fit" : "Less suitable for audio";
-    const fitIcon = iconButton(`${label}. ${article.podcastFit.reason}`, "podcast", `podcast-fit-icon-button podcast-fit-${article.podcastFit.tier}`);
+  if (state.session?.audioEnabled === true && article.podcastFit?.tier === "good") {
+    const fitIcon = iconButton(`Good podcast candidate. ${article.podcastFit.reason}`, "podcast", "podcast-fit-icon-button podcast-fit-good");
     fitIcon.addEventListener("click", () => openPodcastDialog(article, article.hasCopy === true));
     metaRow.append(fitIcon);
   }
