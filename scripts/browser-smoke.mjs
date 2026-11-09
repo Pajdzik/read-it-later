@@ -391,7 +391,8 @@ try {
   ["title", "description", "metadata"],
   "Article rows with a description must show the title before the description and metadata.");
   assert.equal(await entryArticle.locator(".article-meta-row .extraction-badge").count(), 1,
-    "The capture status icon must be inside the metadata row.");
+    "The capture status element must stay inside the metadata row.");
+  await expect(entryArticle.locator(".extraction-badge")).toBeHidden();
   await page.getByRole("button", { name: "Show more" }).click();
   await page.waitForFunction(() => document.querySelectorAll("#articles .article").length === 51);
   assert.equal(await page.locator(".article").count(), 51, "The second list page should append once without dropping the first page.");
@@ -403,7 +404,8 @@ try {
   ["title", "metadata"],
   "Article rows without a description must retain their title and metadata order.");
   assert.equal(await noDescriptionArticle.locator(".article-meta-row .extraction-badge").count(), 1,
-    "Rows without a description must also keep the capture status icon in the metadata row.");
+    "Rows without a description must also keep the capture status element in the metadata row.");
+  await expect(noDescriptionArticle.locator(".extraction-badge")).toBeHidden();
   const entryActions = entryArticle.locator(".article-actions");
   const entryMetaRow = entryArticle.locator(".article-meta-row");
   const entryRead = entryActions.getByRole("button", { name: "Mark read", exact: true });
