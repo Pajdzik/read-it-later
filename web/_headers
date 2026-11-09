@@ -24,3 +24,6 @@
 
 /capture.js
   Cache-Control: no-cache
+
+/theme.js
+  Cache-Control: no-cache

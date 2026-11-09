@@ -14,6 +14,7 @@ import { checkReadingSuggestion } from "./reading-suggestion-smoke.mjs";
 import { captureRecoverySmoke } from "./capture-recovery-smoke.mjs";
 import { enrichmentSmoke } from "./enrichment-smoke.mjs";
 import { readerTitleSmoke } from "./reader-title-smoke.mjs";
+import { themeContinuitySmoke } from "./theme-continuity-smoke.mjs";
 
 const storage = await mkdtemp(path.join(os.tmpdir(), "read-later-smoke-"));
 const portServer = net.createServer();
@@ -116,6 +117,7 @@ try {
   await enrichmentSmoke(browser, base);
   await captureStatusSmoke(browser, base);
   await readerTitleSmoke(browser, base);
+  await themeContinuitySmoke(browser, base);
   const context = await browser.newContext({
     viewport: { width: 1440, height: 1000 },
   });
