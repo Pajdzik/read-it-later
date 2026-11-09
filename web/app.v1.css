@@ -3,31 +3,39 @@
   --paper: #f7f1e6;
   --white: #fffaf2;
   --ink: #2e2923;
-  --muted: #756b60;
-  --line: #e6dbcd;
+  --title: #145a42;
+  --muted: #6e6257;
+  --line: #ddd2c3;
   --accent: #145a42;
   --brand: #145a42;
-  --highlight: #e7eee4;
-  --orange: #b76543;
+  --highlight: #e4ede5;
+  --emphasis: #a64f2d;
+  --orange: var(--emphasis);
+  --primary-foreground: #fffaf2;
+  --placeholder: #756b60;
   --shadow: 0 16px 45px #4a332010;
-  --focus: #5b8d72;
+  --focus: #3f795f;
   --danger-surface: #fae9e3;
   --danger-text: #873f2e;
   --danger-outline: #b76543;
 }
 [data-theme="dark"] {
   color-scheme: dark;
-  --paper: #171c19;
-  --white: #202723;
-  --ink: #eee7d8;
-  --muted: #b8b1a3;
-  --line: #39433d;
-  --accent: #eaa184;
-  --brand: #eaa184;
-  --highlight: #293b32;
-  --orange: #eaa184;
+  --paper: #102d24;
+  --white: #183a2f;
+  --ink: #f3ebdd;
+  --title: #f3ebdd;
+  --muted: #bac8be;
+  --line: #355449;
+  --accent: #e9a17d;
+  --brand: #70a88a;
+  --highlight: #234638;
+  --emphasis: #e9a17d;
+  --orange: var(--emphasis);
+  --primary-foreground: #102d24;
+  --placeholder: #bac8be;
   --shadow: 0 16px 45px #0004;
-  --focus: #e6a27c;
+  --focus: #8cbea2;
   --danger-surface: #482e2b;
   --danger-text: #f2c5b3;
   --danger-outline: #d58a70;
@@ -195,7 +203,7 @@ button {
   letter-spacing: -1.5px;
 }
 .hero h1 em {
-  color: var(--accent);
+  color: var(--title);
   font-weight: 400;
 }
 .hero-copy {
@@ -267,7 +275,7 @@ button {
 }
 .add-form input::placeholder,
 .search input::placeholder {
-  color: #a0aaa3;
+  color: var(--placeholder);
 }
 .button {
   border: 0;
@@ -282,10 +290,7 @@ button {
 }
 .primary {
   background: var(--accent);
-  color: white;
-}
-[data-theme="dark"] .primary {
-  color: var(--paper);
+  color: var(--primary-foreground);
 }
 .secondary {
   background: var(--highlight);
@@ -425,8 +430,8 @@ button {
   font-size: 13px;
 }
 .tabs button[aria-pressed="true"] {
-  border-color: var(--accent);
-  color: var(--accent);
+  border-color: var(--emphasis);
+  color: var(--emphasis);
   font-weight: 700;
 }
 .muted {
