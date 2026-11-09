@@ -216,13 +216,16 @@ try {
   const article = page
     .locator(".article")
     .filter({ hasText: "Browser smoke article" });
+  const openDetailSection = async (name) => detail.locator(`details[data-disclosure="${name}"]`).evaluate(node => { node.open = true; });
   await title.click();
   const detail = page.locator("#detail-content");
+  await openDetailSection("markdown");
   const markdown = detail.getByRole("textbox", { name: "Markdown copy" });
   await detail.getByText("No Markdown copy saved yet.").waitFor();
   assert.equal(await detail.getByRole("button", { name: "Read saved copy" }).isHidden(), true, "A missing copy must not show reader actions.");
   assert.equal(await detail.getByRole("button", { name: "Download Markdown" }).isHidden(), true, "A missing copy must not show download actions.");
   const githubCheckbox = detail.getByRole("checkbox", { name: "Also send to an integration" });
+  await openDetailSection("integrations");
   await detail.getByText(/Pajdzik\/Kamilpedia/).waitFor();
   assert.equal(await githubCheckbox.isChecked(), false, "GitHub saving must start unchecked.");
   assert.equal(await githubCheckbox.isDisabled(), false, "Configured GitHub saving should be available as an opt-in.");
@@ -280,6 +283,8 @@ try {
   await title.waitFor();
   await article.getByRole("button", { name: "More actions", exact: true }).click();
   await article.getByRole("button", { name: "Edit", exact: true }).click();
+  await openDetailSection("markdown");
+  await openDetailSection("integrations");
   await page.locator("#detail-content .copy-status").getByText(/uploaded file/).waitFor();
   assert.equal(await page.locator("#detail-content").getByRole("textbox", { name: "Markdown copy" }).inputValue(), uploadedMarkdown, "Uploaded Markdown must survive reload.");
   await detail.getByText(/Not sent to GitHub yet/).waitFor();
@@ -307,6 +312,8 @@ try {
   await title.waitFor();
   await article.getByRole("button", { name: "More actions", exact: true }).click();
   await article.getByRole("button", { name: "Edit", exact: true }).click();
+  await openDetailSection("markdown");
+  await openDetailSection("integrations");
   await detail.getByText(/Sent to GitHub/).waitFor();
   assert.equal(await githubCheckbox.isChecked(), false);
   assert.equal(await markdown.inputValue(), "# GitHub checkbox copy\n\nStill saved if GitHub fails.");
@@ -641,6 +648,7 @@ try {
   await pendingCopyStarted;
   await article.getByRole("button", { name: "More actions", exact: true }).click();
   await article.getByRole("button", { name: "Edit", exact: true }).click();
+  await openDetailSection("markdown");
   releasePendingCopy();
   await detail.getByRole("textbox", { name: "Markdown copy" }).waitFor();
   await detail.locator(".copy-status").getByText(/pasted Markdown/).waitFor();
@@ -886,6 +894,7 @@ try {
   assert.equal(await reader.locator("#reader-body").textContent(), "", "Closing the reader must discard its private DOM.");
   await article.getByRole("button", { name: "More actions", exact: true }).click();
   await article.getByRole("button", { name: "Edit", exact: true }).click();
+  await openDetailSection("markdown");
   await detail.locator(".copy-status").getByText(/pasted Markdown/).waitFor();
   await detail.getByRole("textbox", { name: "Markdown copy" }).fill("Unsaved draft stays in the editor.");
   const downloadButton = detail.getByRole("button", { name: "Download Markdown" });
@@ -909,6 +918,7 @@ try {
   await title.waitFor();
   await article.getByRole("button", { name: "More actions", exact: true }).click();
   await article.getByRole("button", { name: "Edit", exact: true }).click();
+  await openDetailSection("markdown");
   await detail.locator(".copy-status").getByText(/pasted Markdown/).waitFor();
   await detail.getByRole("button", { name: "Read saved copy" }).click();
   await readerBody.getByRole("heading", { name: "Preserved copy — Ω" }).waitFor();
@@ -1469,6 +1479,8 @@ try {
   await urlPage.screenshot({ path: path.join(os.tmpdir(), "potem-pending-reader-mobile.png") });
   await urlReader.getByRole("button", { name: "Paste or upload Markdown" }).click();
   const asyncDetail = urlPage.locator("#detail-content");
+  await asyncDetail.locator('details[data-disclosure="markdown"]').evaluate(node => { node.open = true; });
+  await asyncDetail.locator('details[data-disclosure="capture"]').evaluate(node => { node.open = true; });
   const draftBox = asyncDetail.getByRole("textbox", { name: "Markdown copy" });
   await draftBox.fill("# My manual draft\n\nKeep this while background capture finishes.");
   await asyncDetail.locator("#detail-extraction-status").getByText("Capture queued").waitFor();
@@ -1520,19 +1532,24 @@ try {
   });
   await failedArticle.getByRole("button", { name: "More actions", exact: true }).click();
   await failedArticle.getByRole("button", { name: "Edit", exact: true }).click();
+  await urlPage.locator('#detail-content details[data-disclosure="capture"]').evaluate(node => { node.open = true; });
   const lateDetailResponse = urlPage.waitForResponse((response) => response.url().endsWith(`/articles/${failedFixture.id}/extraction/retry`));
   await urlPage.locator("#detail-content").getByRole("button", { name: "Retry capture" }).click();
   await detailRetryStarted;
   await urlPage.locator("#detail-dialog .dialog-close button").click();
   await asyncArticle.getByRole("button", { name: "More actions", exact: true }).click();
   await asyncArticle.getByRole("button", { name: "Edit", exact: true }).click();
+  await urlPage.locator('#detail-content details[data-disclosure="markdown"]').evaluate(node => { node.open = true; });
+  await urlPage.locator('#detail-content details[data-disclosure="capture"]').evaluate(node => { node.open = true; });
   releaseDetailRetry();
   await (await lateDetailResponse).finished();
   await urlPage.evaluate(() => new Promise((resolve) => requestAnimationFrame(() => requestAnimationFrame(resolve))));
-  assert.equal(await urlPage.locator("#detail-content h2").textContent(), "Background capture smoke", "A late retry must not replace another article's details.");
+  assert.equal(await urlPage.locator("#detail-content h2").textContent(), "Edit article", "A late retry must not replace another article's details.");
+  assert.equal(await urlPage.locator("#detail-content .edit-form input[data-field=title]").inputValue(), "Background capture smoke", "The selected article title must remain visible in its editable field.");
   await urlPage.locator("#detail-dialog .dialog-close button").click();
   await failedArticle.getByRole("button", { name: "More actions", exact: true }).click();
   await failedArticle.getByRole("button", { name: "Edit", exact: true }).click();
+  await urlPage.locator('#detail-content details[data-disclosure="capture"]').evaluate(node => { node.open = true; });
   await urlPage.locator("#detail-content .edit-form input[data-field=title]").fill("Keep my unsaved title");
   await urlPage.locator("#detail-content").getByRole("button", { name: "Retry capture" }).click();
   await urlPage.locator("#detail-extraction-status").getByText("Capture queued").waitFor();

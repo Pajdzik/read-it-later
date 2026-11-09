@@ -59,6 +59,8 @@ export async function captureRecoverySmoke(browser, base) {
   const edit = async () => {
     await page.locator('.article[data-id="recover1"]').getByRole('button', { name: 'More actions', exact: true }).click();
     await page.locator('.article[data-id="recover1"]').getByRole('button', { name: 'Edit', exact: true }).click();
+    await detail.locator('details[data-disclosure="capture"]').evaluate(node => { node.open = true; });
+    await detail.locator('details[data-disclosure="markdown"]').evaluate(node => { node.open = true; });
     await expect(detail.getByRole('textbox', { name: 'Markdown copy', exact: true })).toHaveValue(copy.markdown);
   };
   const poll = async () => {
@@ -70,6 +72,7 @@ export async function captureRecoverySmoke(browser, base) {
     await page.clock.install();
     await page.goto(base);
     await edit();
+    const captureDisclosure = detail.locator('details[data-disclosure="capture"]');
     const recapture = detail.getByRole('button', { name: 'Recapture article', exact: true });
     const markdown = detail.getByRole('textbox', { name: 'Markdown copy', exact: true });
     const refreshMetadata = detail.getByRole('checkbox', { name: 'Also refresh title, author, and description' });
@@ -109,9 +112,11 @@ export async function captureRecoverySmoke(browser, base) {
     await page.reload();
     await edit();
     await expect(detail.locator('#detail-extraction-status')).toHaveText('Recapture queued');
+    await captureDisclosure.evaluate(node => { node.open = false; });
     complete(true);
     await poll();
     await expect(detail.locator('#detail-extraction-status')).toContainText('Recapture failed');
+    await expect(captureDisclosure).toHaveAttribute('open', '');
     await expect(markdown).toHaveValue('# Original content');
     await expect(recapture).toBeEnabled();
     // Read the old copy while another capture finishes; polling must not replace its body.

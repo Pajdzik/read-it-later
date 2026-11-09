@@ -293,6 +293,7 @@ async function runProfile(name, browserType, device) {
     `${name}: pending reader should preserve the source link.`);
   await pendingReader.getByRole("button", { name: "Paste or upload Markdown" }).tap();
   const shareDetail = page.locator("#detail-content");
+  await shareDetail.locator('details[data-disclosure="markdown"]').evaluate(node => { node.open = true; });
   const markdownDraft = `# ${shareTitle}\n\nManually saved while the background processor is paused. **Important formatting** stays readable.\n\n| Fixture | State |\n| --- | --- |\n| Mobile | paused |`;
   const shareMarkdown = `${markdownDraft}\n\n${Array.from({ length: 8 }, (_, index) => `Long section ${index + 1}: ${"mobile-reader-scroll-".repeat(28)}`).join("\n\n")}`;
   await shareDetail.getByRole("textbox", { name: "Markdown copy" }).fill(shareMarkdown);
@@ -570,6 +571,7 @@ async function runProfile(name, browserType, device) {
   // overflow. Paste the copy through article details, then open the title.
   await article.getByRole("button", { name: "More actions", exact: true }).tap();
   await article.getByRole("button", { name: "Edit", exact: true }).tap();
+  await page.locator("#detail-content details[data-disclosure=markdown]").evaluate(node => { node.open = true; });
   const detail = page.locator("#detail-content");
   assert.equal(await page.evaluate(() => document.activeElement?.matches("#detail-content input")), true,
     `${name}: detail dialog opened with its close button focused.`);
@@ -579,7 +581,7 @@ async function runProfile(name, browserType, device) {
     `${name}: closing Edit should return touch focus to More actions.`);
   await article.getByRole("button", { name: "More actions", exact: true }).tap();
   await article.getByRole("button", { name: "Edit", exact: true }).tap();
-  await detail.locator(".copy-editor > .copy-status")
+  await detail.locator(":scope > .copy-status")
     .filter({ hasText: /^Saved .*captured or pasted Markdown/ }).waitFor();
   const wideMarkdown = `# Wide reader check\n\n${"word-without-breaks-".repeat(24)}\n\n| left | ${"column-header-".repeat(8)} |\n| --- | --- |\n| text | ${"wide-cell-".repeat(24)} |`;
   await detail.getByRole("textbox", { name: "Markdown copy" }).fill(wideMarkdown);
