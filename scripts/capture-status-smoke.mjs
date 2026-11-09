@@ -9,10 +9,10 @@ export async function captureStatusSmoke(browser, base) {
   const articles = [
     { id: 'ready001', title: 'Already saved', state: 'ready' },
     { id: 'queued01', title: 'Waiting for a copy', state: 'queued', hasCopy: true },
-    { id: 'failed001', title: 'Saved copy with failed recapture', state: 'failed', hasCopy: true },
-    { id: 'recover01', title: 'Saved copy being recaptured', state: 'ready', hasCopy: true, recovery: 'queued' },
-    { id: 'recover02', title: 'Saved copy after successful recapture', state: 'ready', hasCopy: true, recovery: 'succeeded' },
-    { id: 'recover03', title: 'Saved copy with failed recapture', state: 'ready', hasCopy: true, recovery: 'failed' },
+    { id: 'fail0001', title: 'Saved copy with failed recapture', state: 'failed', hasCopy: true },
+    { id: 'recov001', title: 'Saved copy being recaptured', state: 'ready', hasCopy: true, recovery: 'queued' },
+    { id: 'recov002', title: 'Saved copy after successful recapture', state: 'ready', hasCopy: true, recovery: 'succeeded' },
+    { id: 'recov003', title: 'Saved copy with failed recapture', state: 'ready', hasCopy: true, recovery: 'failed' },
     { id: 'link0001', title: 'Link only', state: 'none' },
   ];
   await page.route('**/api/**', async route => {
@@ -41,10 +41,10 @@ export async function captureStatusSmoke(browser, base) {
     await expect(page.locator('#articles')).not.toContainText(/paused/i);
     await expect(page.locator('[data-id="ready001"] .extraction-badge')).toBeHidden();
     await expect(page.locator('[data-id="queued01"]').getByRole('img', { name: 'Capture queued', exact: true })).toBeVisible();
-    await expect(page.locator('[data-id="failed001"]').getByRole('img', { name: 'Capture failed', exact: true })).toBeVisible();
-    await expect(page.locator('[data-id="recover01"]').getByRole('img', { name: 'Recapture queued', exact: true })).toBeVisible();
-    await expect(page.locator('[data-id="recover02"] .extraction-badge')).toBeHidden();
-    await expect(page.locator('[data-id="recover03"]').getByRole('img', { name: /Recapture failed/ })).toBeVisible();
+    await expect(page.locator('[data-id="fail0001"]').getByRole('img', { name: 'Capture failed', exact: true })).toBeVisible();
+    await expect(page.locator('[data-id="recov001"]').getByRole('img', { name: 'Recapture queued', exact: true })).toBeVisible();
+    await expect(page.locator('[data-id="recov002"] .extraction-badge')).toBeHidden();
+    await expect(page.locator('[data-id="recov003"]').getByRole('img', { name: /Recapture failed/ })).toBeVisible();
     await expect(page.locator('[data-id="link0001"] .extraction-badge')).toBeHidden();
     await expect(page.locator('#capture-status')).toHaveCount(1);
 
@@ -60,7 +60,7 @@ export async function captureStatusSmoke(browser, base) {
     await expect(page.locator('#capture-status')).toBeHidden();
     await expect(page.locator('[data-id="ready001"] .extraction-badge')).toBeHidden();
     await expect(page.locator('[data-id="queued01"]').getByRole('img', { name: 'Capture queued', exact: true })).toBeVisible();
-    await expect(page.locator('[data-id="failed001"]').getByRole('img', { name: 'Capture failed', exact: true })).toBeVisible();
+    await expect(page.locator('[data-id="fail0001"]').getByRole('img', { name: 'Capture failed', exact: true })).toBeVisible();
     console.log('Capture status smoke passed: one global pause notice, pending/failed indicators, hidden routine success, and empty libraries.');
   } finally { await context.close(); }
 }
