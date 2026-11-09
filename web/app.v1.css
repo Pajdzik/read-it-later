@@ -11,6 +11,9 @@
   --orange: #b76543;
   --shadow: 0 16px 45px #4a332010;
   --focus: #5b8d72;
+  --danger-surface: #fae9e3;
+  --danger-text: #873f2e;
+  --danger-outline: #b76543;
 }
 [data-theme="dark"] {
   color-scheme: dark;
@@ -25,6 +28,9 @@
   --orange: #eaa184;
   --shadow: 0 16px 45px #0004;
   --focus: #e6a27c;
+  --danger-surface: #482e2b;
+  --danger-text: #f2c5b3;
+  --danger-outline: #d58a70;
 }
 * {
   box-sizing: border-box;
@@ -54,6 +60,10 @@ input,
 select {
   font: inherit;
   color: inherit;
+}
+input[type="checkbox"],
+input[type="radio"] {
+  accent-color: var(--accent);
 }
 button,
 a {
@@ -282,8 +292,9 @@ button {
   color: var(--accent);
 }
 .danger {
-  background: #fae9e3;
-  color: #9a452d;
+  border: 1px solid var(--danger-outline);
+  background: transparent;
+  color: var(--danger-text);
 }
 .title-option {
   display: flex;
@@ -430,8 +441,8 @@ button {
   font-size: 13px;
 }
 .notice.error {
-  background: #fae9e3;
-  color: #9a452d;
+  background: var(--danger-surface);
+  color: var(--danger-text);
 }
 .loading {
   padding: 26px;
@@ -664,7 +675,7 @@ button {
   color: var(--muted);
 }
 .danger-text {
-  color: #a24c34;
+  color: var(--danger-text);
 }
 .empty {
   padding: 45px 15px;
@@ -1156,7 +1167,6 @@ body:has(#reader-dialog[open]) {
 }
 .integration-option input, .capture-refresh-option input {
   width: auto;
-  accent-color: var(--ink);
 }
 .integration-select {
   width: 100%;
