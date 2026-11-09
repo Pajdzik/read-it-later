@@ -105,7 +105,7 @@ export async function readerCompletionSmoke(context, base, sourceBase) {
     await page.screenshot({ path: "/tmp/potem-reader-completion-desktop-dark.png" });
     await toggle.click();
     await expect(page.locator("#notice")).toHaveText("Marked as unread.");
-    await expect(page.locator("#last-opened")).toHaveAttribute("aria-label", "Last opened");
+    await expect(page.locator("#last-opened")).toHaveAttribute("aria-label", "Continue reading");
     await expect(row(first.id)).toHaveCount(0);
     await page.reload();
     assert.equal(await page.evaluate(async (id) => (await (await fetch(`/api/articles/${id}`)).json()).article.readAt, first.id), null, "Marking unread must persist across reloads.");
