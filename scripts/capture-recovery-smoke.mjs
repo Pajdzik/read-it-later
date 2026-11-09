@@ -84,6 +84,11 @@ export async function captureRecoverySmoke(browser, base) {
     await expect(recapture).toBeDisabled();
     await detail.getByRole('button', { name: 'Discard unsaved changes' }).click();
     await refreshMetadata.check();
+    await page.route('**/api/articles/recover1/extraction/recapture', route =>
+      route.fulfill({ status: 503, json: { error: { message: 'Temporary recovery outage' } } }), { times: 1 });
+    await recapture.click();
+    await expect(recapture).toBeEnabled();
+    await expect(captureDisclosure.getByRole('alert')).toContainText('Temporary recovery outage');
     await recapture.click();
     await expect(detail.locator('#detail-extraction-status')).toHaveText('Recapture queued');
     assert.equal(refresh, true);

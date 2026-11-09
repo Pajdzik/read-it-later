@@ -1397,7 +1397,8 @@ function renderDetail(article: Article, restartPolling = true) {
   descriptionInput.value = article.description ?? ''; descriptionInput.defaultValue = descriptionInput.value;
   if (article.descriptionOrigin === 'generated') {
     const generated = el('span', 'Generated', 'generated-label');
-    generated.setAttribute('aria-hidden', 'true');
+    generated.id = 'detail-description-origin';
+    descriptionInput.setAttribute('aria-describedby', generated.id);
     descriptionLabel.append(generated);
   }
   descriptionLabel.append(descriptionInput);
@@ -1585,6 +1586,9 @@ async function renderCopyEditor(article: Article, captureDisclosure: HTMLDetails
   discard.type = 'button';
   const recoveryHint = el('p', undefined, 'muted copy-status');
   recoveryHint.setAttribute('aria-live', 'polite');
+  const recoveryError = el('p', undefined, 'notice error');
+  recoveryError.setAttribute('role', 'alert');
+  recoveryError.hidden = true;
   const metadataFields = [...root.querySelectorAll<HTMLInputElement | HTMLTextAreaElement>('.edit-form [data-field]')];
   const isDirty = () => Boolean(copyDrafts.has(article.id) || metadataFields.some(field => field.value !== field.defaultValue || field.dataset.cleared === 'true'));
   const updateRecoveryControls = () => {
@@ -1609,6 +1613,7 @@ async function renderCopyEditor(article: Article, captureDisclosure: HTMLDetails
   const recover = async (action: 'recapture' | 'undo') => {
     if (!loaded || saving || isDirty()) return;
     saving = true;
+    recoveryError.hidden = true;
     updateRecoveryControls();
     message.hidden = true;
     try {
@@ -1627,7 +1632,8 @@ async function renderCopyEditor(article: Article, captureDisclosure: HTMLDetails
       void load();
     } catch (error) {
       if (root.contains(section)) {
-        recoveryHint.textContent = `Couldn’t ${action === 'undo' ? 'undo recapture' : 'queue recapture'}. ${(error as Error).message}`;
+        recoveryError.textContent = `Couldn’t ${action === 'undo' ? 'undo recapture' : 'queue recapture'}. ${(error as Error).message}`;
+        recoveryError.hidden = false;
         revealDetailDisclosure(captureDisclosure);
       }
     } finally { saving = false; updateRecoveryControls(); }
@@ -1636,7 +1642,7 @@ async function renderCopyEditor(article: Article, captureDisclosure: HTMLDetails
   undo.addEventListener('click', () => { void recover('undo'); });
   const recoveryActions = el('div', undefined, 'saved-copy-actions');
   recoveryActions.append(recapture, undo, discard);
-  recovery.append(refreshLabel, recoveryActions, recoveryHint);
+  recovery.append(refreshLabel, recoveryActions, recoveryHint, recoveryError);
   captureDisclosure.append(recovery);
   updateRecoveryControls();
   save.disabled = true;
