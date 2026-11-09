@@ -287,54 +287,69 @@
           </select>
         </div>
       </section>
-      <section class="settings-section">
+      <section id="settings-library" class="settings-section" hidden>
         <h3>Library</h3>
-        <div class="settings-library-actions">
-          <button id="export" class="button secondary" type="button">Export JSON (without PDFs)</button>
-          <a id="export-archive" class="button secondary" href="/api/archive">Export complete archive</a>
-          <button id="import-archive-open" class="button secondary" type="button">Restore archive</button>
-          <input id="import-archive-file" type="file" accept="application/zip,.zip" hidden />
-          <button id="import-open" class="button secondary" type="button">Import JSON</button>
-          <input id="import-file" type="file" accept="application/json,.json" hidden />
-        </div>
-      </section>
-      <section class="settings-section">
-        <h3>Private podcast</h3>
-        <p>Prepare English audio for saved articles, then follow your private feed in a podcast app. Episodes stay in Potem. Keep the feed URL private; rotating it requires updating your podcast subscription.</p>
-        <div id="podcast-settings" class="podcast-settings"><p class="muted">Loading podcast settings…</p></div>
-      </section>
-      <section class="settings-section">
-        <h3>Capture tokens</h3>
-        <p>
-          Use a token with the iOS Shortcut to save links from the Share menu. A
-          token is shown once when created.
-        </p>
-        <form id="token-form" class="token-form">
-          <label for="token-label">Device or shortcut name</label>
-          <div>
-            <input
-              id="token-label"
-              maxlength="80"
-              placeholder="e.g. My iPhone"
-              required
-            /><button class="button primary" type="submit">Create token</button>
+        <details id="settings-library-backup" class="settings-disclosure">
+          <summary>Back up library</summary>
+          <div class="settings-disclosure-content settings-library-actions">
+            <button id="export" class="button secondary" type="button">Export JSON (without PDFs)</button>
+            <a id="export-archive" class="button secondary" href="/api/archive">Export complete archive</a>
           </div>
-        </form>
-        <div id="new-token" class="new-token" hidden></div>
-        <ul id="tokens" class="token-list"></ul>
+        </details>
+        <details id="settings-library-restore" class="settings-disclosure">
+          <summary>Restore library</summary>
+          <div class="settings-disclosure-content settings-library-actions">
+            <button id="import-archive-open" class="button secondary" type="button">Restore archive</button>
+            <input id="import-archive-file" type="file" accept="application/zip,.zip" hidden />
+            <button id="import-open" class="button secondary" type="button">Import JSON</button>
+            <input id="import-file" type="file" accept="application/json,.json" hidden />
+          </div>
+        </details>
       </section>
-      <section class="settings-section">
-        <h3>Integrations</h3>
-        <p>Optionally send saved copies to another destination. Choose an integration when saving a copy or send it later from article details.</p>
-        <div id="settings-integrations"></div>
-      </section>
-      <section class="settings-section">
-        <h3>Capture help</h3>
-        <p>
-          Set up your desktop bookmarklet or iOS Shortcut using the
-          <a href="/capture">capture guide</a>.
-        </p>
-      </section>
+      <details id="settings-private-podcast" class="settings-section settings-disclosure" hidden>
+        <summary>Private podcast</summary>
+        <div class="settings-disclosure-content">
+          <p>Prepare English audio for saved articles, then follow your private feed in a podcast app. Episodes stay in Potem. Keep the feed URL private; rotating it requires updating your podcast subscription.</p>
+          <div id="podcast-settings" class="podcast-settings"><p class="muted">Loading podcast settings…</p></div>
+        </div>
+      </details>
+      <details id="settings-saving-devices" class="settings-section settings-disclosure" hidden>
+        <summary>Saving from devices</summary>
+        <div class="settings-disclosure-content">
+          <h3>Capture tokens</h3>
+          <p>
+            Use a token with the iOS Shortcut to save links from the Share menu. A
+            token is shown once when created.
+          </p>
+          <form id="token-form" class="token-form">
+            <label for="token-label">Device or shortcut name</label>
+            <div>
+              <input
+                id="token-label"
+                maxlength="80"
+                placeholder="e.g. My iPhone"
+                required
+              /><button class="button primary" type="submit">Create token</button>
+            </div>
+          </form>
+          <div id="new-token" class="new-token" hidden></div>
+          <ul id="tokens" class="token-list"></ul>
+          <div class="settings-device-help">
+            <h3>Capture help</h3>
+            <p>
+              Set up your desktop bookmarklet or iOS Shortcut using the
+              <a href="/capture">capture guide</a>.
+            </p>
+          </div>
+        </div>
+      </details>
+      <details id="settings-integrations-disclosure" class="settings-section settings-disclosure" hidden>
+        <summary>Integrations</summary>
+        <div class="settings-disclosure-content">
+          <p>Optionally send saved copies to another destination. Choose an integration when saving a copy or send it later from article details.</p>
+          <div id="settings-integrations"></div>
+        </div>
+      </details>
       <section class="settings-section">
         <h3>Account</h3>
         <button id="logout" class="button secondary" type="button" hidden>
