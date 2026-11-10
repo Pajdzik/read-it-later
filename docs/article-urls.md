@@ -68,7 +68,7 @@ Saved articles…
 
 Use a single compact row with the current title as a real article link. On phones, let the title wrap and put the action below it if necessary. Hide the row when there is no valid remembered article. Showing it must not change the selected list filter or insert an article into the unread list.
 
-Call it **Last opened** because opening a copy does not mean finishing it. Update the pointer only when saved Markdown has successfully rendered for the current navigation. Opening Edit, viewing pending capture, a failed load, and a superseded request do not replace it. Explicit Mark read/Mark unread remains the existing server-owned completion state.
+Call it **Last opened** because opening a copy does not mean finishing it. Update the pointer only when saved Markdown has successfully rendered for the current navigation. Opening Edit, viewing pending capture, a failed load, and a superseded request do not replace it. Explicit Mark as read/Mark as unread remains the existing server-owned completion state.
 
 Persist one small versioned local-storage record:
 
@@ -133,7 +133,7 @@ Cross-device last-opened synchronization and restoring a position within an arti
 - Convert legacy JSON/GitHub fixtures using short IDs; verify matching JSON/frontmatter IDs, exact body bytes, bounded output batches, unchanged source inputs, and idempotent restore. No article-ID alias table or URL-specific ID is introduced.
 - GitHub uses a stable article-ID filename, checks ownership before replacement, recreates deleted remote files, and confirms ambiguous writes by exact-byte reread. Title changes update frontmatter in place.
 - Direct links work for read articles and articles beyond the first list page, including when the list request fails.
-- Last opened survives browser restart and a successful Mark read, appears in the unread view even if its article is read, and fetches the current title after rename. Failed or pending copy loads never replace it.
+- Last opened survives browser restart and a successful Mark as read, appears in the unread view even if its article is read, and fetches the current title after rename. Failed or pending copy loads never replace it.
 - Deleted, malformed, and temporarily unavailable remembered articles follow the distinct cleanup/retry behavior. Unavailable local storage and clipboard do not block reading.
 - Logged-out entry and session expiry return to the requested article after authentication. Capture drafts and extension connection flows keep priority. No arbitrary external return URL is accepted.
 - Delay article/copy responses, then Back, open another article, Edit, or logout; no stale reader, URL, tab title, or last-opened update appears.

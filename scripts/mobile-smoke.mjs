@@ -293,6 +293,7 @@ async function runProfile(name, browserType, device) {
     `${name}: pending reader should preserve the source link.`);
   await pendingReader.getByRole("button", { name: "Paste or upload Markdown" }).tap();
   const shareDetail = page.locator("#detail-content");
+  await shareDetail.locator('details[data-disclosure="markdown"]').evaluate(node => { node.open = true; });
   const markdownDraft = `# ${shareTitle}\n\nManually saved while the background processor is paused. **Important formatting** stays readable.\n\n| Fixture | State |\n| --- | --- |\n| Mobile | paused |`;
   const shareMarkdown = `${markdownDraft}\n\n${Array.from({ length: 8 }, (_, index) => `Long section ${index + 1}: ${"mobile-reader-scroll-".repeat(28)}`).join("\n\n")}`;
   await shareDetail.getByRole("textbox", { name: "Markdown copy" }).fill(shareMarkdown);
@@ -465,8 +466,8 @@ async function runProfile(name, browserType, device) {
   // Explicit read state persists after a reload; opening the saved title does
   // not itself mark it read. Search and status filters navigate the real list.
   await page.locator('[data-status="all"]').tap();
-  await article.getByRole("button", { name: "Mark read" }).tap();
-  await article.getByRole("button", { name: "Mark unread" }).waitFor();
+  await article.getByRole("button", { name: "Mark as read" }).tap();
+  await article.getByRole("button", { name: "Mark as unread" }).waitFor();
   const articleId = await article.getAttribute("data-id");
   const readAtAfterSave = await page.evaluate(async (id) => {
     const pageData = await fetch("/api/articles?status=all", { cache: "no-store" }).then((response) => response.json());
@@ -556,11 +557,11 @@ async function runProfile(name, browserType, device) {
   await page.locator('[data-status="all"]').tap();
   await expectStatus("all");
   await waitForListIdle();
-  await article.getByRole("button", { name: "Mark unread" }).tap();
-  await article.getByRole("button", { name: "Mark read" }).waitFor();
+  await article.getByRole("button", { name: "Mark as unread" }).tap();
+  await article.getByRole("button", { name: "Mark as read" }).waitFor();
   await reload();
   await page.locator('[data-status="unread"]').tap();
-  await article.getByRole("button", { name: "Mark read" }).waitFor();
+  await article.getByRole("button", { name: "Mark as read" }).waitFor();
   assert.equal(await page.evaluate(async (id) => {
     const pageData = await fetch("/api/articles?status=all", { cache: "no-store" }).then((response) => response.json());
     return pageData.items.find((item) => item.id === id)?.readAt;
@@ -570,6 +571,7 @@ async function runProfile(name, browserType, device) {
   // overflow. Paste the copy through article details, then open the title.
   await article.getByRole("button", { name: "More actions", exact: true }).tap();
   await article.getByRole("button", { name: "Edit", exact: true }).tap();
+  await page.locator("#detail-content details[data-disclosure=markdown]").evaluate(node => { node.open = true; });
   const detail = page.locator("#detail-content");
   assert.equal(await page.evaluate(() => document.activeElement?.matches("#detail-content input")), true,
     `${name}: detail dialog opened with its close button focused.`);
@@ -579,7 +581,7 @@ async function runProfile(name, browserType, device) {
     `${name}: closing Edit should return touch focus to More actions.`);
   await article.getByRole("button", { name: "More actions", exact: true }).tap();
   await article.getByRole("button", { name: "Edit", exact: true }).tap();
-  await detail.locator(".copy-editor > .copy-status")
+  await detail.locator(":scope > .copy-status")
     .filter({ hasText: /^Saved .*captured or pasted Markdown/ }).waitFor();
   const wideMarkdown = `# Wide reader check\n\n${"word-without-breaks-".repeat(24)}\n\n| left | ${"column-header-".repeat(8)} |\n| --- | --- |\n| text | ${"wide-cell-".repeat(24)} |`;
   await detail.getByRole("textbox", { name: "Markdown copy" }).fill(wideMarkdown);
@@ -640,6 +642,21 @@ async function runProfile(name, browserType, device) {
   assert.ok(completionMetrics.button.height >= 44 && Math.abs(completionMetrics.width - completionMetrics.button.width) < 1 &&
     completionMetrics.top >= completionMetrics.bodyBottom + 23,
     `${name}: completion button must follow the article and fill the mobile column: ${JSON.stringify(completionMetrics)}`);
+  await readyReader.locator("#reader-more-button").tap();
+  const readerDelete = readyReader.locator("#reader-delete-button");
+  await readerDelete.waitFor({ state: "visible" });
+  await page.evaluate(() => new Promise((resolve) => requestAnimationFrame(() => requestAnimationFrame(resolve))));
+  const deleteBounds = await readerDelete.boundingBox();
+  const moreBounds = await readyReader.locator("#reader-more-button").boundingBox();
+  const viewportWidth = page.viewportSize().width;
+  assert.ok(deleteBounds && moreBounds && deleteBounds.x < moreBounds.x + moreBounds.width &&
+    moreBounds.x < deleteBounds.x + deleteBounds.width && deleteBounds.x >= 0 && deleteBounds.x + deleteBounds.width <= viewportWidth &&
+    (Math.abs(deleteBounds.y - (moreBounds.y + moreBounds.height)) < 12 || Math.abs(moreBounds.y - (deleteBounds.y + deleteBounds.height)) < 12),
+    `${name}: reader actions menu should be adjacent to its trigger: ${JSON.stringify({ deleteBounds, moreBounds })}`);
+  assert.ok(deleteBounds && deleteBounds.width < completionMetrics.width && deleteBounds.height >= 44,
+    `${name}: Delete must remain a compact secondary action with a touch-sized target: ${JSON.stringify(deleteBounds)}`);
+  await page.keyboard.press("Escape");
+  await expect(readyReader.locator("#reader-actions-menu")).toBeHidden();
   await page.emulateMedia({ reducedMotion: "reduce" });
   for (const theme of ["light", "dark"]) {
     await page.evaluate((value) => document.documentElement.setAttribute("data-theme", value), theme);

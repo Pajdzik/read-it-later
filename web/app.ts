@@ -239,6 +239,9 @@ async function restoreListView() {
     !completion ? snapshot?.focus : null,
     fallback,
     !completion ? shortcutTitle : null,
+    !completion && isShortcutView() && shortcutTitle && shortcutTitle.closest("[hidden]") && lastOpenedArticle && !lastOpenedArticle.readAt &&
+      list.firstElementChild?.getAttribute("data-id") === lastOpenedArticle.id
+      ? list.querySelector<HTMLElement>(".article-title") : null,
     document.querySelector<HTMLElement>("[data-status][aria-pressed='true']"),
     document.querySelector<HTMLElement>("#search"),
   ];
@@ -281,8 +284,12 @@ function renderLastOpened() {
   const inProgress = lastOpenedArticle && !lastOpenedArticle.readAt ? lastOpenedArticle : null;
   const article = inProgress || (!lastOpenedError ? suggestedArticle : null);
   const error = lastOpenedError || suggestionError;
-  const label = inProgress || lastOpenedError ? "Last opened" : "Picked for you";
-  row.hidden = !state.session?.authenticated || !isShortcutView() || (!article && !error && !suggestionLoading);
+  const isContinueReading = Boolean(inProgress || lastOpenedError);
+  const label = isContinueReading ? "Continue reading" : "Picked for you";
+  const firstArticle = list.firstElementChild as HTMLElement | null;
+  const duplicatesFirstArticle = Boolean(inProgress && firstArticle?.dataset.id === inProgress.id);
+  const wasVisible = !row.hidden;
+  row.hidden = !state.session?.authenticated || !isShortcutView() || duplicatesFirstArticle || (!article && !error && !suggestionLoading);
   row.setAttribute("aria-label", label);
   row.setAttribute("aria-busy", String(suggestionLoading));
   $("#last-opened-label").textContent = label;
@@ -295,8 +302,8 @@ function renderLastOpened() {
   shuffle.hidden = Boolean(inProgress || lastOpenedError || !suggestedArticle || !suggestionHasAlternative);
   shuffle.disabled = suggestionLoading;
   const source = $("#last-opened-source");
-  source.hidden = !article || Boolean(inProgress);
-  source.textContent = article && !inProgress ? `${sourceHost(article.url)}${article.author ? ` · ${article.author}` : ""}` : "";
+  source.hidden = !article || isContinueReading;
+  source.textContent = article && !isContinueReading ? `${sourceHost(article.url)}${article.author ? ` · ${article.author}` : ""}` : "";
   if (article) {
     link.textContent = article.title; link.href = articlePath(article); link.dataset.articleId = article.id;
     if (!link.dataset.navigationBound) {
@@ -308,6 +315,10 @@ function renderLastOpened() {
     }
   } else {
     link.textContent = ""; link.removeAttribute("href"); delete link.dataset.articleId;
+  }
+  if (wasVisible && row.hidden && row.contains(document.activeElement) && duplicatesFirstArticle) {
+    const fallback = list.querySelector<HTMLElement>(".article-title");
+    fallback?.focus({ preventScroll: true });
   }
   // Updating the shortcut above the list must not move its background view.
   window.scrollTo(scrollX, scrollY);
@@ -463,6 +474,20 @@ let readerReadRequest: object | null = null;
 let listSnapshot: { scrollY: number; cursor: string | null; pageCount: number; focus: HTMLElement | null; focusArticleId: string | null; focusKind: "title" | "lead" | "other"; status: string; query: string; tag: string; rowCount: number; forceRefresh?: boolean } | null = null;
 let extractionPollTimer = 0;
 let extractionPollStartedAt = 0;
+const detailDisclosureState = new Map<string, Map<string, boolean>>();
+function rememberDetailDisclosure(articleId: string, disclosure: HTMLDetailsElement) {
+  const key = disclosure.dataset.disclosure;
+  if (!key) return;
+  let state = detailDisclosureState.get(articleId);
+  if (!state) { state = new Map(); detailDisclosureState.set(articleId, state); }
+  state.set(key, disclosure.open);
+}
+function revealDetailDisclosure(disclosure: HTMLDetailsElement) {
+  const articleId = disclosure.dataset.articleId;
+  if (!articleId || !disclosure.isConnected || !$('#detail-content').contains(disclosure) || state.selected?.id !== articleId) return;
+  disclosure.open = true;
+  rememberDetailDisclosure(articleId, disclosure);
+}
 let extractionPollGeneration = 0;
 const extensionUrl = new URL(location.href);
 const extensionHandoffId = extensionUrl.searchParams.get('extension');
@@ -771,30 +796,29 @@ function renderArticleMeta(article: Article) {
     meta.append(document.createTextNode(" · "));
     meta.append(el("span", `By ${article.author}`));
   }
-  meta.append(document.createTextNode(" · "));
-  meta.append(el("span", `Saved ${dateLabel(article.createdAt)}`, "article-meta-date"));
   return meta;
 }
 function updateExtractionBadge(badge: HTMLElement, extraction?: ExtractionStatus) {
-  badge.classList.toggle("extraction-badge-pending", extractionIsPending(extraction));
   const failed = extraction?.recovery?.state === 'failed' || extraction?.state === "failed";
-  const ready = extraction?.state === "ready" && !failed && !extractionIsPending(extraction);
-  const label = extractionLabel(extraction);
-  badge.classList.toggle("extraction-badge-ready", ready);
+  const pending = extractionIsPending(extraction);
+  badge.classList.toggle("extraction-badge-pending", pending);
+  badge.classList.remove("extraction-badge-ready");
   badge.classList.toggle("extraction-badge-failed", failed);
-  badge.hidden = !label;
-  if (extractionIsPending(extraction)) {
+  if (!pending && !failed) {
+    badge.hidden = true;
+    badge.removeAttribute("role");
+    badge.removeAttribute("aria-label");
+    badge.removeAttribute("title");
+    badge.replaceChildren();
+    return;
+  }
+  const label = extractionLabel(extraction);
+  badge.hidden = false;
+  if (pending) {
     badge.setAttribute("role", "img");
     badge.setAttribute("aria-label", label);
     badge.title = label;
     badge.innerHTML = '<svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="8.5" /><path d="M12 7v5l3 2" /></svg>';
-    return;
-  }
-  if (ready) {
-    badge.setAttribute("role", "img");
-    badge.setAttribute("aria-label", "Markdown ready");
-    badge.title = "Markdown ready";
-    badge.innerHTML = iconMarkup("mark-read");
     return;
   }
   if (failed) {
@@ -804,10 +828,6 @@ function updateExtractionBadge(badge: HTMLElement, extraction?: ExtractionStatus
     badge.innerHTML = iconMarkup("capture-failed");
     return;
   }
-  badge.removeAttribute("role");
-  badge.removeAttribute("aria-label");
-  badge.removeAttribute("title");
-  badge.textContent = label;
 }
 function extractionIsPending(extraction?: ExtractionStatus) {
   return Boolean(extraction && ["queued", "running", "retry_wait"].includes(extraction.recovery?.state ?? extraction.state));
@@ -1050,17 +1070,35 @@ function selectTag(tag: string) {
 }
 $('#tag-filter').addEventListener('change', event => selectTag((event.target as HTMLSelectElement).value));
 $('#tag-clear').addEventListener('click', () => selectTag(''));
-function renderTags(article: Article): HTMLElement {
+function renderTags(article: Article, compact = false): HTMLElement {
   const tags = el('div', undefined, 'article-tags');
   tags.setAttribute('aria-label', 'Article tags');
-  for (const tag of article.tags ?? []) {
+  const allTags = article.tags ?? [];
+  const visibleTags = compact ? allTags.slice(0, 2) : allTags;
+  const appendTag = (container: HTMLElement, tag: string) => {
     const chip = el('button', tag, 'tag-chip'); chip.type = 'button';
     chip.setAttribute('aria-label', `Filter by ${tag}`);
     chip.addEventListener('click', () => {
       if ($<HTMLDialogElement>('#detail-dialog').open) $<HTMLDialogElement>('#detail-dialog').close();
       selectTag(tag);
     });
-    tags.append(chip);
+    container.append(chip);
+  };
+  for (const tag of visibleTags) appendTag(tags, tag);
+  const hiddenTags = allTags.slice(2);
+  if (compact && hiddenTags.length) {
+    const disclosure = el('details', undefined, 'article-tags-more');
+    const summary = el('summary', `+${hiddenTags.length}`);
+    summary.setAttribute('aria-label', `Show ${hiddenTags.length} more tags`);
+    summary.setAttribute('aria-expanded', 'false');
+    disclosure.append(summary);
+    for (const tag of hiddenTags) appendTag(disclosure, tag);
+    disclosure.addEventListener('toggle', () => {
+      summary.textContent = disclosure.open ? 'Less' : `+${hiddenTags.length}`;
+      summary.setAttribute('aria-label', disclosure.open ? 'Hide additional tags' : `Show ${hiddenTags.length} more tags`);
+      summary.setAttribute('aria-expanded', String(disclosure.open));
+    });
+    tags.append(disclosure);
   }
   return tags;
 }
@@ -1068,6 +1106,7 @@ function renderArticle(article: Article) {
   const li = el("li", undefined, `article${article.readAt ? " is-read" : ""}`);
   li.dataset.id = article.id;
   const main = el("div", undefined, "article-main");
+  const headingRow = el("div", undefined, "article-heading-row");
   const title = el("a", article.title, "article-title");
   title.href = articlePath(article);
   title.dataset.articleId = article.id;
@@ -1091,10 +1130,9 @@ function renderArticle(article: Article) {
       event.preventDefault(); void navigateToArticle(article.id, description);
     });
   }
-  if (description) main.append(description);
   const actions = el("div", undefined, "article-actions");
   const read = iconButton(
-    article.readAt ? "Mark unread" : "Mark read",
+    article.readAt ? "Mark as unread" : "Mark as read",
     article.readAt ? "mark-unread" : "mark-read",
     "read-action",
   );
@@ -1137,12 +1175,14 @@ function renderArticle(article: Article) {
     });
   });
   actions.append(read, more);
-  main.append(title, metaRow);
-  if (description) title.after(description);
-  const tags = renderTags(article);
+  headingRow.append(title, actions);
+  main.append(headingRow);
+  if (description) main.append(description);
+  main.append(metaRow);
+  const tags = renderTags(article, true);
   if (article.descriptionOrigin === 'generated') tags.prepend(el('span', 'Generated description', 'generated-label'));
   if (tags.childElementCount) metaRow.append(tags);
-  li.append(main, actions);
+  li.append(main);
   return li;
 }
 window.addEventListener("scroll", () => {
@@ -1281,6 +1321,7 @@ function showDetailStatus(message: string, bad = false) {
 function renderDetail(article: Article, restartPolling = true) {
   state.selected = article;
   const root = $("#detail-content");
+  const disclosures = detailDisclosureState.get(article.id);
   root.replaceChildren();
   root.dataset.contentKey = detailContentKey(article);
   const eyebrow = el("p", sourceHost(article.url), "eyebrow");
@@ -1354,33 +1395,51 @@ function renderDetail(article: Article, restartPolling = true) {
   input.dataset.field = "title";
   input.maxLength = 500;
   label.append(input);
-  const save = el("button", "Save", "button primary");
+  const save = el("button", "Save changes", "button primary");
   save.type = "submit";
+  const tagField = el('div', undefined, 'edit-field');
   const tagLabel = el('label', 'Tags (comma separated)', 'field-label');
   const tagInput = el('input'); tagInput.dataset.field = 'tags';
   tagInput.value = (article.tags ?? []).join(', '); tagInput.defaultValue = tagInput.value;
   tagInput.maxLength = 600; tagInput.placeholder = 'e.g. programming, databases'; tagLabel.append(tagInput);
+  tagField.append(tagLabel);
   const descriptionLabel = el('label', 'Description', 'field-label');
   const descriptionInput = el('textarea'); descriptionInput.dataset.field = 'description';
+  descriptionInput.setAttribute('aria-label', 'Description');
   descriptionInput.rows = 3; descriptionInput.maxLength = 500;
   descriptionInput.value = article.description ?? ''; descriptionInput.defaultValue = descriptionInput.value;
+  if (article.descriptionOrigin === 'generated') {
+    const generated = el('span', 'Generated', 'generated-label');
+    generated.id = 'detail-description-origin';
+    descriptionInput.setAttribute('aria-describedby', generated.id);
+    descriptionLabel.append(generated);
+  }
   descriptionLabel.append(descriptionInput);
-  const clearTags = el('button', 'Clear tags', 'button secondary'); clearTags.type = 'button';
+  const descriptionField = el('div', undefined, 'edit-field');
+  descriptionField.append(descriptionLabel);
+  const clearTags = el('button', 'Clear', 'inline-action'); clearTags.type = 'button';
+  clearTags.setAttribute('aria-label', 'Clear tags');
   clearTags.addEventListener('click', () => { tagInput.value = ''; tagInput.dataset.cleared = 'true'; tagInput.dispatchEvent(new Event('input')); tagInput.focus(); });
-  const clearDescription = el('button', 'Clear description', 'button secondary'); clearDescription.type = 'button';
+  tagField.append(clearTags);
+  const clearDescription = el('button', 'Clear', 'inline-action'); clearDescription.type = 'button';
+  clearDescription.setAttribute('aria-label', 'Clear description');
   clearDescription.addEventListener('click', () => { descriptionInput.value = ''; descriptionInput.dataset.cleared = 'true'; descriptionInput.dispatchEvent(new Event('input')); descriptionInput.focus(); });
-  form.append(label, tagLabel, clearTags, descriptionLabel, clearDescription, save);
+  descriptionField.append(clearDescription);
+  form.append(label, tagField, descriptionField, save);
   const url = el("a", article.url, "detail-url");
   url.href = safeHttpUrl(article.url) || "#";
   url.target = "_blank";
   url.rel = "noopener noreferrer";
   const actions = el("div", undefined, "detail-actions");
+  const readLabel = article.readAt ? "Mark as unread" : "Mark as read";
   const toggle = el(
     "button",
-    article.readAt ? "Mark unread" : "Mark read",
+    readLabel,
     "button secondary",
   );
   toggle.type = "button";
+  toggle.setAttribute("aria-label", readLabel);
+  toggle.title = readLabel;
   toggle.addEventListener("click", async () => {
     await mutateRead(article, !article.readAt);
   });
@@ -1429,6 +1488,7 @@ function renderDetail(article: Article, restartPolling = true) {
     } catch (error) {
       if (state.selected?.id !== article.id || !extractionPanel.isConnected || !$<HTMLDialogElement>("#detail-dialog").open) return;
       extractionStatus.textContent = `Couldn’t retry capture. ${(error as Error).message}`;
+      revealDetailDisclosure(captureDisclosure);
       retryCapture.disabled = false;
     }
   });
@@ -1436,35 +1496,45 @@ function renderDetail(article: Article, restartPolling = true) {
     if (article.extraction.state === "failed") extractionStatus.textContent = `${extractionFailureMessage(article.extraction.errorCode)} Paste or upload a browser copy below, or retry.`;
     extractionPanel.append(extractionStatus, retryCapture);
   }
+  const captureDisclosure = el('details', undefined, 'detail-disclosure');
+  captureDisclosure.dataset.disclosure = 'capture';
+  captureDisclosure.dataset.articleId = article.id;
+  captureDisclosure.append(el('summary', 'Capture and recovery'), extractionPanel);
+  captureDisclosure.open = article.extraction?.state === 'failed' || article.extraction?.recovery?.state === 'failed'
+    ? true : disclosures?.get('capture') ?? false;
   const enrichmentStatus = el('p', enrichmentLabel(article), 'muted enrichment-status');
   enrichmentStatus.hidden = !enrichmentStatus.textContent;
   root.append(
     eyebrow,
-    el("h2", article.title),
+    el("h2", "Edit article"),
     status,
     ...(article.author ? [el("p", `By ${article.author}`, "muted")] : []),
-    ...(article.description ? [el("p", article.description, "detail-description")] : []),
     el("p", `Saved ${dateLabel(article.createdAt)}`, "muted"),
-    ...(article.descriptionOrigin === 'generated' ? [el('p', 'Generated description', 'muted generated-label')] : []),
-    renderTags(article),
     enrichmentStatus,
 
     form,
     el("h3", "Original link"),
     url,
     actions,
-    extractionPanel,
+    captureDisclosure,
   );
-  const editorLoaded = renderCopyEditor(article);
+  const editorLoaded = renderCopyEditor(article, captureDisclosure);
+  for (const disclosure of root.querySelectorAll<HTMLDetailsElement>('details[data-disclosure]')) {
+    disclosure.addEventListener('toggle', () => rememberDetailDisclosure(article.id, disclosure));
+  }
   if (restartPolling && (extractionIsPending(article.extraction) || enrichmentIsPending(article))) startExtractionPolling(article);
   return editorLoaded;
 }
 
-async function renderCopyEditor(article: Article) {
+async function renderCopyEditor(article: Article, captureDisclosure: HTMLDetailsElement) {
   const root = $("#detail-content");
-  const section = el("section", undefined, "copy-editor");
-  section.setAttribute("aria-label", "Markdown copy");
-  section.append(el("h3", "Markdown copy"));
+  const section = el("details", undefined, "copy-editor detail-disclosure");
+  section.dataset.disclosure = 'markdown';
+  section.dataset.articleId = article.id;
+  section.append(el('summary', 'Edit Markdown copy'));
+  section.open = detailDisclosureState.get(article.id)?.has('markdown')
+    ? detailDisclosureState.get(article.id)!.get('markdown')!
+    : article.hasCopy === false;
   section.append(el("p", "Stored as Markdown text. External image links still depend on the source site.", "muted copy-explainer"));
   const status = el("p", "Checking for a saved copy…", "muted copy-status");
   status.setAttribute("aria-live", "polite");
@@ -1505,9 +1575,15 @@ async function renderCopyEditor(article: Article) {
   const integrationDescription = el("p", undefined, "muted copy-explainer");
   const integrationRetry = el("button", "Send saved copy", "button secondary");
   integrationRetry.type = "button";
+  const integrationDisclosure = el('details', undefined, 'detail-disclosure integration-disclosure');
+  integrationDisclosure.dataset.disclosure = 'integrations';
+  integrationDisclosure.dataset.articleId = article.id;
+  integrationDisclosure.append(el('summary', 'Integrations'));
+  integrationDisclosure.open = detailDisclosureState.get(article.id)?.get('integrations') ?? false;
   integrationRetry.hidden = true;
   let saved: ArticleCopy | null = null;
   let integrations: IntegrationStatus[] = [];
+  let integrationError: string | null = null;
   const selectedIntegration = () => integrations.find(item => item.id === integrationSelect.value);
   let saving = false;
   let source: ArticleCopy["source"] = "paste";
@@ -1526,6 +1602,9 @@ async function renderCopyEditor(article: Article) {
   discard.type = 'button';
   const recoveryHint = el('p', undefined, 'muted copy-status');
   recoveryHint.setAttribute('aria-live', 'polite');
+  const recoveryError = el('p', undefined, 'notice error');
+  recoveryError.setAttribute('role', 'alert');
+  recoveryError.hidden = true;
   const metadataFields = [...root.querySelectorAll<HTMLInputElement | HTMLTextAreaElement>('.edit-form [data-field]')];
   const isDirty = () => Boolean(copyDrafts.has(article.id) || metadataFields.some(field => field.value !== field.defaultValue || field.dataset.cleared === 'true'));
   const updateRecoveryControls = () => {
@@ -1550,6 +1629,7 @@ async function renderCopyEditor(article: Article) {
   const recover = async (action: 'recapture' | 'undo') => {
     if (!loaded || saving || isDirty()) return;
     saving = true;
+    recoveryError.hidden = true;
     updateRecoveryControls();
     message.hidden = true;
     try {
@@ -1567,20 +1647,26 @@ async function renderCopyEditor(article: Article) {
       showNotice(action === 'undo' ? 'Previous copy restored.' : extractionLabel(result.extraction));
       void load();
     } catch (error) {
-      if (root.contains(section)) showError(`Couldn’t ${action === 'undo' ? 'undo recapture' : 'queue recapture'}. ${(error as Error).message}`);
+      if (root.contains(section)) {
+        recoveryError.textContent = `Couldn’t ${action === 'undo' ? 'undo recapture' : 'queue recapture'}. ${(error as Error).message}`;
+        recoveryError.hidden = false;
+        revealDetailDisclosure(captureDisclosure);
+      }
     } finally { saving = false; updateRecoveryControls(); }
   };
   recapture.addEventListener('click', () => { void recover('recapture'); });
   undo.addEventListener('click', () => { void recover('undo'); });
   const recoveryActions = el('div', undefined, 'saved-copy-actions');
   recoveryActions.append(recapture, undo, discard);
-  recovery.append(refreshLabel, recoveryActions, recoveryHint);
+  recovery.append(refreshLabel, recoveryActions, recoveryHint, recoveryError);
+  captureDisclosure.append(recovery);
   updateRecoveryControls();
   save.disabled = true;
-  const showError = (text: string) => {
+  const showError = (text: string, disclosure: HTMLDetailsElement = section) => {
     message.textContent = text;
     message.classList.add("error");
     message.hidden = false;
+    revealDetailDisclosure(disclosure);
   };
   const showStatus = (text: string) => {
     status.textContent = text;
@@ -1616,6 +1702,8 @@ async function renderCopyEditor(article: Article) {
     integrationRetry.textContent = integration ? `Send saved copy to ${integration.name}` : 'Send saved copy';
     integrationDescription.textContent = integration?.description || '';
     integrationStatus.replaceChildren();
+    integrationStatus.classList.toggle('error', Boolean(integrationError));
+    if (integrationError) { integrationStatus.textContent = integrationError; return; }
     if (!integration) {
       integrationStatus.textContent = "No integrations configured. Copies are saved privately in Potem.";
       return;
@@ -1634,11 +1722,12 @@ async function renderCopyEditor(article: Article) {
       integrationStatus.append(link);
     }
   };
-  integrationSelect.addEventListener('change', () => { integrationCheckbox.checked = false; renderIntegrationStatus(); });
+  integrationSelect.addEventListener('change', () => { integrationCheckbox.checked = false; integrationError = null; renderIntegrationStatus(); });
   const refreshIntegrationStatus = async () => {
     try {
       const result = await request<{ integrations: IntegrationStatus[] }>(`/api/articles/${encodeURIComponent(article.id)}/integrations`);
       if (state.selected?.id !== article.id || !root.contains(section)) return;
+      integrationError = null;
       const selected = integrationSelect.value;
       const previousKey = selectedIntegration()?.destinationKey;
       integrations = result.integrations;
@@ -1650,7 +1739,9 @@ async function renderCopyEditor(article: Article) {
       renderIntegrationStatus();
     } catch (error) {
       integrationCheckbox.disabled = true;
-      integrationStatus.textContent = `Couldn’t load integrations. ${(error as Error).message}`;
+      integrationError = `Couldn’t load integrations. ${(error as Error).message}`;
+      renderIntegrationStatus();
+      revealDetailDisclosure(integrationDisclosure);
     }
   };
   const sendSavedCopy = async (destination: IntegrationConsent) => {
@@ -1658,13 +1749,20 @@ async function renderCopyEditor(article: Article) {
     integrationStatus.textContent = "Sending saved copy…";
     try {
       const result = await sendToIntegration(article.id, saved.revision, destination);
+      integrationError = null;
       integrations = integrations.map(item => item.id === result.integration.id ? result.integration : item);
       renderIntegrationStatus();
-      if (result.integration.state === "outdated") showError("The saved copy was sent, but this article changed meanwhile. Reload it and send again.");
+      if (result.integration.state === "outdated") {
+        integrationError = "The saved copy was sent, but this article changed meanwhile. Reload it and send again.";
+        renderIntegrationStatus();
+        revealDetailDisclosure(integrationDisclosure);
+      }
       else showNotice(`Markdown copy sent to ${result.integration.name}.`);
     } catch (error) {
       await refreshIntegrationStatus();
-      showError(`Your Markdown copy is saved in Potem. Couldn’t send it. ${(error as Error).message} Use “Send saved copy” to retry.`);
+      integrationError = `Your Markdown copy is saved in Potem. Couldn’t send it. ${(error as Error).message} Use “Send saved copy” to retry.`;
+      renderIntegrationStatus();
+      revealDetailDisclosure(integrationDisclosure);
     }
   };
   integrationRetry.addEventListener("click", async () => {
@@ -1757,8 +1855,9 @@ async function renderCopyEditor(article: Article) {
     }
   });
   savedActions.append(readCopy, downloadCopy);
-  section.append(status, savedActions, recovery, label, fileLabel, integrationLabel, integrationSelect, integrationDescription, save, integrationStatus, integrationRetry, message);
-  root.append(section);
+  section.append(label, fileLabel, save, message);
+  integrationDisclosure.append(integrationLabel, integrationSelect, integrationDescription, integrationStatus, integrationRetry);
+  root.append(status, savedActions, section, integrationDisclosure);
   const pendingDraft = copyDrafts.get(article.id);
   if (pendingDraft) {
     textarea.value = pendingDraft.markdown;
@@ -1772,6 +1871,7 @@ async function renderCopyEditor(article: Article) {
     loaded = true;
     updateRecoveryControls();
     showCopyActions();
+    if (!saved) revealDetailDisclosure(section);
     const pending = copyDrafts.get(article.id);
     if (pending) {
       textarea.value = pending.markdown;
@@ -1792,6 +1892,7 @@ async function renderCopyEditor(article: Article) {
     save.disabled = false;
     await refreshIntegrationStatus();
   } catch (error) {
+    revealDetailDisclosure(section);
     showStatus("Couldn’t load Markdown copy status.");
     showCopyActions();
     showError(`Couldn’t load this copy. ${(error as Error).message} Retry by closing and reopening this article.`);
@@ -1810,6 +1911,9 @@ function ensureReaderOpener(opener?: HTMLElement) {
 }
 function resetReaderCompletion(article?: Article) {
   readerReadRequest = null;
+  const menu = $<HTMLElement>("#reader-actions-menu");
+  if (menu.matches(":popover-open")) menu.hidePopover();
+  $<HTMLButtonElement>("#reader-more-button").disabled = false;
   $("#reader-completion").hidden = !article;
   $("#reader-read-error").hidden = true;
   $("#reader-read-error").textContent = "";
@@ -1822,6 +1926,30 @@ function resetReaderCompletion(article?: Article) {
   $("#reader-read-label").textContent = article?.readAt ? "Mark as unread" : "Mark as read";
   button.querySelector("svg")!.outerHTML = iconMarkup(article?.readAt ? "mark-unread" : "mark-read");
 }
+$("#reader-actions-menu").addEventListener("toggle", (event) => {
+  const expanded = (event as ToggleEvent).newState === "open";
+  $("#reader-more-button").setAttribute("aria-expanded", String(expanded));
+});
+function positionReaderActions() {
+  const menu = $<HTMLElement>("#reader-actions-menu");
+  if (!menu.matches(":popover-open")) return;
+  const trigger = $<HTMLButtonElement>("#reader-more-button").getBoundingClientRect();
+  const bounds = menu.getBoundingClientRect();
+  const left = Math.max(8, Math.min(trigger.left, window.innerWidth - bounds.width - 8));
+  const below = trigger.bottom + bounds.height + 5 <= window.innerHeight;
+  menu.style.left = `${left}px`;
+  menu.style.top = `${below ? trigger.bottom + 5 : Math.max(8, trigger.top - bounds.height - 5)}px`;
+}
+$("#reader-actions-menu").addEventListener("beforetoggle", (event) => {
+  if ((event as ToggleEvent).newState !== "open") return;
+  requestAnimationFrame(positionReaderActions);
+});
+function dismissReaderActions() {
+  const menu = $<HTMLElement>("#reader-actions-menu");
+  if (menu.matches(":popover-open")) menu.hidePopover();
+}
+$<HTMLDialogElement>("#reader-dialog").addEventListener("scroll", positionReaderActions, { passive: true });
+window.addEventListener("resize", dismissReaderActions, { passive: true });
 $("#reader-read-toggle").addEventListener("click", async () => {
   const article = state.selected;
   const dialog = $<HTMLDialogElement>("#reader-dialog");
@@ -1832,6 +1960,7 @@ $("#reader-read-toggle").addEventListener("click", async () => {
   const isCurrent = () => generation === readerLoadGeneration && readerReadRequest === operation && readerArticleId === article.id && dialog.open;
   const button = $<HTMLButtonElement>("#reader-read-toggle");
   button.disabled = true;
+  $<HTMLButtonElement>("#reader-more-button").disabled = true;
   $<HTMLButtonElement>("#reader-delete-button").disabled = true;
   button.setAttribute("aria-busy", "true");
   $("#reader-read-label").textContent = "Saving…";
@@ -1862,10 +1991,16 @@ $("#reader-delete-button").addEventListener("click", async () => {
   const dialog = $<HTMLDialogElement>("#reader-dialog");
   const button = $<HTMLButtonElement>("#reader-delete-button");
   if (!article || readerArticleId !== article.id || !dialog.open || $("#reader-completion").hidden || button.disabled || readerReadRequest) return;
-  if (!confirm(`Delete “${article.title}”? This can’t be undone.`)) return;
+  const readerMenu = $<HTMLElement>("#reader-actions-menu");
+  if (readerMenu.matches(":popover-open")) readerMenu.hidePopover();
+  if (!confirm(`Delete “${article.title}”? This can’t be undone.`)) {
+    $<HTMLButtonElement>("#reader-more-button").focus({ preventScroll: true });
+    return;
+  }
 
   const generation = readerLoadGeneration;
   button.disabled = true;
+  $<HTMLButtonElement>("#reader-more-button").disabled = true;
   button.setAttribute("aria-busy", "true");
   $<HTMLButtonElement>("#reader-read-toggle").disabled = true;
   $("#reader-read-error").hidden = true;
@@ -1893,11 +2028,13 @@ $("#reader-delete-button").addEventListener("click", async () => {
   } catch (error) {
     if (generation !== readerLoadGeneration || readerArticleId !== article.id || !dialog.open) return;
     button.disabled = false;
+    $<HTMLButtonElement>("#reader-more-button").disabled = false;
     button.removeAttribute("aria-busy");
     $<HTMLButtonElement>("#reader-read-toggle").disabled = false;
     const feedback = $("#reader-read-error");
     feedback.textContent = `Couldn’t delete this article. ${(error as Error).message} Try again.`;
     feedback.hidden = false;
+    $<HTMLButtonElement>("#reader-more-button").focus({ preventScroll: true });
   }
 });
 function setReaderTitle(text: string) {

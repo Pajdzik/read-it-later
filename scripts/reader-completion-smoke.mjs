@@ -36,6 +36,7 @@ export async function readerCompletionSmoke(context, base, sourceBase) {
     await row(first.id).getByRole("button", { name: "More actions", exact: true }).click();
     await row(first.id).getByRole("button", { name: "Edit", exact: true }).click();
     const detail = page.locator("#detail-dialog");
+    await detail.locator('details[data-disclosure="markdown"]').evaluate(node => { node.open = true; });
     const draft = "# Unsaved completion draft";
     await detail.getByRole("button", { name: "Read saved copy" }).waitFor();
     await detail.getByRole("textbox", { name: "Markdown copy" }).fill(draft);
@@ -44,6 +45,35 @@ export async function readerCompletionSmoke(context, base, sourceBase) {
     const toggle = page.locator("#reader-read-toggle");
     await expect(toggle).toBeVisible();
     await expect(toggle).toHaveText("Mark as read");
+    const moreActions = page.locator("#reader-more-button");
+    await expect(page.locator("#reader-delete-button")).toBeHidden();
+    await moreActions.click();
+    const readerMenu = page.locator("#reader-actions-menu");
+    await expect(readerMenu).toBeVisible();
+    await page.evaluate(() => new Promise((resolve) => requestAnimationFrame(() => requestAnimationFrame(resolve))));
+    const menuPlacement = await page.evaluate(() => {
+      const trigger = document.querySelector("#reader-more-button").getBoundingClientRect();
+      const menu = document.querySelector("#reader-actions-menu").getBoundingClientRect();
+      return { trigger, menu };
+    });
+    assert.ok(Math.abs(menuPlacement.menu.left - menuPlacement.trigger.left) <= 1 &&
+      (Math.abs(menuPlacement.menu.top - menuPlacement.trigger.bottom) <= 6 || Math.abs(menuPlacement.trigger.top - menuPlacement.menu.bottom) <= 6),
+      `Reader actions menu should stay next to its trigger: ${JSON.stringify(menuPlacement)}`);
+    await page.keyboard.press("Escape");
+    await expect(readerMenu).toBeHidden();
+    assert.equal(await moreActions.evaluate((button) => document.activeElement === button), true,
+      "Escape should return focus to the reader More actions button.");
+    await moreActions.click();
+    await page.locator("#reader-dialog h2").click();
+    await expect(readerMenu).toBeHidden();
+    await moreActions.click();
+    let cancelled = 0;
+    page.once("dialog", async (dialog) => { cancelled++; await dialog.dismiss(); });
+    await page.locator("#reader-delete-button").click();
+    assert.equal(cancelled, 1, "Delete should ask for confirmation.");
+    await expect(reader).toBeVisible();
+    assert.equal(await moreActions.evaluate((button) => document.activeElement === button), true,
+      "Cancelling deletion should restore focus to More actions.");
     await reader.evaluate((dialog) => { dialog.scrollTop = dialog.scrollHeight; });
     const footer = page.locator("#reader-completion");
     const metrics = await footer.evaluate((element) => ({
@@ -51,7 +81,7 @@ export async function readerCompletionSmoke(context, base, sourceBase) {
       left: element.getBoundingClientRect().left,
       bodyBottom: document.querySelector("#reader-body").getBoundingClientRect().bottom,
       bodyLeft: document.querySelector("#reader-body").getBoundingClientRect().left,
-      height: element.querySelector("button").getBoundingClientRect().height,
+      height: element.querySelector("#reader-read-toggle").getBoundingClientRect().height,
     }));
     assert.ok(metrics.top >= metrics.bodyBottom + 23 && Math.abs(metrics.left - metrics.bodyLeft) < 1 && metrics.height >= 44,
       `Completion footer layout: ${JSON.stringify(metrics)}`);
@@ -104,7 +134,7 @@ export async function readerCompletionSmoke(context, base, sourceBase) {
     await page.screenshot({ path: "/tmp/potem-reader-completion-desktop-dark.png" });
     await toggle.click();
     await expect(page.locator("#notice")).toHaveText("Marked as unread.");
-    await expect(page.locator("#last-opened")).toHaveAttribute("aria-label", "Last opened");
+    await expect(page.locator("#last-opened")).toHaveAttribute("aria-label", "Continue reading");
     await expect(row(first.id)).toHaveCount(0);
     await page.reload();
     assert.equal(await page.evaluate(async (id) => (await (await fetch(`/api/articles/${id}`)).json()).article.readAt, first.id), null, "Marking unread must persist across reloads.");
@@ -150,6 +180,19 @@ export async function readerCompletionSmoke(context, base, sourceBase) {
     await expect(page.locator("#reader-read-error")).toBeHidden();
     await reader.getByRole("button", { name: "Close saved copy" }).click();
 
+    await row(second.id).locator(".article-title").click();
+    await moreActions.click();
+    await page.route(`**/api/articles/${second.id}`, (route) => route.request().method() === "DELETE"
+      ? route.fulfill({ status: 503, json: { error: { message: "Temporary delete failure" } } })
+      : route.continue());
+    page.once("dialog", (dialog) => dialog.accept());
+    await page.locator("#reader-delete-button").click();
+    await expect(page.locator("#reader-read-error")).toContainText("Temporary delete failure");
+    assert.equal(await moreActions.evaluate((button) => document.activeElement === button), true,
+      "Delete failure should return focus to More actions.");
+    await page.unroute(`**/api/articles/${second.id}`);
+    await reader.getByRole("button", { name: "Close saved copy" }).click();
+
     // Preserve loaded-page depth and search when completion refreshes the library.
     await page.route("**/api/articles?*", async (route) => {
       const url = new URL(route.request().url());
@@ -181,6 +224,31 @@ export async function readerCompletionSmoke(context, base, sourceBase) {
     const restoredScroll = await page.evaluate(() => window.scrollY);
     assert.ok(Math.abs(restoredScroll - libraryScroll) <= 1, `Completion should preserve the scrolled library position: ${libraryScroll} → ${restoredScroll}.`);
     assert.ok(await row(second.id).evaluate((element) => element.classList.contains("is-read")));
+    await page.unroute("**/api/articles?*");
+    await row(second.id).locator(".article-title").click();
+    await moreActions.click();
+    let deleteCount = 0;
+    let releaseDelete;
+    const deleteGate = new Promise((resolve) => { releaseDelete = resolve; });
+    await page.route(`**/api/articles/${second.id}`, async (route) => {
+      if (route.request().method() !== "DELETE") return route.continue();
+      deleteCount++;
+      await deleteGate;
+      return route.continue();
+    });
+    page.once("dialog", (dialog) => dialog.accept());
+    await page.locator("#reader-delete-button").click();
+    await expect.poll(() => deleteCount).toBe(1);
+    await page.locator("#reader-delete-button").evaluate((button) => {
+      button.dispatchEvent(new MouseEvent("click", { bubbles: true }));
+      button.dispatchEvent(new MouseEvent("click", { bubbles: true }));
+    });
+    await expect.poll(() => deleteCount).toBe(1);
+    releaseDelete();
+    await expect(page.locator("#notice")).toHaveText("Article deleted.");
+    await expect(reader).not.toBeVisible();
+    await expect(row(second.id)).toHaveCount(0);
+    await page.unroute(`**/api/articles/${second.id}`);
     assert.deepEqual(errors, [], "Completion flow should not produce browser runtime errors.");
   } finally {
     await page.close();

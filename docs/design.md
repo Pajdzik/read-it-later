@@ -16,7 +16,7 @@ Phase 2 starts with owner-provided Markdown copies; safe automatic extraction an
 
 ## User experience and capture
 
-The home screen opens to Unread, newest first. Show title, source hostname, saved date, Open original, and Mark read. Read and All are separate filters. Keep the Add field easy to reach on mobile; support keyboard navigation, visible focus, useful empty/loading/error states, and accessible status messages. An item detail view exposes its URL, title edit, and delete confirmation. Opening the original uses a normal link with `target="_blank"` and `rel="noopener noreferrer"`. It never marks the item read automatically; the service cannot know whether the external article was finished. Persist read changes on the server, and display a failed mutation without pretending it succeeded.
+The home screen opens to Unread, newest first. Show title, source hostname, saved date, Open original, and Mark as read. Read and All are separate filters. Keep the Add field easy to reach on mobile; support keyboard navigation, visible focus, useful empty/loading/error states, and accessible status messages. An item detail view exposes its URL, title edit, and delete confirmation. Opening the original uses a normal link with `target="_blank"` and `rel="noopener noreferrer"`. It never marks the item read automatically; the service cannot know whether the external article was finished. Persist read changes on the server, and display a failed mutation without pretending it succeeded.
 
 | Entry point | Flow | Authentication |
 | --- | --- | --- |

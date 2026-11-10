@@ -216,13 +216,16 @@ try {
   const article = page
     .locator(".article")
     .filter({ hasText: "Browser smoke article" });
+  const openDetailSection = async (name) => detail.locator(`details[data-disclosure="${name}"]`).evaluate(node => { node.open = true; });
   await title.click();
   const detail = page.locator("#detail-content");
+  await openDetailSection("markdown");
   const markdown = detail.getByRole("textbox", { name: "Markdown copy" });
   await detail.getByText("No Markdown copy saved yet.").waitFor();
   assert.equal(await detail.getByRole("button", { name: "Read saved copy" }).isHidden(), true, "A missing copy must not show reader actions.");
   assert.equal(await detail.getByRole("button", { name: "Download Markdown" }).isHidden(), true, "A missing copy must not show download actions.");
   const githubCheckbox = detail.getByRole("checkbox", { name: "Also send to an integration" });
+  await openDetailSection("integrations");
   await detail.getByText(/Pajdzik\/Kamilpedia/).waitFor();
   assert.equal(await githubCheckbox.isChecked(), false, "GitHub saving must start unchecked.");
   assert.equal(await githubCheckbox.isDisabled(), false, "Configured GitHub saving should be available as an opt-in.");
@@ -280,6 +283,8 @@ try {
   await title.waitFor();
   await article.getByRole("button", { name: "More actions", exact: true }).click();
   await article.getByRole("button", { name: "Edit", exact: true }).click();
+  await openDetailSection("markdown");
+  await openDetailSection("integrations");
   await page.locator("#detail-content .copy-status").getByText(/uploaded file/).waitFor();
   assert.equal(await page.locator("#detail-content").getByRole("textbox", { name: "Markdown copy" }).inputValue(), uploadedMarkdown, "Uploaded Markdown must survive reload.");
   await detail.getByText(/Not sent to GitHub yet/).waitFor();
@@ -307,6 +312,8 @@ try {
   await title.waitFor();
   await article.getByRole("button", { name: "More actions", exact: true }).click();
   await article.getByRole("button", { name: "Edit", exact: true }).click();
+  await openDetailSection("markdown");
+  await openDetailSection("integrations");
   await detail.getByText(/Sent to GitHub/).waitFor();
   assert.equal(await githubCheckbox.isChecked(), false);
   assert.equal(await markdown.inputValue(), "# GitHub checkbox copy\n\nStill saved if GitHub fails.");
@@ -365,7 +372,11 @@ try {
     paginationEntry = data.items?.find((item) => item.id === entryFixture.id) || paginationEntry;
     const entry = paginationEntry;
     assert.ok(entry, "The pagination fixture needs the complete saved article.");
-    if (entry) entry.description = "A lead used to test opening the saved copy.";
+    if (entry) {
+      entry.description = "A lead used to test opening the saved copy.";
+      entry.author = "Ada Lovelace";
+      entry.tags = ["design", "reading", "long-" + "tag".repeat(18), "archive"];
+    }
     if (hasCursor) {
       data.items = [{ ...entry, id: "smoke051", title: "Synthetic final row", description: null }];
       data.nextCursor = null;
@@ -379,49 +390,103 @@ try {
   });
   await page.reload();
   await page.locator("#loading").waitFor({ state: "hidden" });
-  const entryArticle = page.locator(".article").filter({ hasText: "Reader entry smoke" });
+  const entryArticle = page.locator(`.article[data-id="${entryFixture.id}"]`);
   const entryTitle = entryArticle.getByRole("link", { name: "Reader entry smoke", exact: true });
   await entryTitle.waitFor();
+  const tagDisclosure = entryArticle.locator(".article-tags-more");
+  const tagSummary = tagDisclosure.locator("summary");
+  await expect(tagSummary).toHaveAccessibleName("Show 2 more tags");
+  await page.setViewportSize({ width: 320, height: 740 });
+  await tagSummary.focus();
+  await page.keyboard.press("Space");
+  await expect(tagDisclosure).toHaveJSProperty("open", true);
+  await expect(tagSummary).toBeFocused();
+  await expect(tagSummary).toHaveAttribute("aria-expanded", "true");
+  await expect(tagSummary).toHaveAccessibleName("Hide additional tags");
+  const longTag = "long-" + "tag".repeat(18);
+  const hiddenLongTag = tagDisclosure.getByRole("button", { name: `Filter by ${longTag}` });
+  await expect(hiddenLongTag).toBeVisible();
+  const longTagBounds = await hiddenLongTag.boundingBox();
+  const articleBounds = await entryArticle.boundingBox();
+  assert.ok(longTagBounds && articleBounds && longTagBounds.x + longTagBounds.width <= articleBounds.x + articleBounds.width,
+    "An expanded long tag must fit within the narrow article row.");
+  await page.keyboard.press("Space");
+  await expect(tagDisclosure).toHaveJSProperty("open", false);
+  await expect(tagSummary).toBeFocused();
+  await expect(tagSummary).toHaveAttribute("aria-expanded", "false");
+  await tagSummary.click();
+  await tagDisclosure.getByRole("button", { name: "Filter by archive" }).click();
+  await expect(page.locator("#tag-filter")).toHaveValue("archive");
+  await page.locator("#tag-filter").selectOption("");
+  await page.reload();
+  await page.locator("#loading").waitFor({ state: "hidden" });
   assert.match(await entryTitle.getAttribute("href"), /^\/read\/[a-z0-9]{8}\/reader-entry-smoke$/,
     "Saved article titles must use the canonical short-ID readable path.");
   assert.deepEqual(await entryArticle.locator(".article-main").evaluate((main) =>
-    Array.from(main.children, (child) => child.classList.contains("article-title") ? "title"
+    Array.from(main.children, (child) => child.classList.contains("article-heading-row") ? "title"
       : child.classList.contains("article-description") ? "description"
         : "metadata")),
   ["title", "description", "metadata"],
   "Article rows with a description must show the title before the description and metadata.");
   assert.equal(await entryArticle.locator(".article-meta-row .extraction-badge").count(), 1,
-    "The capture status icon must be inside the metadata row.");
+    "The capture status element must stay inside the metadata row.");
+  await expect(entryArticle.locator(".extraction-badge")).toBeHidden();
   await page.getByRole("button", { name: "Show more" }).click();
   await page.waitForFunction(() => document.querySelectorAll("#articles .article").length === 51);
   assert.equal(await page.locator(".article").count(), 51, "The second list page should append once without dropping the first page.");
   const noDescriptionArticle = page.locator(".article").filter({ hasText: "Synthetic final row" });
   assert.deepEqual(await noDescriptionArticle.locator(".article-main").evaluate((main) =>
-    Array.from(main.children, (child) => child.classList.contains("article-title") ? "title"
+    Array.from(main.children, (child) => child.classList.contains("article-heading-row") ? "title"
       : child.classList.contains("article-description") ? "description"
         : "metadata")),
   ["title", "metadata"],
   "Article rows without a description must retain their title and metadata order.");
   assert.equal(await noDescriptionArticle.locator(".article-meta-row .extraction-badge").count(), 1,
-    "Rows without a description must also keep the capture status icon in the metadata row.");
+    "Rows without a description must also keep the capture status element in the metadata row.");
+  await expect(noDescriptionArticle.locator(".extraction-badge")).toBeHidden();
+  const entryMetaText = await entryArticle.locator(".article-meta").innerText();
+  assert.ok(entryMetaText.includes(new URL(sourceBase).hostname) && entryMetaText.includes("By Ada Lovelace"),
+    "Library metadata should keep the source and author.");
+  assert.doesNotMatch(await entryArticle.locator(".article-meta").innerText(), /Saved /,
+    "The library should omit the saved date.");
+  await expect(tagDisclosure).toHaveCount(1);
+  await expect(tagSummary).toHaveAccessibleName("Show 2 more tags");
+  assert.deepEqual(await entryArticle.locator(".article-tags > .tag-chip").allTextContents(), ["design", "reading"],
+    "The library should show only the first two tags before expansion.");
   const entryActions = entryArticle.locator(".article-actions");
   const entryMetaRow = entryArticle.locator(".article-meta-row");
-  const entryRead = entryActions.getByRole("button", { name: "Mark read", exact: true });
+  const entryRead = entryActions.getByRole("button", { name: "Mark as read", exact: true });
   const entryMore = entryActions.getByRole("button", { name: "More actions", exact: true });
   const entryMenu = entryActions.locator(".article-action-menu");
   const entryEdit = entryMenu.getByRole("button", { name: "Edit", exact: true });
   const assertControlLayout = async () => {
-    assert.equal(await entryActions.locator(":scope > button, :scope > .article-more").count(), 2, "Mark read and More must share the action container.");
+    assert.equal(await entryActions.locator(":scope > button, :scope > .article-more").count(), 2, "Mark as read and More must share the action container.");
     assert.equal(await entryMenu.locator("button, a").count(), 2, "Edit and Open original must be grouped in More.");
-    assert.equal(await entryMetaRow.locator("button").count(), 0, "Mark read must stay out of the metadata row.");
-    const actionCenters = await Promise.all([entryRead, entryMore].map(async (control) => {
+    assert.equal(await entryMetaRow.locator("button.read-action").count(), 0, "Mark as read must stay out of the metadata row.");
+    const actionBounds = await Promise.all([entryRead, entryMore].map(async (control) => {
       const bounds = await control.boundingBox();
       assert.ok(bounds, "Each article action must be visible.");
-      return bounds.y + bounds.height / 2;
+      assert.ok(bounds.width >= 44 && bounds.height >= 44, "Article actions must have 44px touch targets.");
+      return bounds;
     }));
-    assert.ok(Math.max(...actionCenters) - Math.min(...actionCenters) <= 3, "Article actions must stay on one row.");
+    assert.ok(Math.abs(actionBounds[0].y - actionBounds[1].y) <= 3, "Article actions must stay on one row.");
+    assert.ok(actionBounds[1].x - (actionBounds[0].x + actionBounds[0].width) >= 8, "Article actions must have at least 8px of separation.");
+    const titleBounds = await entryArticle.locator(".article-title").boundingBox();
+    const headingBounds = await entryArticle.locator(".article-heading-row").boundingBox();
+    assert.ok(titleBounds && headingBounds && titleBounds.y <= actionBounds[0].y + 3,
+      "The action cluster must sit alongside the article title.");
+    assert.ok(await entryArticle.locator(".article-title").evaluate((title) => title.scrollWidth <= title.clientWidth + 1),
+      "Long titles must wrap without running beneath the action controls.");
   };
   const entryReadState = await page.evaluate(async (id) => (await (await fetch(`/api/articles/${id}`)).json()).article.readAt, entryFixture.id);
+  const originalEntryTitle = await entryTitle.textContent();
+  await entryTitle.evaluate((title) => { title.textContent = `https://example.com/${"long-title-segment-".repeat(14)}`; });
+  for (const width of [320, 390, 620, 768, 1200]) {
+    await page.setViewportSize({ width, height: 1000 });
+    await entryMore.scrollIntoViewIfNeeded();
+    await assertControlLayout();
+  }
+  await entryArticle.locator(".article-title").evaluate((title, text) => { title.textContent = text; }, originalEntryTitle);
   await page.setViewportSize({ width: 1440, height: 1000 });
   await entryMore.scrollIntoViewIfNeeded();
   await assertControlLayout();
@@ -464,9 +529,9 @@ try {
   assert.equal(await entryTitle.evaluate((link) => document.activeElement === link), true,
     "Closing the reader should restore focus to the title that opened it.");
   const lastOpened = page.locator("#last-opened");
-  await lastOpened.getByText("Last opened").waitFor();
-  assert.equal(await lastOpened.locator("#last-opened-title").getAttribute("href"), new URL(canonicalReaderUrl).pathname,
-    "Last opened should link to the canonical article URL.");
+  await expect(lastOpened).toBeHidden();
+  assert.equal(await page.locator(".article").first().getAttribute("data-id"), entryFixture.id,
+    "Continue reading should be omitted when the first displayed article is already the last-opened article.");
   await page.goForward();
   try {
     await reader.getByRole("heading", { name: "Reader entry smoke" }).waitFor({ timeout: 10_000 });
@@ -599,6 +664,7 @@ try {
   await pendingCopyStarted;
   await article.getByRole("button", { name: "More actions", exact: true }).click();
   await article.getByRole("button", { name: "Edit", exact: true }).click();
+  await openDetailSection("markdown");
   releasePendingCopy();
   await detail.getByRole("textbox", { name: "Markdown copy" }).waitFor();
   await detail.locator(".copy-status").getByText(/pasted Markdown/).waitFor();
@@ -844,6 +910,7 @@ try {
   assert.equal(await reader.locator("#reader-body").textContent(), "", "Closing the reader must discard its private DOM.");
   await article.getByRole("button", { name: "More actions", exact: true }).click();
   await article.getByRole("button", { name: "Edit", exact: true }).click();
+  await openDetailSection("markdown");
   await detail.locator(".copy-status").getByText(/pasted Markdown/).waitFor();
   await detail.getByRole("textbox", { name: "Markdown copy" }).fill("Unsaved draft stays in the editor.");
   const downloadButton = detail.getByRole("button", { name: "Download Markdown" });
@@ -867,6 +934,7 @@ try {
   await title.waitFor();
   await article.getByRole("button", { name: "More actions", exact: true }).click();
   await article.getByRole("button", { name: "Edit", exact: true }).click();
+  await openDetailSection("markdown");
   await detail.locator(".copy-status").getByText(/pasted Markdown/).waitFor();
   await detail.getByRole("button", { name: "Read saved copy" }).click();
   await readerBody.getByRole("heading", { name: "Preserved copy — Ω" }).waitFor();
@@ -922,9 +990,9 @@ try {
   assert.equal(await page.evaluate(() => document.documentElement.scrollWidth > innerWidth), false, "Markdown editor must fit a narrow viewport.");
   await page.setViewportSize({ width: 1440, height: 1000 });
   await page.getByRole("button", { name: "All", exact: true }).click();
-  await article.getByRole("button", { name: "Mark read", exact: true }).click();
+  await article.getByRole("button", { name: "Mark as read", exact: true }).click();
   await article
-    .getByRole("button", { name: "Mark unread", exact: true })
+    .getByRole("button", { name: "Mark as unread", exact: true })
     .waitFor();
   await page.reload();
   await page.getByRole("button", { name: "Read", exact: true }).click();
@@ -943,7 +1011,7 @@ try {
   await page.locator("#detail-content .edit-form input[data-field=title]").fill("Failed edit");
   await page
     .locator("#detail-content")
-    .getByRole("button", { name: "Save", exact: true })
+    .getByRole("button", { name: "Save changes", exact: true })
     .click();
   await page
     .locator("#detail-error")
@@ -952,7 +1020,7 @@ try {
   await page.unroute("**/api/articles/*");
   await page
     .locator("#detail-content")
-    .getByRole("button", { name: "Mark unread", exact: true })
+    .getByRole("button", { name: "Mark as unread", exact: true })
     .click();
   await page
     .locator("#detail-dialog")
@@ -1427,6 +1495,8 @@ try {
   await urlPage.screenshot({ path: path.join(os.tmpdir(), "potem-pending-reader-mobile.png") });
   await urlReader.getByRole("button", { name: "Paste or upload Markdown" }).click();
   const asyncDetail = urlPage.locator("#detail-content");
+  await asyncDetail.locator('details[data-disclosure="markdown"]').evaluate(node => { node.open = true; });
+  await asyncDetail.locator('details[data-disclosure="capture"]').evaluate(node => { node.open = true; });
   const draftBox = asyncDetail.getByRole("textbox", { name: "Markdown copy" });
   await draftBox.fill("# My manual draft\n\nKeep this while background capture finishes.");
   await asyncDetail.locator("#detail-extraction-status").getByText("Capture queued").waitFor();
@@ -1478,19 +1548,24 @@ try {
   });
   await failedArticle.getByRole("button", { name: "More actions", exact: true }).click();
   await failedArticle.getByRole("button", { name: "Edit", exact: true }).click();
+  await urlPage.locator('#detail-content details[data-disclosure="capture"]').evaluate(node => { node.open = true; });
   const lateDetailResponse = urlPage.waitForResponse((response) => response.url().endsWith(`/articles/${failedFixture.id}/extraction/retry`));
   await urlPage.locator("#detail-content").getByRole("button", { name: "Retry capture" }).click();
   await detailRetryStarted;
   await urlPage.locator("#detail-dialog .dialog-close button").click();
   await asyncArticle.getByRole("button", { name: "More actions", exact: true }).click();
   await asyncArticle.getByRole("button", { name: "Edit", exact: true }).click();
+  await urlPage.locator('#detail-content details[data-disclosure="markdown"]').evaluate(node => { node.open = true; });
+  await urlPage.locator('#detail-content details[data-disclosure="capture"]').evaluate(node => { node.open = true; });
   releaseDetailRetry();
   await (await lateDetailResponse).finished();
   await urlPage.evaluate(() => new Promise((resolve) => requestAnimationFrame(() => requestAnimationFrame(resolve))));
-  assert.equal(await urlPage.locator("#detail-content h2").textContent(), "Background capture smoke", "A late retry must not replace another article's details.");
+  assert.equal(await urlPage.locator("#detail-content h2").textContent(), "Edit article", "A late retry must not replace another article's details.");
+  assert.equal(await urlPage.locator("#detail-content .edit-form input[data-field=title]").inputValue(), "Background capture smoke", "The selected article title must remain visible in its editable field.");
   await urlPage.locator("#detail-dialog .dialog-close button").click();
   await failedArticle.getByRole("button", { name: "More actions", exact: true }).click();
   await failedArticle.getByRole("button", { name: "Edit", exact: true }).click();
+  await urlPage.locator('#detail-content details[data-disclosure="capture"]').evaluate(node => { node.open = true; });
   await urlPage.locator("#detail-content .edit-form input[data-field=title]").fill("Keep my unsaved title");
   await urlPage.locator("#detail-content").getByRole("button", { name: "Retry capture" }).click();
   await urlPage.locator("#detail-extraction-status").getByText("Capture queued").waitFor();
