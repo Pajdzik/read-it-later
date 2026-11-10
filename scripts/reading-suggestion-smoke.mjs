@@ -101,7 +101,7 @@ export async function checkReadingSuggestion(browser, base) {
     await page.reload();
     await expect(title).toHaveText(articles[1].title);
     await expect(card).toHaveAttribute("aria-label", "Continue reading");
-    await page.locator(`.article[data-id="${articles[1].id}"]`).getByRole("button", { name: "Mark read", exact: true }).click();
+    await page.locator(`.article[data-id="${articles[1].id}"]`).getByRole("button", { name: "Mark as read", exact: true }).click();
     await expect(card).toHaveAttribute("aria-label", "Picked for you");
     await expect(title).toHaveText(articles[0].title);
     await expect(card.getByRole("button", { name: "Try another" })).toBeHidden();
