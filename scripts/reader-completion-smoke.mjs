@@ -36,6 +36,7 @@ export async function readerCompletionSmoke(context, base, sourceBase) {
     await row(first.id).getByRole("button", { name: "More actions", exact: true }).click();
     await row(first.id).getByRole("button", { name: "Edit", exact: true }).click();
     const detail = page.locator("#detail-dialog");
+    await detail.locator('details[data-disclosure="markdown"]').evaluate(node => { node.open = true; });
     const draft = "# Unsaved completion draft";
     await detail.getByRole("button", { name: "Read saved copy" }).waitFor();
     await detail.getByRole("textbox", { name: "Markdown copy" }).fill(draft);

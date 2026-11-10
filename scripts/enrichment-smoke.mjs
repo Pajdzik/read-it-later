@@ -75,6 +75,12 @@ export async function enrichmentSmoke(browser, base) {
       const detail = page.locator('#detail-content');
       const tags = detail.getByRole('textbox', { name: 'Tags (comma separated)', exact: true });
       const description = detail.getByRole('textbox', { name: 'Description', exact: true });
+      await expect(detail.getByRole('heading', { name: 'Edit article', exact: true })).toBeVisible();
+      await expect(detail.locator('.article-tags')).toHaveCount(0);
+      const markdownDisclosure = detail.locator('details[data-disclosure="markdown"]');
+      const captureDisclosure = detail.locator('details[data-disclosure="capture"]');
+      await markdownDisclosure.evaluate(node => { node.open = true; });
+      await captureDisclosure.evaluate(node => { node.open = true; });
       await page.screenshot({ path: `/tmp/potem-enrichment-editor-${width}.png` });
       await detail.getByRole('button', { name: 'Save', exact: true }).click();
       assert.equal(patches.length, 0, 'An unchanged details form must not protect the title or write metadata.');
@@ -125,6 +131,8 @@ export async function enrichmentSmoke(browser, base) {
       await expect(tags).toHaveValue('Storage, Databases');
       await expect(description).toHaveValue('An owner-written description.');
       await expect(description).toBeFocused();
+      await expect(markdownDisclosure).toHaveAttribute('open', '');
+      await expect(captureDisclosure).toHaveAttribute('open', '');
       assert.deepEqual(await description.evaluate(field => [field.selectionStart, field.selectionEnd]), [3, 10]);
       await expect(detail.getByRole('button', { name: 'Recapture article', exact: true })).toBeDisabled();
       await detail.getByRole('button', { name: 'Save', exact: true }).click();
@@ -150,7 +158,8 @@ export async function enrichmentSmoke(browser, base) {
       articles[2].title = 'example.com/enrich03';
       await page.locator('.article[data-id=enrich03] .article-title').click();
       await page.locator('#reader-manual-copy').click();
-      await detail.getByRole('button', { name: 'Filter by databases', exact: true }).click();
+      await page.keyboard.press('Escape');
+      await page.getByLabel('Filter by tag').selectOption('databases');
       await expect(page).toHaveURL(base + '/');
       await page.locator('#loading').waitFor({ state: 'hidden' });
       await page.evaluate(() => new Promise(resolve => requestAnimationFrame(() => requestAnimationFrame(resolve))));
@@ -188,10 +197,12 @@ export async function enrichmentSmoke(browser, base) {
       await direct.locator('#reader-manual-copy').click();
       assert.equal(initialHeld, true);
       await expect(direct.locator('.article')).toHaveCount(0);
-      await direct.locator('#detail-content').getByRole('button', { name: 'Filter by databases', exact: true }).click();
+      await direct.keyboard.press('Escape');
       releaseInitial();
       await expect(direct).toHaveURL(base + '/');
       await direct.locator('#loading').waitFor({ state: 'hidden' });
+      await direct.getByLabel('Filter by tag').selectOption('databases');
+      await expect(direct).toHaveURL(base + '/');
       await direct.evaluate(() => new Promise(resolve => requestAnimationFrame(() => requestAnimationFrame(resolve))));
       await expect(direct.getByLabel('Filter by tag')).toHaveValue('databases');
       await expect(direct.locator('.article')).toHaveCount(1);

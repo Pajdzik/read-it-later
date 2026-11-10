@@ -463,6 +463,20 @@ let readerReadRequest: object | null = null;
 let listSnapshot: { scrollY: number; cursor: string | null; pageCount: number; focus: HTMLElement | null; focusArticleId: string | null; focusKind: "title" | "lead" | "other"; status: string; query: string; tag: string; rowCount: number; forceRefresh?: boolean } | null = null;
 let extractionPollTimer = 0;
 let extractionPollStartedAt = 0;
+const detailDisclosureState = new Map<string, Map<string, boolean>>();
+function rememberDetailDisclosure(articleId: string, disclosure: HTMLDetailsElement) {
+  const key = disclosure.dataset.disclosure;
+  if (!key) return;
+  let state = detailDisclosureState.get(articleId);
+  if (!state) { state = new Map(); detailDisclosureState.set(articleId, state); }
+  state.set(key, disclosure.open);
+}
+function revealDetailDisclosure(disclosure: HTMLDetailsElement) {
+  const articleId = disclosure.dataset.articleId;
+  if (!articleId || !disclosure.isConnected || !$('#detail-content').contains(disclosure) || state.selected?.id !== articleId) return;
+  disclosure.open = true;
+  rememberDetailDisclosure(articleId, disclosure);
+}
 let extractionPollGeneration = 0;
 const extensionUrl = new URL(location.href);
 const extensionHandoffId = extensionUrl.searchParams.get('extension');
@@ -1294,6 +1308,7 @@ function showDetailStatus(message: string, bad = false) {
 function renderDetail(article: Article, restartPolling = true) {
   state.selected = article;
   const root = $("#detail-content");
+  const disclosures = detailDisclosureState.get(article.id);
   root.replaceChildren();
   root.dataset.contentKey = detailContentKey(article);
   const eyebrow = el("p", sourceHost(article.url), "eyebrow");
@@ -1369,20 +1384,35 @@ function renderDetail(article: Article, restartPolling = true) {
   label.append(input);
   const save = el("button", "Save", "button primary");
   save.type = "submit";
+  const tagField = el('div', undefined, 'edit-field');
   const tagLabel = el('label', 'Tags (comma separated)', 'field-label');
   const tagInput = el('input'); tagInput.dataset.field = 'tags';
   tagInput.value = (article.tags ?? []).join(', '); tagInput.defaultValue = tagInput.value;
   tagInput.maxLength = 600; tagInput.placeholder = 'e.g. programming, databases'; tagLabel.append(tagInput);
+  tagField.append(tagLabel);
   const descriptionLabel = el('label', 'Description', 'field-label');
   const descriptionInput = el('textarea'); descriptionInput.dataset.field = 'description';
+  descriptionInput.setAttribute('aria-label', 'Description');
   descriptionInput.rows = 3; descriptionInput.maxLength = 500;
   descriptionInput.value = article.description ?? ''; descriptionInput.defaultValue = descriptionInput.value;
+  if (article.descriptionOrigin === 'generated') {
+    const generated = el('span', 'Generated', 'generated-label');
+    generated.id = 'detail-description-origin';
+    descriptionInput.setAttribute('aria-describedby', generated.id);
+    descriptionLabel.append(generated);
+  }
   descriptionLabel.append(descriptionInput);
-  const clearTags = el('button', 'Clear tags', 'button secondary'); clearTags.type = 'button';
+  const descriptionField = el('div', undefined, 'edit-field');
+  descriptionField.append(descriptionLabel);
+  const clearTags = el('button', 'Clear', 'inline-action'); clearTags.type = 'button';
+  clearTags.setAttribute('aria-label', 'Clear tags');
   clearTags.addEventListener('click', () => { tagInput.value = ''; tagInput.dataset.cleared = 'true'; tagInput.dispatchEvent(new Event('input')); tagInput.focus(); });
-  const clearDescription = el('button', 'Clear description', 'button secondary'); clearDescription.type = 'button';
+  tagField.append(clearTags);
+  const clearDescription = el('button', 'Clear', 'inline-action'); clearDescription.type = 'button';
+  clearDescription.setAttribute('aria-label', 'Clear description');
   clearDescription.addEventListener('click', () => { descriptionInput.value = ''; descriptionInput.dataset.cleared = 'true'; descriptionInput.dispatchEvent(new Event('input')); descriptionInput.focus(); });
-  form.append(label, tagLabel, clearTags, descriptionLabel, clearDescription, save);
+  descriptionField.append(clearDescription);
+  form.append(label, tagField, descriptionField, save);
   const url = el("a", article.url, "detail-url");
   url.href = safeHttpUrl(article.url) || "#";
   url.target = "_blank";
@@ -1442,6 +1472,7 @@ function renderDetail(article: Article, restartPolling = true) {
     } catch (error) {
       if (state.selected?.id !== article.id || !extractionPanel.isConnected || !$<HTMLDialogElement>("#detail-dialog").open) return;
       extractionStatus.textContent = `Couldn’t retry capture. ${(error as Error).message}`;
+      revealDetailDisclosure(captureDisclosure);
       retryCapture.disabled = false;
     }
   });
@@ -1449,35 +1480,45 @@ function renderDetail(article: Article, restartPolling = true) {
     if (article.extraction.state === "failed") extractionStatus.textContent = `${extractionFailureMessage(article.extraction.errorCode)} Paste or upload a browser copy below, or retry.`;
     extractionPanel.append(extractionStatus, retryCapture);
   }
+  const captureDisclosure = el('details', undefined, 'detail-disclosure');
+  captureDisclosure.dataset.disclosure = 'capture';
+  captureDisclosure.dataset.articleId = article.id;
+  captureDisclosure.append(el('summary', 'Capture and recovery'), extractionPanel);
+  captureDisclosure.open = article.extraction?.state === 'failed' || article.extraction?.recovery?.state === 'failed'
+    ? true : disclosures?.get('capture') ?? false;
   const enrichmentStatus = el('p', enrichmentLabel(article), 'muted enrichment-status');
   enrichmentStatus.hidden = !enrichmentStatus.textContent;
   root.append(
     eyebrow,
-    el("h2", article.title),
+    el("h2", "Edit article"),
     status,
     ...(article.author ? [el("p", `By ${article.author}`, "muted")] : []),
-    ...(article.description ? [el("p", article.description, "detail-description")] : []),
     el("p", `Saved ${dateLabel(article.createdAt)}`, "muted"),
-    ...(article.descriptionOrigin === 'generated' ? [el('p', 'Generated description', 'muted generated-label')] : []),
-    renderTags(article),
     enrichmentStatus,
 
     form,
     el("h3", "Original link"),
     url,
     actions,
-    extractionPanel,
+    captureDisclosure,
   );
-  const editorLoaded = renderCopyEditor(article);
+  const editorLoaded = renderCopyEditor(article, captureDisclosure);
+  for (const disclosure of root.querySelectorAll<HTMLDetailsElement>('details[data-disclosure]')) {
+    disclosure.addEventListener('toggle', () => rememberDetailDisclosure(article.id, disclosure));
+  }
   if (restartPolling && (extractionIsPending(article.extraction) || enrichmentIsPending(article))) startExtractionPolling(article);
   return editorLoaded;
 }
 
-async function renderCopyEditor(article: Article) {
+async function renderCopyEditor(article: Article, captureDisclosure: HTMLDetailsElement) {
   const root = $("#detail-content");
-  const section = el("section", undefined, "copy-editor");
-  section.setAttribute("aria-label", "Markdown copy");
-  section.append(el("h3", "Markdown copy"));
+  const section = el("details", undefined, "copy-editor detail-disclosure");
+  section.dataset.disclosure = 'markdown';
+  section.dataset.articleId = article.id;
+  section.append(el('summary', 'Edit Markdown copy'));
+  section.open = detailDisclosureState.get(article.id)?.has('markdown')
+    ? detailDisclosureState.get(article.id)!.get('markdown')!
+    : article.hasCopy === false;
   section.append(el("p", "Stored as Markdown text. External image links still depend on the source site.", "muted copy-explainer"));
   const status = el("p", "Checking for a saved copy…", "muted copy-status");
   status.setAttribute("aria-live", "polite");
@@ -1518,9 +1559,15 @@ async function renderCopyEditor(article: Article) {
   const integrationDescription = el("p", undefined, "muted copy-explainer");
   const integrationRetry = el("button", "Send saved copy", "button secondary");
   integrationRetry.type = "button";
+  const integrationDisclosure = el('details', undefined, 'detail-disclosure integration-disclosure');
+  integrationDisclosure.dataset.disclosure = 'integrations';
+  integrationDisclosure.dataset.articleId = article.id;
+  integrationDisclosure.append(el('summary', 'Integrations'));
+  integrationDisclosure.open = detailDisclosureState.get(article.id)?.get('integrations') ?? false;
   integrationRetry.hidden = true;
   let saved: ArticleCopy | null = null;
   let integrations: IntegrationStatus[] = [];
+  let integrationError: string | null = null;
   const selectedIntegration = () => integrations.find(item => item.id === integrationSelect.value);
   let saving = false;
   let source: ArticleCopy["source"] = "paste";
@@ -1539,6 +1586,9 @@ async function renderCopyEditor(article: Article) {
   discard.type = 'button';
   const recoveryHint = el('p', undefined, 'muted copy-status');
   recoveryHint.setAttribute('aria-live', 'polite');
+  const recoveryError = el('p', undefined, 'notice error');
+  recoveryError.setAttribute('role', 'alert');
+  recoveryError.hidden = true;
   const metadataFields = [...root.querySelectorAll<HTMLInputElement | HTMLTextAreaElement>('.edit-form [data-field]')];
   const isDirty = () => Boolean(copyDrafts.has(article.id) || metadataFields.some(field => field.value !== field.defaultValue || field.dataset.cleared === 'true'));
   const updateRecoveryControls = () => {
@@ -1563,6 +1613,7 @@ async function renderCopyEditor(article: Article) {
   const recover = async (action: 'recapture' | 'undo') => {
     if (!loaded || saving || isDirty()) return;
     saving = true;
+    recoveryError.hidden = true;
     updateRecoveryControls();
     message.hidden = true;
     try {
@@ -1580,20 +1631,26 @@ async function renderCopyEditor(article: Article) {
       showNotice(action === 'undo' ? 'Previous copy restored.' : extractionLabel(result.extraction));
       void load();
     } catch (error) {
-      if (root.contains(section)) showError(`Couldn’t ${action === 'undo' ? 'undo recapture' : 'queue recapture'}. ${(error as Error).message}`);
+      if (root.contains(section)) {
+        recoveryError.textContent = `Couldn’t ${action === 'undo' ? 'undo recapture' : 'queue recapture'}. ${(error as Error).message}`;
+        recoveryError.hidden = false;
+        revealDetailDisclosure(captureDisclosure);
+      }
     } finally { saving = false; updateRecoveryControls(); }
   };
   recapture.addEventListener('click', () => { void recover('recapture'); });
   undo.addEventListener('click', () => { void recover('undo'); });
   const recoveryActions = el('div', undefined, 'saved-copy-actions');
   recoveryActions.append(recapture, undo, discard);
-  recovery.append(refreshLabel, recoveryActions, recoveryHint);
+  recovery.append(refreshLabel, recoveryActions, recoveryHint, recoveryError);
+  captureDisclosure.append(recovery);
   updateRecoveryControls();
   save.disabled = true;
-  const showError = (text: string) => {
+  const showError = (text: string, disclosure: HTMLDetailsElement = section) => {
     message.textContent = text;
     message.classList.add("error");
     message.hidden = false;
+    revealDetailDisclosure(disclosure);
   };
   const showStatus = (text: string) => {
     status.textContent = text;
@@ -1629,6 +1686,8 @@ async function renderCopyEditor(article: Article) {
     integrationRetry.textContent = integration ? `Send saved copy to ${integration.name}` : 'Send saved copy';
     integrationDescription.textContent = integration?.description || '';
     integrationStatus.replaceChildren();
+    integrationStatus.classList.toggle('error', Boolean(integrationError));
+    if (integrationError) { integrationStatus.textContent = integrationError; return; }
     if (!integration) {
       integrationStatus.textContent = "No integrations configured. Copies are saved privately in Potem.";
       return;
@@ -1647,11 +1706,12 @@ async function renderCopyEditor(article: Article) {
       integrationStatus.append(link);
     }
   };
-  integrationSelect.addEventListener('change', () => { integrationCheckbox.checked = false; renderIntegrationStatus(); });
+  integrationSelect.addEventListener('change', () => { integrationCheckbox.checked = false; integrationError = null; renderIntegrationStatus(); });
   const refreshIntegrationStatus = async () => {
     try {
       const result = await request<{ integrations: IntegrationStatus[] }>(`/api/articles/${encodeURIComponent(article.id)}/integrations`);
       if (state.selected?.id !== article.id || !root.contains(section)) return;
+      integrationError = null;
       const selected = integrationSelect.value;
       const previousKey = selectedIntegration()?.destinationKey;
       integrations = result.integrations;
@@ -1663,7 +1723,9 @@ async function renderCopyEditor(article: Article) {
       renderIntegrationStatus();
     } catch (error) {
       integrationCheckbox.disabled = true;
-      integrationStatus.textContent = `Couldn’t load integrations. ${(error as Error).message}`;
+      integrationError = `Couldn’t load integrations. ${(error as Error).message}`;
+      renderIntegrationStatus();
+      revealDetailDisclosure(integrationDisclosure);
     }
   };
   const sendSavedCopy = async (destination: IntegrationConsent) => {
@@ -1671,13 +1733,20 @@ async function renderCopyEditor(article: Article) {
     integrationStatus.textContent = "Sending saved copy…";
     try {
       const result = await sendToIntegration(article.id, saved.revision, destination);
+      integrationError = null;
       integrations = integrations.map(item => item.id === result.integration.id ? result.integration : item);
       renderIntegrationStatus();
-      if (result.integration.state === "outdated") showError("The saved copy was sent, but this article changed meanwhile. Reload it and send again.");
+      if (result.integration.state === "outdated") {
+        integrationError = "The saved copy was sent, but this article changed meanwhile. Reload it and send again.";
+        renderIntegrationStatus();
+        revealDetailDisclosure(integrationDisclosure);
+      }
       else showNotice(`Markdown copy sent to ${result.integration.name}.`);
     } catch (error) {
       await refreshIntegrationStatus();
-      showError(`Your Markdown copy is saved in Potem. Couldn’t send it. ${(error as Error).message} Use “Send saved copy” to retry.`);
+      integrationError = `Your Markdown copy is saved in Potem. Couldn’t send it. ${(error as Error).message} Use “Send saved copy” to retry.`;
+      renderIntegrationStatus();
+      revealDetailDisclosure(integrationDisclosure);
     }
   };
   integrationRetry.addEventListener("click", async () => {
@@ -1770,8 +1839,9 @@ async function renderCopyEditor(article: Article) {
     }
   });
   savedActions.append(readCopy, downloadCopy);
-  section.append(status, savedActions, recovery, label, fileLabel, integrationLabel, integrationSelect, integrationDescription, save, integrationStatus, integrationRetry, message);
-  root.append(section);
+  section.append(label, fileLabel, save, message);
+  integrationDisclosure.append(integrationLabel, integrationSelect, integrationDescription, integrationStatus, integrationRetry);
+  root.append(status, savedActions, section, integrationDisclosure);
   const pendingDraft = copyDrafts.get(article.id);
   if (pendingDraft) {
     textarea.value = pendingDraft.markdown;
@@ -1785,6 +1855,7 @@ async function renderCopyEditor(article: Article) {
     loaded = true;
     updateRecoveryControls();
     showCopyActions();
+    if (!saved) revealDetailDisclosure(section);
     const pending = copyDrafts.get(article.id);
     if (pending) {
       textarea.value = pending.markdown;
@@ -1805,6 +1876,7 @@ async function renderCopyEditor(article: Article) {
     save.disabled = false;
     await refreshIntegrationStatus();
   } catch (error) {
+    revealDetailDisclosure(section);
     showStatus("Couldn’t load Markdown copy status.");
     showCopyActions();
     showError(`Couldn’t load this copy. ${(error as Error).message} Retry by closing and reopening this article.`);
