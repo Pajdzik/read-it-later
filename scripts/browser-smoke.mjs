@@ -390,7 +390,7 @@ try {
   });
   await page.reload();
   await page.locator("#loading").waitFor({ state: "hidden" });
-  const entryArticle = page.locator(".article").filter({ hasText: "Reader entry smoke" });
+  const entryArticle = page.locator(`.article[data-id="${entryFixture.id}"]`);
   const entryTitle = entryArticle.getByRole("link", { name: "Reader entry smoke", exact: true });
   await entryTitle.waitFor();
   const tagDisclosure = entryArticle.locator(".article-tags-more");
@@ -423,7 +423,7 @@ try {
   assert.match(await entryTitle.getAttribute("href"), /^\/read\/[a-z0-9]{8}\/reader-entry-smoke$/,
     "Saved article titles must use the canonical short-ID readable path.");
   assert.deepEqual(await entryArticle.locator(".article-main").evaluate((main) =>
-    Array.from(main.children, (child) => child.classList.contains("article-title") ? "title"
+    Array.from(main.children, (child) => child.classList.contains("article-heading-row") ? "title"
       : child.classList.contains("article-description") ? "description"
         : "metadata")),
   ["title", "description", "metadata"],
@@ -436,7 +436,7 @@ try {
   assert.equal(await page.locator(".article").count(), 51, "The second list page should append once without dropping the first page.");
   const noDescriptionArticle = page.locator(".article").filter({ hasText: "Synthetic final row" });
   assert.deepEqual(await noDescriptionArticle.locator(".article-main").evaluate((main) =>
-    Array.from(main.children, (child) => child.classList.contains("article-title") ? "title"
+    Array.from(main.children, (child) => child.classList.contains("article-heading-row") ? "title"
       : child.classList.contains("article-description") ? "description"
         : "metadata")),
   ["title", "metadata"],
@@ -463,14 +463,30 @@ try {
     assert.equal(await entryActions.locator(":scope > button, :scope > .article-more").count(), 2, "Mark read and More must share the action container.");
     assert.equal(await entryMenu.locator("button, a").count(), 2, "Edit and Open original must be grouped in More.");
     assert.equal(await entryMetaRow.locator("button.read-action").count(), 0, "Mark read must stay out of the metadata row.");
-    const actionCenters = await Promise.all([entryRead, entryMore].map(async (control) => {
+    const actionBounds = await Promise.all([entryRead, entryMore].map(async (control) => {
       const bounds = await control.boundingBox();
       assert.ok(bounds, "Each article action must be visible.");
-      return bounds.y + bounds.height / 2;
+      assert.ok(bounds.width >= 44 && bounds.height >= 44, "Article actions must have 44px touch targets.");
+      return bounds;
     }));
-    assert.ok(Math.max(...actionCenters) - Math.min(...actionCenters) <= 3, "Article actions must stay on one row.");
+    assert.ok(Math.abs(actionBounds[0].y - actionBounds[1].y) <= 3, "Article actions must stay on one row.");
+    assert.ok(actionBounds[1].x - (actionBounds[0].x + actionBounds[0].width) >= 8, "Article actions must have at least 8px of separation.");
+    const titleBounds = await entryArticle.locator(".article-title").boundingBox();
+    const headingBounds = await entryArticle.locator(".article-heading-row").boundingBox();
+    assert.ok(titleBounds && headingBounds && titleBounds.y <= actionBounds[0].y + 3,
+      "The action cluster must sit alongside the article title.");
+    assert.ok(await entryArticle.locator(".article-title").evaluate((title) => title.scrollWidth <= title.clientWidth + 1),
+      "Long titles must wrap without running beneath the action controls.");
   };
   const entryReadState = await page.evaluate(async (id) => (await (await fetch(`/api/articles/${id}`)).json()).article.readAt, entryFixture.id);
+  const originalEntryTitle = await entryTitle.textContent();
+  await entryTitle.evaluate((title) => { title.textContent = `https://example.com/${"long-title-segment-".repeat(14)}`; });
+  for (const width of [320, 390, 620, 768, 1200]) {
+    await page.setViewportSize({ width, height: 1000 });
+    await entryMore.scrollIntoViewIfNeeded();
+    await assertControlLayout();
+  }
+  await entryArticle.locator(".article-title").evaluate((title, text) => { title.textContent = text; }, originalEntryTitle);
   await page.setViewportSize({ width: 1440, height: 1000 });
   await entryMore.scrollIntoViewIfNeeded();
   await assertControlLayout();

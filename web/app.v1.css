@@ -464,9 +464,20 @@ button {
 }
 .article-main {
   min-width: 0;
+  flex: 1 1 auto;
+}
+.article-heading-row {
+  display: flex;
+  align-items: flex-start;
+  gap: 12px;
+}
+.article-heading-row .article-title {
+  min-width: 0;
+  flex: 1 1 auto;
 }
 .article-title {
   display: block;
+  overflow-wrap: anywhere;
   border: 0;
   background: none;
   padding: 0;
@@ -604,10 +615,11 @@ button {
 .article-actions {
   display: flex;
   flex-direction: row;
-  gap: 6px;
+  gap: 8px;
   align-items: center;
-  justify-content: center;
-  flex-shrink: 0;
+  justify-content: flex-end;
+  flex: 0 0 auto;
+  margin-top: 0;
 }
 .article-action-menu {
   position: fixed;
@@ -663,7 +675,15 @@ button {
 }
 .action-button.read-action {
   color: var(--accent);
+  border-color: color-mix(in srgb, var(--accent) 35%, var(--line));
+  background: color-mix(in srgb, var(--accent) 8%, var(--white));
 }
+.article-actions .action-button.icon-action {
+  width: 44px;
+  height: 44px;
+  flex-basis: 44px;
+}
+.article-actions .action-button.more-action { border-color: transparent; background: transparent; }
 .action-button:hover {
   border-color: var(--accent);
 }
@@ -1388,27 +1408,10 @@ body:has(#reader-dialog[open]) {
     padding: 9px 12px;
   }
   .article {
-    display: grid;
-    grid-template-columns: minmax(0, 1fr);
-    grid-template-rows: auto auto auto auto;
-    align-items: start;
-    gap: 8px 10px;
+    display: block;
     padding: 16px 3px;
   }
-  .article-main { display: contents; }
-  .article-title { grid-column: 1; grid-row: 1; }
-  .article-description { grid-column: 1; grid-row: 2; }
-  .article-meta-row { grid-column: 1; grid-row: 3; }
-  .article-tags { grid-column: 1 / -1; }
-  .article-actions {
-    grid-column: 1;
-    grid-row: 4;
-    align-self: start;
-    justify-self: end;
-    flex-direction: row;
-    align-items: center;
-    justify-content: flex-end;
-  }
+  .article-heading-row { gap: 8px; }
   .article-title {
     font-size: 18px;
   }

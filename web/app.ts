@@ -1106,6 +1106,7 @@ function renderArticle(article: Article) {
   const li = el("li", undefined, `article${article.readAt ? " is-read" : ""}`);
   li.dataset.id = article.id;
   const main = el("div", undefined, "article-main");
+  const headingRow = el("div", undefined, "article-heading-row");
   const title = el("a", article.title, "article-title");
   title.href = articlePath(article);
   title.dataset.articleId = article.id;
@@ -1129,7 +1130,6 @@ function renderArticle(article: Article) {
       event.preventDefault(); void navigateToArticle(article.id, description);
     });
   }
-  if (description) main.append(description);
   const actions = el("div", undefined, "article-actions");
   const read = iconButton(
     article.readAt ? "Mark unread" : "Mark read",
@@ -1175,12 +1175,14 @@ function renderArticle(article: Article) {
     });
   });
   actions.append(read, more);
-  main.append(title, metaRow);
-  if (description) title.after(description);
+  headingRow.append(title, actions);
+  main.append(headingRow);
+  if (description) main.append(description);
+  main.append(metaRow);
   const tags = renderTags(article, true);
   if (article.descriptionOrigin === 'generated') tags.prepend(el('span', 'Generated description', 'generated-label'));
   if (tags.childElementCount) metaRow.append(tags);
-  li.append(main, actions);
+  li.append(main);
   return li;
 }
 window.addEventListener("scroll", () => {
