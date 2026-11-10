@@ -776,25 +776,26 @@ function renderArticleMeta(article: Article) {
   return meta;
 }
 function updateExtractionBadge(badge: HTMLElement, extraction?: ExtractionStatus) {
-  badge.classList.toggle("extraction-badge-pending", extractionIsPending(extraction));
   const failed = extraction?.recovery?.state === 'failed' || extraction?.state === "failed";
-  const ready = extraction?.state === "ready" && !failed && !extractionIsPending(extraction);
-  const label = extractionLabel(extraction);
-  badge.classList.toggle("extraction-badge-ready", ready);
+  const pending = extractionIsPending(extraction);
+  badge.classList.toggle("extraction-badge-pending", pending);
+  badge.classList.remove("extraction-badge-ready");
   badge.classList.toggle("extraction-badge-failed", failed);
-  badge.hidden = !label;
-  if (extractionIsPending(extraction)) {
+  if (!pending && !failed) {
+    badge.hidden = true;
+    badge.removeAttribute("role");
+    badge.removeAttribute("aria-label");
+    badge.removeAttribute("title");
+    badge.replaceChildren();
+    return;
+  }
+  const label = extractionLabel(extraction);
+  badge.hidden = false;
+  if (pending) {
     badge.setAttribute("role", "img");
     badge.setAttribute("aria-label", label);
     badge.title = label;
     badge.innerHTML = '<svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="8.5" /><path d="M12 7v5l3 2" /></svg>';
-    return;
-  }
-  if (ready) {
-    badge.setAttribute("role", "img");
-    badge.setAttribute("aria-label", "Markdown ready");
-    badge.title = "Markdown ready";
-    badge.innerHTML = iconMarkup("mark-read");
     return;
   }
   if (failed) {
@@ -804,10 +805,6 @@ function updateExtractionBadge(badge: HTMLElement, extraction?: ExtractionStatus
     badge.innerHTML = iconMarkup("capture-failed");
     return;
   }
-  badge.removeAttribute("role");
-  badge.removeAttribute("aria-label");
-  badge.removeAttribute("title");
-  badge.textContent = label;
 }
 function extractionIsPending(extraction?: ExtractionStatus) {
   return Boolean(extraction && ["queued", "running", "retry_wait"].includes(extraction.recovery?.state ?? extraction.state));
