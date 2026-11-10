@@ -1911,6 +1911,9 @@ function ensureReaderOpener(opener?: HTMLElement) {
 }
 function resetReaderCompletion(article?: Article) {
   readerReadRequest = null;
+  const menu = $<HTMLElement>("#reader-actions-menu");
+  if (menu.matches(":popover-open")) menu.hidePopover();
+  $<HTMLButtonElement>("#reader-more-button").disabled = false;
   $("#reader-completion").hidden = !article;
   $("#reader-read-error").hidden = true;
   $("#reader-read-error").textContent = "";
@@ -1923,6 +1926,30 @@ function resetReaderCompletion(article?: Article) {
   $("#reader-read-label").textContent = article?.readAt ? "Mark as unread" : "Mark as read";
   button.querySelector("svg")!.outerHTML = iconMarkup(article?.readAt ? "mark-unread" : "mark-read");
 }
+$("#reader-actions-menu").addEventListener("toggle", (event) => {
+  const expanded = (event as ToggleEvent).newState === "open";
+  $("#reader-more-button").setAttribute("aria-expanded", String(expanded));
+});
+function positionReaderActions() {
+  const menu = $<HTMLElement>("#reader-actions-menu");
+  if (!menu.matches(":popover-open")) return;
+  const trigger = $<HTMLButtonElement>("#reader-more-button").getBoundingClientRect();
+  const bounds = menu.getBoundingClientRect();
+  const left = Math.max(8, Math.min(trigger.left, window.innerWidth - bounds.width - 8));
+  const below = trigger.bottom + bounds.height + 5 <= window.innerHeight;
+  menu.style.left = `${left}px`;
+  menu.style.top = `${below ? trigger.bottom + 5 : Math.max(8, trigger.top - bounds.height - 5)}px`;
+}
+$("#reader-actions-menu").addEventListener("beforetoggle", (event) => {
+  if ((event as ToggleEvent).newState !== "open") return;
+  requestAnimationFrame(positionReaderActions);
+});
+function dismissReaderActions() {
+  const menu = $<HTMLElement>("#reader-actions-menu");
+  if (menu.matches(":popover-open")) menu.hidePopover();
+}
+$<HTMLDialogElement>("#reader-dialog").addEventListener("scroll", positionReaderActions, { passive: true });
+window.addEventListener("resize", dismissReaderActions, { passive: true });
 $("#reader-read-toggle").addEventListener("click", async () => {
   const article = state.selected;
   const dialog = $<HTMLDialogElement>("#reader-dialog");
@@ -1933,6 +1960,7 @@ $("#reader-read-toggle").addEventListener("click", async () => {
   const isCurrent = () => generation === readerLoadGeneration && readerReadRequest === operation && readerArticleId === article.id && dialog.open;
   const button = $<HTMLButtonElement>("#reader-read-toggle");
   button.disabled = true;
+  $<HTMLButtonElement>("#reader-more-button").disabled = true;
   $<HTMLButtonElement>("#reader-delete-button").disabled = true;
   button.setAttribute("aria-busy", "true");
   $("#reader-read-label").textContent = "Saving…";
@@ -1963,10 +1991,16 @@ $("#reader-delete-button").addEventListener("click", async () => {
   const dialog = $<HTMLDialogElement>("#reader-dialog");
   const button = $<HTMLButtonElement>("#reader-delete-button");
   if (!article || readerArticleId !== article.id || !dialog.open || $("#reader-completion").hidden || button.disabled || readerReadRequest) return;
-  if (!confirm(`Delete “${article.title}”? This can’t be undone.`)) return;
+  const readerMenu = $<HTMLElement>("#reader-actions-menu");
+  if (readerMenu.matches(":popover-open")) readerMenu.hidePopover();
+  if (!confirm(`Delete “${article.title}”? This can’t be undone.`)) {
+    $<HTMLButtonElement>("#reader-more-button").focus({ preventScroll: true });
+    return;
+  }
 
   const generation = readerLoadGeneration;
   button.disabled = true;
+  $<HTMLButtonElement>("#reader-more-button").disabled = true;
   button.setAttribute("aria-busy", "true");
   $<HTMLButtonElement>("#reader-read-toggle").disabled = true;
   $("#reader-read-error").hidden = true;
@@ -1994,11 +2028,13 @@ $("#reader-delete-button").addEventListener("click", async () => {
   } catch (error) {
     if (generation !== readerLoadGeneration || readerArticleId !== article.id || !dialog.open) return;
     button.disabled = false;
+    $<HTMLButtonElement>("#reader-more-button").disabled = false;
     button.removeAttribute("aria-busy");
     $<HTMLButtonElement>("#reader-read-toggle").disabled = false;
     const feedback = $("#reader-read-error");
     feedback.textContent = `Couldn’t delete this article. ${(error as Error).message} Try again.`;
     feedback.hidden = false;
+    $<HTMLButtonElement>("#reader-more-button").focus({ preventScroll: true });
   }
 });
 function setReaderTitle(text: string) {

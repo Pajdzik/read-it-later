@@ -642,6 +642,21 @@ async function runProfile(name, browserType, device) {
   assert.ok(completionMetrics.button.height >= 44 && Math.abs(completionMetrics.width - completionMetrics.button.width) < 1 &&
     completionMetrics.top >= completionMetrics.bodyBottom + 23,
     `${name}: completion button must follow the article and fill the mobile column: ${JSON.stringify(completionMetrics)}`);
+  await readyReader.locator("#reader-more-button").tap();
+  const readerDelete = readyReader.locator("#reader-delete-button");
+  await readerDelete.waitFor({ state: "visible" });
+  await page.evaluate(() => new Promise((resolve) => requestAnimationFrame(() => requestAnimationFrame(resolve))));
+  const deleteBounds = await readerDelete.boundingBox();
+  const moreBounds = await readyReader.locator("#reader-more-button").boundingBox();
+  const viewportWidth = page.viewportSize().width;
+  assert.ok(deleteBounds && moreBounds && deleteBounds.x < moreBounds.x + moreBounds.width &&
+    moreBounds.x < deleteBounds.x + deleteBounds.width && deleteBounds.x >= 0 && deleteBounds.x + deleteBounds.width <= viewportWidth &&
+    (Math.abs(deleteBounds.y - (moreBounds.y + moreBounds.height)) < 12 || Math.abs(moreBounds.y - (deleteBounds.y + deleteBounds.height)) < 12),
+    `${name}: reader actions menu should be adjacent to its trigger: ${JSON.stringify({ deleteBounds, moreBounds })}`);
+  assert.ok(deleteBounds && deleteBounds.width < completionMetrics.width && deleteBounds.height >= 44,
+    `${name}: Delete must remain a compact secondary action with a touch-sized target: ${JSON.stringify(deleteBounds)}`);
+  await page.keyboard.press("Escape");
+  await expect(readyReader.locator("#reader-actions-menu")).toBeHidden();
   await page.emulateMedia({ reducedMotion: "reduce" });
   for (const theme of ["light", "dark"]) {
     await page.evaluate((value) => document.documentElement.setAttribute("data-theme", value), theme);

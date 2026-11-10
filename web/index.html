@@ -243,10 +243,12 @@
               <svg viewBox="0 0 24 24" aria-hidden="true"><path d="m5 12 4.5 4.5L19 7" /></svg>
               <span id="reader-read-label">Mark as read</span>
             </button>
-            <button id="reader-delete-button" class="button danger" type="button">
-              <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 7h16M10 11v6m4-6v6M6 7l1 14h10l1-14M9 7V4h6v3" /></svg>
-              <span>Delete article</span>
-            </button>
+            <div class="reader-more-actions">
+              <button id="reader-more-button" class="button secondary" type="button" aria-controls="reader-actions-menu" aria-expanded="false" popovertarget="reader-actions-menu">More actions</button>
+              <div id="reader-actions-menu" class="reader-actions-menu" popover="auto">
+                <button id="reader-delete-button" class="reader-menu-delete" type="button">Delete article</button>
+              </div>
+            </div>
           </div>
           <p id="reader-read-error" class="notice error" role="alert" hidden></p>
         </footer>

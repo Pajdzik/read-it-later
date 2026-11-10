@@ -1118,6 +1118,7 @@ button {
 .reader-completion-actions {
   display: flex;
   flex-wrap: wrap;
+  align-items: center;
   gap: 10px;
 }
 .reader-completion .button {
@@ -1127,6 +1128,38 @@ button {
   gap: 8px;
   min-height: 44px;
 }
+.reader-more-actions { position: relative; }
+.reader-more-actions > .button {
+  color: var(--muted);
+  background: transparent;
+  border-color: var(--line);
+}
+.reader-actions-menu {
+  position: fixed;
+  inset: 0 auto auto 0;
+  min-width: 180px;
+  padding: 5px;
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  color: var(--ink);
+  background: var(--paper);
+  box-shadow: 0 8px 28px rgb(0 0 0 / 16%);
+}
+.reader-actions-menu::backdrop { background: transparent; }
+.reader-menu-delete {
+  display: block;
+  width: 100%;
+  min-height: 44px;
+  padding: 9px 12px;
+  border: 0;
+  border-radius: 6px;
+  color: var(--danger-text);
+  background: transparent;
+  text-align: left;
+  font: inherit;
+  cursor: pointer;
+}
+.reader-menu-delete:hover, .reader-menu-delete:focus-visible { background: var(--highlight); }
 .reader-completion svg {
   width: 20px;
   height: 20px;
@@ -1248,8 +1281,9 @@ body:has(#reader-dialog[open]) {
   .reader-content-column { padding-top: 12px; }
   .reader-header { margin-bottom: 14px; }
   .reader-header h2 { font-size: clamp(26px, 8vw, 32px); }
-  .reader-completion-actions { flex-direction: column; }
-  .reader-completion .button { width: 100%; }
+  .reader-completion-actions { flex-direction: column; align-items: stretch; }
+  #reader-read-toggle { width: 100%; }
+  .reader-more-actions { align-self: flex-end; }
   .reader-body {
     font-size: 1.125rem;
     line-height: 1.6;
