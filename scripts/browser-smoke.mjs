@@ -513,9 +513,9 @@ try {
   assert.equal(await entryTitle.evaluate((link) => document.activeElement === link), true,
     "Closing the reader should restore focus to the title that opened it.");
   const lastOpened = page.locator("#last-opened");
-  await lastOpened.getByText("Last opened").waitFor();
-  assert.equal(await lastOpened.locator("#last-opened-title").getAttribute("href"), new URL(canonicalReaderUrl).pathname,
-    "Last opened should link to the canonical article URL.");
+  await expect(lastOpened).toBeHidden();
+  assert.equal(await page.locator(".article").first().getAttribute("data-id"), entryFixture.id,
+    "Continue reading should be omitted when the first displayed article is already the last-opened article.");
   await page.goForward();
   try {
     await reader.getByRole("heading", { name: "Reader entry smoke" }).waitFor({ timeout: 10_000 });

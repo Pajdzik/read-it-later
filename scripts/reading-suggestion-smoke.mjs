@@ -12,7 +12,8 @@ export async function checkReadingSuggestion(browser, base) {
     { id: "suggest1", title: "The quiet pleasure of reading something unexpected", url: "https://example.com/reading", author: "Alex Morgan", tags: ["Reading"] },
     { id: "suggest2", title: "Making room for curiosity", url: "https://journal.example.com/curiosity", author: null, tags: ["Ideas"] },
   ].map((article) => ({ ...article, description: "A little space for a new idea.", readAt: null, createdAt: "2026-10-01T00:00:00.000Z", updatedAt: "2026-10-01T00:00:00.000Z", hasCopy: true }));
-  let authenticated = true, failSuggestion = false, failList = false, suggestionRequests = 0, releaseSuggestion;
+  let authenticated = true, failSuggestion = false, failList = false, suggestionRequests = 0, releaseSuggestion, releaseList, listHeldResolve;
+  let holdList = false;
   const json = (route, body, status = 200) => route.fulfill({ status, contentType: "application/json", body: JSON.stringify(body) });
   await page.route("**/api/**", async (route) => {
     const request = route.request(), url = new URL(request.url());
@@ -28,7 +29,9 @@ export async function checkReadingSuggestion(browser, base) {
     if (url.pathname === "/api/articles") {
       const status = url.searchParams.get("status"), query = url.searchParams.get("q") || "", tag = url.searchParams.get("tag");
       if (failList && query) return json(route, { error: { message: "List unavailable" } }, 503);
-      return json(route, { items: articles.filter((article) => (status === "all" || Boolean(article.readAt) === (status === "read")) && article.title.includes(query) && (!tag || article.tags.includes(tag))), nextCursor: null });
+      const items = articles.filter((article) => (status === "all" || Boolean(article.readAt) === (status === "read")) && article.title.includes(query) && (!tag || article.tags.includes(tag)));
+      if (holdList) await new Promise((resolve) => { releaseList = resolve; listHeldResolve?.(); });
+      return json(route, { items, nextCursor: null });
     }
     const article = articles.find((item) => url.pathname === `/api/articles/${item.id}` || url.pathname === `/api/articles/${item.id}/copy`);
     if (article) {
@@ -93,11 +96,11 @@ export async function checkReadingSuggestion(browser, base) {
     await title.click();
     await expect(page.locator("#reader-title")).toHaveText(articles[1].title);
     await page.getByRole("button", { name: "Close saved copy" }).click();
-    await expect(card).toHaveAttribute("aria-label", "Last opened");
+    await expect(card).toHaveAttribute("aria-label", "Continue reading");
     await expect(card.getByRole("button", { name: "Try another" })).toBeHidden();
     await page.reload();
     await expect(title).toHaveText(articles[1].title);
-    await expect(card).toHaveAttribute("aria-label", "Last opened");
+    await expect(card).toHaveAttribute("aria-label", "Continue reading");
     await page.locator(`.article[data-id="${articles[1].id}"]`).getByRole("button", { name: "Mark read", exact: true }).click();
     await expect(card).toHaveAttribute("aria-label", "Picked for you");
     await expect(title).toHaveText(articles[0].title);
@@ -132,7 +135,24 @@ export async function checkReadingSuggestion(browser, base) {
     releaseSuggestion = null;
     await (await lateResponse).finished();
     await page.getByRole("button", { name: "Close saved copy" }).click();
-    await expect(card).toHaveAttribute("aria-label", "Last opened");
+    await expect(card).toHaveAttribute("aria-label", "Continue reading");
+    // If the last-opened lookup finishes before the list, hiding its duplicate restores focus to its list title.
+    await page.evaluate((id) => localStorage.setItem("potem-last-opened-v1", JSON.stringify({ version: 1, articleId: id, openedAt: new Date().toISOString() })), articles[0].id);
+    holdList = true;
+    const listHeld = new Promise((resolve) => { listHeldResolve = resolve; });
+    await page.reload();
+    await listHeld;
+    listHeldResolve = null;
+    await expect(card).toHaveAttribute("aria-label", "Continue reading");
+    await expect(title).toHaveText(articles[0].title);
+    await title.focus();
+    assert.equal(await title.evaluate((link) => document.activeElement === link), true);
+    releaseList();
+    releaseList = null;
+    holdList = false;
+    await expect(card).toBeHidden();
+    assert.equal(await page.locator(".article-title").first().evaluate((link) => document.activeElement === link), true,
+      "A duplicate last-opened shortcut should transfer focus to the first article title.");
     authenticated = false;
     await page.reload();
     await expect(page.locator("#library-sign-in")).toBeVisible();

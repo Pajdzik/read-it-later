@@ -239,6 +239,9 @@ async function restoreListView() {
     !completion ? snapshot?.focus : null,
     fallback,
     !completion ? shortcutTitle : null,
+    !completion && isShortcutView() && shortcutTitle && shortcutTitle.closest("[hidden]") && lastOpenedArticle && !lastOpenedArticle.readAt &&
+      list.firstElementChild?.getAttribute("data-id") === lastOpenedArticle.id
+      ? list.querySelector<HTMLElement>(".article-title") : null,
     document.querySelector<HTMLElement>("[data-status][aria-pressed='true']"),
     document.querySelector<HTMLElement>("#search"),
   ];
@@ -281,8 +284,12 @@ function renderLastOpened() {
   const inProgress = lastOpenedArticle && !lastOpenedArticle.readAt ? lastOpenedArticle : null;
   const article = inProgress || (!lastOpenedError ? suggestedArticle : null);
   const error = lastOpenedError || suggestionError;
-  const label = inProgress || lastOpenedError ? "Last opened" : "Picked for you";
-  row.hidden = !state.session?.authenticated || !isShortcutView() || (!article && !error && !suggestionLoading);
+  const isContinueReading = Boolean(inProgress || lastOpenedError);
+  const label = isContinueReading ? "Continue reading" : "Picked for you";
+  const firstArticle = list.firstElementChild as HTMLElement | null;
+  const duplicatesFirstArticle = Boolean(inProgress && firstArticle?.dataset.id === inProgress.id);
+  const wasVisible = !row.hidden;
+  row.hidden = !state.session?.authenticated || !isShortcutView() || duplicatesFirstArticle || (!article && !error && !suggestionLoading);
   row.setAttribute("aria-label", label);
   row.setAttribute("aria-busy", String(suggestionLoading));
   $("#last-opened-label").textContent = label;
@@ -295,8 +302,8 @@ function renderLastOpened() {
   shuffle.hidden = Boolean(inProgress || lastOpenedError || !suggestedArticle || !suggestionHasAlternative);
   shuffle.disabled = suggestionLoading;
   const source = $("#last-opened-source");
-  source.hidden = !article || Boolean(inProgress);
-  source.textContent = article && !inProgress ? `${sourceHost(article.url)}${article.author ? ` · ${article.author}` : ""}` : "";
+  source.hidden = !article || isContinueReading;
+  source.textContent = article && !isContinueReading ? `${sourceHost(article.url)}${article.author ? ` · ${article.author}` : ""}` : "";
   if (article) {
     link.textContent = article.title; link.href = articlePath(article); link.dataset.articleId = article.id;
     if (!link.dataset.navigationBound) {
@@ -308,6 +315,10 @@ function renderLastOpened() {
     }
   } else {
     link.textContent = ""; link.removeAttribute("href"); delete link.dataset.articleId;
+  }
+  if (wasVisible && row.hidden && row.contains(document.activeElement) && duplicatesFirstArticle) {
+    const fallback = list.querySelector<HTMLElement>(".article-title");
+    fallback?.focus({ preventScroll: true });
   }
   // Updating the shortcut above the list must not move its background view.
   window.scrollTo(scrollX, scrollY);
