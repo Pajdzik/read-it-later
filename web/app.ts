@@ -3157,11 +3157,19 @@ async function openSettings() {
   showDialog($<HTMLDialogElement>("#settings-dialog"), $<HTMLSelectElement>("#theme-toggle"));
   if (!state.session?.authenticated) {
     $("#settings-status").textContent =
-      "Sign in to manage your capture tokens.";
+      "Sign in to manage your library and device settings.";
+    $("#settings-library").hidden = true;
+    $("#settings-private-podcast").hidden = true;
+    $("#settings-saving-devices").hidden = true;
+    $("#settings-integrations-disclosure").hidden = true;
     $("#token-form").hidden = true;
     $("#tokens").replaceChildren();
     return;
   }
+  $("#settings-library").hidden = false;
+  $("#settings-private-podcast").hidden = false;
+  $("#settings-saving-devices").hidden = false;
+  $("#settings-integrations-disclosure").hidden = false;
   $("#settings-status").textContent = "Signed in";
   $("#token-form").hidden = false;
   void loadPodcastSettings();

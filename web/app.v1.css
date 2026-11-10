@@ -1220,6 +1220,28 @@ body:has(#reader-dialog[open]) {
   margin-top: 20px;
   padding-top: 14px;
 }
+.settings-section > h3 { margin: 0 0 8px; }
+.settings-disclosure {
+  border-top: 1px solid var(--line);
+  padding: 8px 0;
+}
+.settings-section > .settings-disclosure:first-of-type { border-top: 0; }
+.settings-disclosure summary {
+  min-height: 44px;
+  line-height: 44px;
+  cursor: pointer;
+  color: var(--ink);
+  font-size: 14px;
+  font-weight: 650;
+}
+.settings-disclosure summary:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 3px;
+  border-radius: 4px;
+}
+.settings-disclosure-content { padding: 4px 0 8px; }
+.settings-device-help { border-top: 1px solid var(--line); margin-top: 14px; padding-top: 8px; }
+.settings-device-help h3 { margin: 0; }
 .settings-section p {
   font-size: 13px;
   color: var(--muted);

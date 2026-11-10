@@ -1020,6 +1020,20 @@ try {
   await page.locator("#logout").waitFor();
   assert.equal(await page.locator(".top-actions #logout").count(), 0,
     "Sign out must remain inside Settings.");
+  const deviceSettings = page.locator("#settings-saving-devices");
+  await deviceSettings.locator("summary").click();
+  assert.equal(await deviceSettings.evaluate((el) => el.open), true,
+    "Saving from devices should reveal capture token controls when explicitly opened.");
+  const deviceSettingsSummary = deviceSettings.locator("summary");
+  await deviceSettingsSummary.focus();
+  await deviceSettingsSummary.press("Space");
+  assert.equal(await deviceSettings.evaluate((el) => el.open), false,
+    "The native disclosure summary should toggle closed by keyboard.");
+  assert.equal(await deviceSettingsSummary.evaluate((el) => el === document.activeElement), true,
+    "Keyboard disclosure activation should keep focus on its summary.");
+  await deviceSettingsSummary.press("Space");
+  assert.equal(await deviceSettings.evaluate((el) => el.open), true,
+    "The native disclosure summary should toggle open by keyboard.");
   await page.locator("#token-label").fill("Smoke device");
   await page.locator("#token-form button").click();
   await page.locator("#new-token code").waitFor();

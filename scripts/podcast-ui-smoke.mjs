@@ -21,6 +21,10 @@ const server = createServer(async (request, response) => {
 });
 await new Promise((resolve) => server.listen(0, "127.0.0.1", resolve));
 const base = `http://127.0.0.1:${server.address().port}`;
+async function openSettingsDisclosure(page, selector) {
+  const disclosure = page.locator(selector);
+  if (!(await disclosure.evaluate((el) => el.open))) await disclosure.locator("summary").click();
+}
 const article = { id: "abc12345", url: "https://example.com/story", title: "Podcast UI Smoke", author: "Reader", description: "An English article.", tags: [], createdAt: new Date().toISOString(), updatedAt: new Date().toISOString(), readAt: null, hasCopy: true, podcastFit: { tier: "good", reason: "Mostly prose with no code blocks.", spokenWords: 250, codeBlocks: 0, codeSharePercent: 0 }, extraction: { state: "ready", attempts: 1, errorCode: null, nextAttemptAt: null, paused: false } };
 const codeArticle = { ...article, id: "bad23456", title: "Code-heavy article", podcastFit: { tier: "poor", reason: "Code makes up about 72% of the copy, and is skipped in narration.", spokenWords: 80, codeBlocks: 5, codeSharePercent: 72 } };
 const copy = { markdown: "# Podcast UI Smoke\n\nA private audio test.", capturedAt: new Date().toISOString(), source: "paste", revision: "rev_123" };
@@ -102,6 +106,7 @@ try {
   await page.locator("#podcast-dialog").getByRole("button", { name: "Close podcast options" }).click();
   await page.locator("#reader-dialog").getByRole("button", { name: "Close saved copy" }).click();
   await page.locator("#settings-open").click();
+  await openSettingsDisclosure(page, "#settings-private-podcast");
   await page.locator("#podcast-settings").getByRole("button", { name: "Create private feed" }).click();
   await page.locator("#podcast-settings").getByText(/token=pod_/).waitFor();
   await page.locator(".feed-url").evaluate((el) => el.scrollIntoView({ block: "center" }));
@@ -111,6 +116,7 @@ try {
   audioEnabled = false;
   await page.locator("#settings-dialog").locator(".dialog-close button").click();
   await page.locator("#settings-open").click();
+  await openSettingsDisclosure(page, "#settings-private-podcast");
   await page.locator("#podcast-settings").getByText(/New audio generation is paused/).waitFor();
   await page.locator("#podcast-settings").getByRole("button", { name: "Revoke feed" }).waitFor();
   console.log("Podcast UI smoke passed: explicit preparation, revision binding, reader behavior, and one-time feed URL.");
