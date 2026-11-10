@@ -1132,7 +1132,7 @@ function renderArticle(article: Article) {
   }
   const actions = el("div", undefined, "article-actions");
   const read = iconButton(
-    article.readAt ? "Mark unread" : "Mark read",
+    article.readAt ? "Mark as unread" : "Mark as read",
     article.readAt ? "mark-unread" : "mark-read",
     "read-action",
   );
@@ -1395,7 +1395,7 @@ function renderDetail(article: Article, restartPolling = true) {
   input.dataset.field = "title";
   input.maxLength = 500;
   label.append(input);
-  const save = el("button", "Save", "button primary");
+  const save = el("button", "Save changes", "button primary");
   save.type = "submit";
   const tagField = el('div', undefined, 'edit-field');
   const tagLabel = el('label', 'Tags (comma separated)', 'field-label');
@@ -1431,12 +1431,15 @@ function renderDetail(article: Article, restartPolling = true) {
   url.target = "_blank";
   url.rel = "noopener noreferrer";
   const actions = el("div", undefined, "detail-actions");
+  const readLabel = article.readAt ? "Mark as unread" : "Mark as read";
   const toggle = el(
     "button",
-    article.readAt ? "Mark unread" : "Mark read",
+    readLabel,
     "button secondary",
   );
   toggle.type = "button";
+  toggle.setAttribute("aria-label", readLabel);
+  toggle.title = readLabel;
   toggle.addEventListener("click", async () => {
     await mutateRead(article, !article.readAt);
   });

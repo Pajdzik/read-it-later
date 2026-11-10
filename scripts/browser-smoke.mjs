@@ -455,14 +455,14 @@ try {
     "The library should show only the first two tags before expansion.");
   const entryActions = entryArticle.locator(".article-actions");
   const entryMetaRow = entryArticle.locator(".article-meta-row");
-  const entryRead = entryActions.getByRole("button", { name: "Mark read", exact: true });
+  const entryRead = entryActions.getByRole("button", { name: "Mark as read", exact: true });
   const entryMore = entryActions.getByRole("button", { name: "More actions", exact: true });
   const entryMenu = entryActions.locator(".article-action-menu");
   const entryEdit = entryMenu.getByRole("button", { name: "Edit", exact: true });
   const assertControlLayout = async () => {
-    assert.equal(await entryActions.locator(":scope > button, :scope > .article-more").count(), 2, "Mark read and More must share the action container.");
+    assert.equal(await entryActions.locator(":scope > button, :scope > .article-more").count(), 2, "Mark as read and More must share the action container.");
     assert.equal(await entryMenu.locator("button, a").count(), 2, "Edit and Open original must be grouped in More.");
-    assert.equal(await entryMetaRow.locator("button.read-action").count(), 0, "Mark read must stay out of the metadata row.");
+    assert.equal(await entryMetaRow.locator("button.read-action").count(), 0, "Mark as read must stay out of the metadata row.");
     const actionBounds = await Promise.all([entryRead, entryMore].map(async (control) => {
       const bounds = await control.boundingBox();
       assert.ok(bounds, "Each article action must be visible.");
@@ -990,9 +990,9 @@ try {
   assert.equal(await page.evaluate(() => document.documentElement.scrollWidth > innerWidth), false, "Markdown editor must fit a narrow viewport.");
   await page.setViewportSize({ width: 1440, height: 1000 });
   await page.getByRole("button", { name: "All", exact: true }).click();
-  await article.getByRole("button", { name: "Mark read", exact: true }).click();
+  await article.getByRole("button", { name: "Mark as read", exact: true }).click();
   await article
-    .getByRole("button", { name: "Mark unread", exact: true })
+    .getByRole("button", { name: "Mark as unread", exact: true })
     .waitFor();
   await page.reload();
   await page.getByRole("button", { name: "Read", exact: true }).click();
@@ -1011,7 +1011,7 @@ try {
   await page.locator("#detail-content .edit-form input[data-field=title]").fill("Failed edit");
   await page
     .locator("#detail-content")
-    .getByRole("button", { name: "Save", exact: true })
+    .getByRole("button", { name: "Save changes", exact: true })
     .click();
   await page
     .locator("#detail-error")
@@ -1020,7 +1020,7 @@ try {
   await page.unroute("**/api/articles/*");
   await page
     .locator("#detail-content")
-    .getByRole("button", { name: "Mark unread", exact: true })
+    .getByRole("button", { name: "Mark as unread", exact: true })
     .click();
   await page
     .locator("#detail-dialog")

@@ -466,8 +466,8 @@ async function runProfile(name, browserType, device) {
   // Explicit read state persists after a reload; opening the saved title does
   // not itself mark it read. Search and status filters navigate the real list.
   await page.locator('[data-status="all"]').tap();
-  await article.getByRole("button", { name: "Mark read" }).tap();
-  await article.getByRole("button", { name: "Mark unread" }).waitFor();
+  await article.getByRole("button", { name: "Mark as read" }).tap();
+  await article.getByRole("button", { name: "Mark as unread" }).waitFor();
   const articleId = await article.getAttribute("data-id");
   const readAtAfterSave = await page.evaluate(async (id) => {
     const pageData = await fetch("/api/articles?status=all", { cache: "no-store" }).then((response) => response.json());
@@ -557,11 +557,11 @@ async function runProfile(name, browserType, device) {
   await page.locator('[data-status="all"]').tap();
   await expectStatus("all");
   await waitForListIdle();
-  await article.getByRole("button", { name: "Mark unread" }).tap();
-  await article.getByRole("button", { name: "Mark read" }).waitFor();
+  await article.getByRole("button", { name: "Mark as unread" }).tap();
+  await article.getByRole("button", { name: "Mark as read" }).waitFor();
   await reload();
   await page.locator('[data-status="unread"]').tap();
-  await article.getByRole("button", { name: "Mark read" }).waitFor();
+  await article.getByRole("button", { name: "Mark as read" }).waitFor();
   assert.equal(await page.evaluate(async (id) => {
     const pageData = await fetch("/api/articles?status=all", { cache: "no-store" }).then((response) => response.json());
     return pageData.items.find((item) => item.id === id)?.readAt;
