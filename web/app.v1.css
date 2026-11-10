@@ -1465,6 +1465,10 @@ body:has(#reader-dialog[open]) {
 .article-tags { display: flex; flex-wrap: wrap; gap: .4rem; margin: .55rem 0; }
 .tag-chip { font: inherit; font-size: .66rem; color: var(--muted); background: transparent; border: 1px solid var(--line); border-radius: 1rem; padding: .12rem .4rem; cursor: pointer; overflow-wrap: anywhere; max-width: 100%; }
 .tag-chip:hover, .tag-chip:focus-visible { color: var(--ink); border-color: var(--accent); }
+.article-tags-more { display: flex; flex: 0 1 auto; min-width: 0; max-width: 100%; flex-wrap: wrap; align-items: center; gap: .3rem; }
+.article-tags-more summary { flex: 0 0 auto; cursor: pointer; list-style: none; border: 1px solid var(--line); border-radius: 1rem; padding: .12rem .4rem; color: var(--muted); font-size: .66rem; }
+.article-tags-more summary::-webkit-details-marker { display: none; }
+.article-tags-more summary:hover, .article-tags-more summary:focus-visible { color: var(--ink); border-color: var(--accent); }
 .generated-label { font-size: .75rem; color: var(--muted); align-self: center; }
 .tag-controls { display: flex; flex-wrap: wrap; gap: .6rem; align-items: center; margin: .25rem 0 1rem; }
 .tag-controls[hidden] { display: none; }

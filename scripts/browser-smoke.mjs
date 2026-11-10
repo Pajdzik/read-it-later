@@ -365,7 +365,11 @@ try {
     paginationEntry = data.items?.find((item) => item.id === entryFixture.id) || paginationEntry;
     const entry = paginationEntry;
     assert.ok(entry, "The pagination fixture needs the complete saved article.");
-    if (entry) entry.description = "A lead used to test opening the saved copy.";
+    if (entry) {
+      entry.description = "A lead used to test opening the saved copy.";
+      entry.author = "Ada Lovelace";
+      entry.tags = ["design", "reading", "long-" + "tag".repeat(18), "archive"];
+    }
     if (hasCursor) {
       data.items = [{ ...entry, id: "smoke051", title: "Synthetic final row", description: null }];
       data.nextCursor = null;
@@ -382,6 +386,33 @@ try {
   const entryArticle = page.locator(".article").filter({ hasText: "Reader entry smoke" });
   const entryTitle = entryArticle.getByRole("link", { name: "Reader entry smoke", exact: true });
   await entryTitle.waitFor();
+  const tagDisclosure = entryArticle.locator(".article-tags-more");
+  const tagSummary = tagDisclosure.locator("summary");
+  await expect(tagSummary).toHaveAccessibleName("Show 2 more tags");
+  await page.setViewportSize({ width: 320, height: 740 });
+  await tagSummary.focus();
+  await page.keyboard.press("Space");
+  await expect(tagDisclosure).toHaveJSProperty("open", true);
+  await expect(tagSummary).toBeFocused();
+  await expect(tagSummary).toHaveAttribute("aria-expanded", "true");
+  await expect(tagSummary).toHaveAccessibleName("Hide additional tags");
+  const longTag = "long-" + "tag".repeat(18);
+  const hiddenLongTag = tagDisclosure.getByRole("button", { name: `Filter by ${longTag}` });
+  await expect(hiddenLongTag).toBeVisible();
+  const longTagBounds = await hiddenLongTag.boundingBox();
+  const articleBounds = await entryArticle.boundingBox();
+  assert.ok(longTagBounds && articleBounds && longTagBounds.x + longTagBounds.width <= articleBounds.x + articleBounds.width,
+    "An expanded long tag must fit within the narrow article row.");
+  await page.keyboard.press("Space");
+  await expect(tagDisclosure).toHaveJSProperty("open", false);
+  await expect(tagSummary).toBeFocused();
+  await expect(tagSummary).toHaveAttribute("aria-expanded", "false");
+  await tagSummary.click();
+  await tagDisclosure.getByRole("button", { name: "Filter by archive" }).click();
+  await expect(page.locator("#tag-filter")).toHaveValue("archive");
+  await page.locator("#tag-filter").selectOption("");
+  await page.reload();
+  await page.locator("#loading").waitFor({ state: "hidden" });
   assert.match(await entryTitle.getAttribute("href"), /^\/read\/[a-z0-9]{8}\/reader-entry-smoke$/,
     "Saved article titles must use the canonical short-ID readable path.");
   assert.deepEqual(await entryArticle.locator(".article-main").evaluate((main) =>
@@ -406,6 +437,15 @@ try {
   assert.equal(await noDescriptionArticle.locator(".article-meta-row .extraction-badge").count(), 1,
     "Rows without a description must also keep the capture status element in the metadata row.");
   await expect(noDescriptionArticle.locator(".extraction-badge")).toBeHidden();
+  const entryMetaText = await entryArticle.locator(".article-meta").innerText();
+  assert.ok(entryMetaText.includes(new URL(sourceBase).hostname) && entryMetaText.includes("By Ada Lovelace"),
+    "Library metadata should keep the source and author.");
+  assert.doesNotMatch(await entryArticle.locator(".article-meta").innerText(), /Saved /,
+    "The library should omit the saved date.");
+  await expect(tagDisclosure).toHaveCount(1);
+  await expect(tagSummary).toHaveAccessibleName("Show 2 more tags");
+  assert.deepEqual(await entryArticle.locator(".article-tags > .tag-chip").allTextContents(), ["design", "reading"],
+    "The library should show only the first two tags before expansion.");
   const entryActions = entryArticle.locator(".article-actions");
   const entryMetaRow = entryArticle.locator(".article-meta-row");
   const entryRead = entryActions.getByRole("button", { name: "Mark read", exact: true });
@@ -415,7 +455,7 @@ try {
   const assertControlLayout = async () => {
     assert.equal(await entryActions.locator(":scope > button, :scope > .article-more").count(), 2, "Mark read and More must share the action container.");
     assert.equal(await entryMenu.locator("button, a").count(), 2, "Edit and Open original must be grouped in More.");
-    assert.equal(await entryMetaRow.locator("button").count(), 0, "Mark read must stay out of the metadata row.");
+    assert.equal(await entryMetaRow.locator("button.read-action").count(), 0, "Mark read must stay out of the metadata row.");
     const actionCenters = await Promise.all([entryRead, entryMore].map(async (control) => {
       const bounds = await control.boundingBox();
       assert.ok(bounds, "Each article action must be visible.");

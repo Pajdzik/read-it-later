@@ -771,8 +771,6 @@ function renderArticleMeta(article: Article) {
     meta.append(document.createTextNode(" · "));
     meta.append(el("span", `By ${article.author}`));
   }
-  meta.append(document.createTextNode(" · "));
-  meta.append(el("span", `Saved ${dateLabel(article.createdAt)}`, "article-meta-date"));
   return meta;
 }
 function updateExtractionBadge(badge: HTMLElement, extraction?: ExtractionStatus) {
@@ -1047,17 +1045,35 @@ function selectTag(tag: string) {
 }
 $('#tag-filter').addEventListener('change', event => selectTag((event.target as HTMLSelectElement).value));
 $('#tag-clear').addEventListener('click', () => selectTag(''));
-function renderTags(article: Article): HTMLElement {
+function renderTags(article: Article, compact = false): HTMLElement {
   const tags = el('div', undefined, 'article-tags');
   tags.setAttribute('aria-label', 'Article tags');
-  for (const tag of article.tags ?? []) {
+  const allTags = article.tags ?? [];
+  const visibleTags = compact ? allTags.slice(0, 2) : allTags;
+  const appendTag = (container: HTMLElement, tag: string) => {
     const chip = el('button', tag, 'tag-chip'); chip.type = 'button';
     chip.setAttribute('aria-label', `Filter by ${tag}`);
     chip.addEventListener('click', () => {
       if ($<HTMLDialogElement>('#detail-dialog').open) $<HTMLDialogElement>('#detail-dialog').close();
       selectTag(tag);
     });
-    tags.append(chip);
+    container.append(chip);
+  };
+  for (const tag of visibleTags) appendTag(tags, tag);
+  const hiddenTags = allTags.slice(2);
+  if (compact && hiddenTags.length) {
+    const disclosure = el('details', undefined, 'article-tags-more');
+    const summary = el('summary', `+${hiddenTags.length}`);
+    summary.setAttribute('aria-label', `Show ${hiddenTags.length} more tags`);
+    summary.setAttribute('aria-expanded', 'false');
+    disclosure.append(summary);
+    for (const tag of hiddenTags) appendTag(disclosure, tag);
+    disclosure.addEventListener('toggle', () => {
+      summary.textContent = disclosure.open ? 'Less' : `+${hiddenTags.length}`;
+      summary.setAttribute('aria-label', disclosure.open ? 'Hide additional tags' : `Show ${hiddenTags.length} more tags`);
+      summary.setAttribute('aria-expanded', String(disclosure.open));
+    });
+    tags.append(disclosure);
   }
   return tags;
 }
@@ -1136,7 +1152,7 @@ function renderArticle(article: Article) {
   actions.append(read, more);
   main.append(title, metaRow);
   if (description) title.after(description);
-  const tags = renderTags(article);
+  const tags = renderTags(article, true);
   if (article.descriptionOrigin === 'generated') tags.prepend(el('span', 'Generated description', 'generated-label'));
   if (tags.childElementCount) metaRow.append(tags);
   li.append(main, actions);
