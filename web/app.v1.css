@@ -490,7 +490,8 @@ button {
 [data-theme="dark"] .article-title {
   color: var(--ink);
 }
-.article-title:hover {
+.article-title:hover,
+.article-main:has(> .article-description:hover) > .article-heading-row .article-title {
   color: var(--accent);
 }
 .article-meta-row {
@@ -601,9 +602,6 @@ button {
 }
 .article-lead {
   cursor: pointer;
-}
-.article-lead:hover {
-  color: var(--accent);
 }
 .detail-description {
   max-width: 62ch;
