@@ -2,6 +2,7 @@ import type { Env } from '../src/contracts';
 import { CONVERSION_TIMEOUT_MS, MAX_SOURCE_HTML_BYTES } from '../src/articles/capture-limits';
 import { MAX_MARKDOWN_BYTES, SourceFetchError, type CapturedArticle } from '../src/articles/capture-protocol';
 import { assetId, assetKey, MAX_PDF_BYTES, pdfSummary, readBytes, stagePdf } from '../src/articles/pdf';
+import { cleanCapturedHtml } from './html-cleanup';
 
 export interface ManagedEnv extends Pick<Env, 'DB' | 'PDF_BUCKET' | 'MANAGED_CONVERSION_ENABLED'> { AI?: { toMarkdown(file: MarkdownDocument, options?: ConversionRequestOptions): Promise<ConversionResponse> } }
 
@@ -23,7 +24,8 @@ export async function managedConversion(request: Request, env: ManagedEnv): Prom
   try {
     const pdf = url.pathname !== '/html';
     const sourceUrl = decodeURIComponent(request.headers.get('X-Source-Url') || '');
-    if (!/^https?:$/.test(new URL(sourceUrl).protocol)) throw new SourceFetchError('invalid_url', false);
+    const parsedSourceUrl = new URL(sourceUrl);
+    if (!/^https?:$/.test(parsedSourceUrl.protocol)) throw new SourceFetchError('invalid_url', false);
     let bytes: Uint8Array<ArrayBuffer>;
     if (url.pathname === '/stored-pdf') {
       const id = request.headers.get('X-Pdf-Id');
@@ -45,25 +47,13 @@ export async function managedConversion(request: Request, env: ManagedEnv): Prom
         try { const { objectKey: _key, ...summary } = await stagePdf(env, bytes, sourceUrl); originalPdf = summary; }
         catch { throw new SourceFetchError('pdf_storage_unavailable', true); }
       } else {
-        // Some sites put tiny data-URI placeholders beside their real media.
-        // Cloudflare's HTML-to-Markdown converter picks those placeholders as
-        // images, so remove only the decorative nodes before conversion.
-        const html = new HTMLRewriter()
-          // Page metadata is captured separately; keep SEO fields out of the reading copy.
-          .on('meta[property^="og:"]', { element(meta) { meta.remove(); } })
-          .on('meta[name="description"]', { element(meta) { meta.remove(); } })
-          .on('meta[name^="twitter:"]', { element(meta) { meta.remove(); } })
-          // Skip-navigation links belong to the site's interface, not its article.
-          .on('a[href="#main-content"]', {
-            element(link) { link.remove(); },
-          })
-          .on('img[data-image-placeholder]', {
-            element(image) {
-              if (!image.hasAttribute('data-image-placeholder-media')) image.remove();
-            },
-          })
-          .transform(new Response(bytes, { headers: { 'Content-Type': 'text/html; charset=utf-8' } }));
-        bytes = new Uint8Array(await html.arrayBuffer());
+        // The executor already extracted metadata. Keep the original bounded bytes
+        // available if HTMLRewriter fails.
+        try {
+          bytes = await cleanCapturedHtml(bytes, parsedSourceUrl);
+        } catch {
+          // Malformed publisher markup should not make an otherwise capturable page fail.
+        }
       }
     }
     let timer: ReturnType<typeof setTimeout>;
