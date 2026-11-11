@@ -970,6 +970,9 @@ button {
   box-shadow: none;
   scroll-padding-top: 72px;
 }
+[data-theme="dark"] .dialog.reader-dialog {
+  background: var(--paper);
+}
 .reader-dialog::backdrop {
   background: transparent;
   backdrop-filter: none;
