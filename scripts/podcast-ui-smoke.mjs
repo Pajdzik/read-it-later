@@ -27,6 +27,15 @@ async function openSettingsDisclosure(page, selector) {
 }
 const article = { id: "abc12345", url: "https://example.com/story", title: "Podcast UI Smoke", author: "Reader", description: "An English article.", tags: [], createdAt: new Date().toISOString(), updatedAt: new Date().toISOString(), readAt: null, hasCopy: true, podcastFit: { tier: "good", reason: "Mostly prose with no code blocks.", spokenWords: 250, codeBlocks: 0, codeSharePercent: 0 }, extraction: { state: "ready", attempts: 1, errorCode: null, nextAttemptAt: null, paused: false } };
 const codeArticle = { ...article, id: "bad23456", title: "Code-heavy article", podcastFit: { tier: "poor", reason: "Code makes up about 72% of the copy, and is skipped in narration.", spokenWords: 80, codeBlocks: 5, codeSharePercent: 72 } };
+const feedSources = [
+  { id: "field", url: "https://field.example/rss.xml", title: "Field Notes", lastFetchedAt: article.createdAt, lastError: null },
+  { id: "journal", url: "https://journal.example/atom.xml", title: "Small Web Journal", lastFetchedAt: article.createdAt, lastError: null },
+];
+const feedItems = [
+  { id: "walk", feedId: "field", url: "https://field.example/walking", title: "Walking the same route", preview: "What changes when the streets stay the same.", publishedAt: article.createdAt, seen: false, saved: false },
+  { id: "site", feedId: "journal", url: "https://journal.example/site", title: "A small personal site", preview: "Notes on keeping a website.", publishedAt: article.createdAt, seen: false, saved: false },
+];
+const savedArticles = [article, codeArticle];
 const copy = { markdown: "# Podcast UI Smoke\n\nA private audio test.", capturedAt: new Date().toISOString(), source: "paste", revision: "rev_123" };
 let audio = { enabled: true, state: "none", episodeId: null, sourceRevision: null, characters: 1200, estimatedDurationSeconds: 390, estimatedCostUsd: 0.012, errorCode: null, suitability: article.podcastFit };
 let postedAudio = [];
@@ -43,7 +52,36 @@ try {
     let payload = {};
     if (url.pathname === "/api/session") payload = { authenticated: true, csrfToken: "smoke", audioEnabled: true };
     else if (url.pathname === "/api/capture-tokens") payload = { items: [] };
-    else if (url.pathname === "/api/articles" && method === "GET") payload = { items: [article, codeArticle], nextCursor: null };
+    else if (url.pathname === "/api/articles" && method === "GET") payload = { items: savedArticles, nextCursor: null };
+    else if (url.pathname === "/api/articles" && method === "POST") {
+      const item = feedItems.find((candidate) => candidate.url === request.postDataJSON().url);
+      assert.ok(item, "The feed Save action must use the selected article URL.");
+      item.saved = true;
+      const saved = { ...article, id: "walk1234", url: item.url, title: item.title, hasCopy: false, podcastFit: null };
+      savedArticles.unshift(saved);
+      payload = { article: saved, duplicate: false };
+    }
+    else if (url.pathname === "/api/feeds" && method === "GET") payload = { feeds: feedSources };
+    else if (url.pathname === "/api/feeds" && method === "POST") {
+      const added = { id: "new-feed", url: request.postDataJSON().url, title: "New journal", lastFetchedAt: article.createdAt, lastError: null };
+      feedSources.push(added);
+      payload = { feed: added };
+    }
+    else if (url.pathname === "/api/feeds/new-feed" && method === "DELETE") {
+      feedSources.splice(feedSources.findIndex((source) => source.id === "new-feed"), 1);
+      payload = { ok: true };
+    }
+    else if (url.pathname === "/api/feeds/items") {
+      const source = url.searchParams.get("feedId");
+      const status = url.searchParams.get("status");
+      payload = { items: feedItems.filter((item) => (!source || item.feedId === source) && (status === "all" || !item.seen)), nextCursor: null };
+    }
+    else if (url.pathname.startsWith("/api/feeds/items/") && method === "PATCH") {
+      const item = feedItems.find((candidate) => candidate.id === url.pathname.split("/").at(-1));
+      assert.ok(item);
+      item.seen = request.postDataJSON().seen;
+      payload = { ok: true };
+    }
     else if (url.pathname === `/api/articles/${article.id}` && method === "GET") payload = { article };
     else if (url.pathname === `/api/articles/${article.id}/copy` && method === "GET") payload = { copy };
     else if (url.pathname === `/api/articles/${article.id}/audio` && method === "GET") payload = { audio };
@@ -105,6 +143,40 @@ try {
 
   await page.locator("#podcast-dialog").getByRole("button", { name: "Close podcast options" }).click();
   await page.locator("#reader-dialog").getByRole("button", { name: "Close saved copy" }).click();
+  await page.getByRole("button", { name: "Unread", exact: true }).click();
+  assert.equal(apiCalls.some((call) => call.path.startsWith("/api/feeds")), false, "Feeds should load when opened.");
+  await page.getByRole("button", { name: "Feeds", exact: true }).click();
+  const feedsView = page.locator("#feeds-view");
+  const walk = feedsView.getByRole("link", { name: feedItems[0].title, exact: true });
+  const site = feedsView.getByRole("link", { name: feedItems[1].title, exact: true });
+  await walk.waitFor();
+  await site.waitFor();
+  assert.equal(await walk.getAttribute("href"), feedItems[0].url);
+  assert.equal(await page.getByRole("button", { name: "Podcast picks" }).isVisible(), false, "Podcast picks belongs to the reading list.");
+  await feedsView.locator("#feed-source").selectOption("field");
+  await site.waitFor({ state: "hidden" });
+  const walkRow = feedsView.locator("li").filter({ has: page.getByRole("link", { name: feedItems[0].title, exact: true }) });
+  await walkRow.getByRole("button", { name: "Save for later" }).click();
+  await walkRow.getByText("Saved", { exact: true }).waitFor();
+  assert.equal(apiCalls.find((call) => call.path === "/api/articles" && call.method === "POST").body.captureMarkdown, true);
+  await walkRow.getByRole("button", { name: "Mark seen" }).click();
+  await walk.waitFor({ state: "hidden" });
+  await feedsView.getByRole("button", { name: "Undo" }).click();
+  await walk.waitFor();
+  assert.equal(feedItems[0].seen, false, "Undo should restore the item on the server.");
+  await feedsView.locator("#feed-add-toggle").click();
+  await feedsView.getByRole("textbox", { name: "RSS or Atom feed URL" }).fill("https://journal.example/new.xml");
+  await feedsView.locator("#feed-add-form").getByRole("button", { name: "Add feed" }).click();
+  await feedsView.getByText("Feed added.", { exact: true }).waitFor();
+  await feedsView.getByRole("button", { name: "Manage feeds" }).click();
+  const remove = feedsView.getByRole("button", { name: "Remove New journal" });
+  await remove.click();
+  await remove.waitFor({ state: "hidden" });
+  await page.getByRole("button", { name: "Reading list", exact: true }).click();
+  await page.getByRole("link", { name: feedItems[0].title, exact: true }).waitFor();
+  await page.getByRole("button", { name: "Podcast picks" }).click();
+  await fitIcon.click();
+  await page.locator("#podcast-dialog").getByRole("button", { name: "Close podcast options" }).click();
   await page.locator("#settings-open").click();
   await openSettingsDisclosure(page, "#settings-private-podcast");
   await page.locator("#podcast-settings").getByRole("button", { name: "Create private feed" }).click();
@@ -119,7 +191,7 @@ try {
   await openSettingsDisclosure(page, "#settings-private-podcast");
   await page.locator("#podcast-settings").getByText(/New audio generation is paused/).waitFor();
   await page.locator("#podcast-settings").getByRole("button", { name: "Revoke feed" }).waitFor();
-  console.log("Podcast UI smoke passed: explicit preparation, revision binding, reader behavior, and one-time feed URL.");
+  console.log("Podcast and Feeds UI smoke passed: podcast options, feed navigation and saving, seen status, and private feed setup.");
 } finally {
   await browser?.close();
   await new Promise((resolve) => server.close(resolve));

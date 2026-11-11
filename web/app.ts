@@ -2,6 +2,7 @@ import { inspectArchive, restoreArchive } from "./archive";
 import { markdownDownload, markdownDownloadName, renderMarkdown } from "./markdown.js";
 import type { IntegrationConfiguration, IntegrationStatus, IntegrationConsent } from "../src/integrations/contracts.js";
 import { articlePath, isArticleId } from "../src/articles/identity.js";
+import { normalizeArticleUrl } from "../src/articles/validation.js";
 
 declare const __BUILD_INFO__: { commitSha: string; builtAt: string } | null;
 
@@ -2437,6 +2438,7 @@ $("#detail-dialog").addEventListener("close", () => {
 async function initialize() {
   try {
     state.session = await request<Session>("/api/session");
+    $("#primary-tabs").hidden = !state.session.authenticated;
     $<HTMLButtonElement>('[data-status="podcast"]').hidden = state.session.audioEnabled !== true;
     if (state.session.authenticated) await completeExtensionConnection();
     if (state.session.authenticated && browserCaptureDraft) void loadCaptureIntegrationConfiguration();
@@ -3167,6 +3169,298 @@ $("#add-form").addEventListener("submit", async (e) => {
   }
 });
 const statusOrder = ["unread", "read", "all", "podcast"] as const;
+type Feed = { id: string; url: string; title: string; lastFetchedAt: string | null; lastError: string | null };
+type FeedItem = { id: string; feedId: string; url: string; title: string; preview: string; publishedAt: string; seen: boolean; saved: boolean };
+let feedItems: FeedItem[] = [];
+let feeds: Feed[] = [];
+let feedCursor: string | null = null;
+let feedStatus: "new" | "all" = "new";
+let feedMode = false;
+let feedLoadGeneration = 0;
+let feedListGeneration = 0;
+let feedLoading = false;
+let feedSubmitting = false;
+let libraryNeedsRefresh = false;
+const feedItemUpdates = new Set<string>();
+async function refreshFeeds() {
+  const generation = ++feedListGeneration;
+  try {
+    const result = await request<{ feeds: Feed[] }>("/api/feeds");
+    if (generation !== feedListGeneration) return false;
+    feeds = result.feeds;
+    const select = $<HTMLSelectElement>("#feed-source");
+    const previous = select.value;
+    select.replaceChildren(new Option("All feeds", ""));
+    for (const feed of feeds) select.add(new Option(feed.title || feed.url, feed.id));
+    if (feeds.some(feed => feed.id === previous)) select.value = previous;
+    const list = $("#feed-list");
+    list.replaceChildren();
+    for (const feed of feeds) {
+      const li = el("li", "", "feed-source-row");
+      const label = el("span", feed.title || feed.url);
+      label.title = feed.url;
+      li.append(label);
+      if (feed.lastError) {
+        const error = el("span", "Couldn’t refresh", "muted");
+        error.title = feed.lastError;
+        li.append(error);
+      }
+      const remove = el("button", "Remove", "text-button");
+      remove.type = "button";
+      remove.setAttribute("aria-label", `Remove ${feed.title || feed.url}`);
+      remove.addEventListener("click", async () => {
+        remove.disabled = true;
+        await deleteFeed(feed);
+        remove.disabled = false;
+      });
+      li.append(remove);
+      list.append(li);
+    }
+    $("#feed-manage-toggle").hidden = feeds.length === 0;
+    if (!feeds.length) {
+      $("#feed-manage-panel").hidden = true;
+      $("#feed-manage-toggle").setAttribute("aria-expanded", "false");
+    }
+    return true;
+  } catch (error) {
+    if (generation === feedListGeneration) feedMessage(`Couldn’t load feeds. ${(error as Error).message}`, true);
+    return false;
+  }
+}
+function feedMessage(message: string, error = false) {
+  const node = $("#feed-notice");
+  node.replaceChildren(document.createTextNode(message));
+  node.classList.toggle("error", error);
+  node.hidden = false;
+}
+function renderFeedItems() {
+  const list = $("#feed-items");
+  list.replaceChildren();
+  const visibleFeedItems = feedItems.filter(item => feedStatus === "all" || !item.seen);
+  for (const item of visibleFeedItems) {
+    const li = el("li", "", "article feed-item");
+    li.dataset.id = item.id;
+    const main = el("div", "", "article-main");
+    const title = el("a", item.title || item.url, "article-title");
+    title.href = item.url;
+    title.target = "_blank";
+    title.rel = "noopener noreferrer";
+    main.append(title);
+    if (item.preview) main.append(el("p", item.preview, "feed-preview"));
+    const source = feeds.find(feed => feed.id === item.feedId);
+    const meta = el("div", `${source?.title || "Feed"} · ${new Date(item.publishedAt).toLocaleDateString()}`, "muted feed-meta");
+    main.append(meta);
+    const actions = el("div", "", "article-actions");
+    const save = el("button", item.saved ? "Saved" : "Save for later", "text-button");
+    save.type = "button";
+    save.disabled = item.saved || feedItemUpdates.has(item.id);
+    save.addEventListener("click", () => void saveFeedItem(item));
+    actions.append(save);
+    const seen = el("button", item.seen ? "Mark as new" : "Mark seen", "text-button");
+    seen.type = "button";
+    seen.dataset.feedSeen = "";
+    seen.disabled = feedItemUpdates.has(item.id);
+    seen.addEventListener("click", () => void setFeedSeen(item, !item.seen));
+    actions.append(seen);
+    main.append(actions);
+    li.append(main);
+    list.append(li);
+  }
+  $("#feed-empty").hidden = list.children.length > 0;
+  if (!list.children.length && feedItems.length) {
+    $("#feed-empty h3").textContent = "You’re all caught up";
+    $("#feed-empty p").textContent = "Seen articles remain available in All.";
+  } else {
+    $("#feed-empty h3").textContent = feeds.length ? "No feed items yet" : "No feeds yet";
+    $("#feed-empty p").textContent = feeds.length
+      ? "Your feeds will appear here as new articles arrive."
+      : "Add an RSS or Atom feed to see its latest articles here.";
+  }
+  $("#feed-more").hidden = !feedCursor;
+}
+async function loadFeeds(append = false) {
+  if (!feedMode || (append && (feedLoading || !feedCursor))) return false;
+  feedLoading = true;
+  const generation = ++feedLoadGeneration;
+  const loading = $("#feed-loading");
+  const more = $<HTMLButtonElement>("#feed-more");
+  loading.hidden = false;
+  more.disabled = true;
+  $("#feed-notice").hidden = true;
+  if (!append) {
+    feedItems = [];
+    feedCursor = null;
+    renderFeedItems();
+    $("#feed-empty").hidden = true;
+  }
+  try {
+    const params = new URLSearchParams({ status: feedStatus });
+    const feedId = $<HTMLSelectElement>("#feed-source").value;
+    if (feedId) params.set("feedId", feedId);
+    if (append && feedCursor) params.set("cursor", feedCursor);
+    const result = await request<{items: FeedItem[]; nextCursor: string | null}>(`/api/feeds/items?${params}`);
+    if (generation !== feedLoadGeneration) return;
+    feedItems = append ? [...feedItems, ...result.items] : result.items;
+    feedCursor = result.nextCursor;
+    renderFeedItems();
+    return true;
+  } catch (error) {
+    if (generation === feedLoadGeneration) feedMessage(`Couldn’t load feed items. ${(error as Error).message}`, true);
+    return false;
+  } finally {
+    if (generation === feedLoadGeneration) {
+      loading.hidden = true;
+      feedLoading = false;
+      more.disabled = false;
+    }
+  }
+}
+function feedItemRow(id: string) {
+  return document.querySelector<HTMLElement>(`#feed-items [data-id="${CSS.escape(id)}"]`);
+}
+function setFeedItemBusy(item: FeedItem) {
+  const row = feedItemRow(item.id);
+  const hadFocus = Boolean(row?.contains(document.activeElement) || $("#feed-notice").contains(document.activeElement));
+  feedItemUpdates.add(item.id);
+  row?.querySelectorAll("button").forEach(button => { button.disabled = true; });
+  return hadFocus;
+}
+async function setFeedSeen(item: FeedItem, seen: boolean) {
+  if (feedItemUpdates.has(item.id)) return;
+  const hadFocus = setFeedItemBusy(item);
+  let undo: HTMLButtonElement | undefined;
+  try {
+    await request(`/api/feeds/items/${encodeURIComponent(item.id)}`, { method: "PATCH", body: JSON.stringify({ seen }) });
+    item.seen = seen;
+    const displayed = feedItems.find(candidate => candidate.id === item.id);
+    if (displayed) displayed.seen = seen;
+    feedMessage(seen ? "Marked as seen." : "Marked as new.");
+    if (seen) {
+      undo = el("button", "Undo", "text-button");
+      undo.type = "button";
+      undo.setAttribute("aria-label", `Undo marking ${item.title || "article"} as seen`);
+      undo.addEventListener("click", () => void setFeedSeen(item, false));
+      $("#feed-notice").append(document.createTextNode(" "), undo);
+    }
+  } catch (error) {
+    feedMessage(`Couldn’t update item. ${(error as Error).message}`, true);
+  } finally {
+    feedItemUpdates.delete(item.id);
+    renderFeedItems();
+    if (feedMode && hadFocus && document.activeElement === document.body) {
+      (undo ?? feedItemRow(item.id)?.querySelector<HTMLElement>("[data-feed-seen]") ?? $("#feed-source")).focus({ preventScroll: true });
+    }
+  }
+}
+function refreshLibraryAfterFeedSave() {
+  if (!libraryNeedsRefresh) return;
+  libraryNeedsRefresh = false;
+  void load().then(ok => { if (!ok) libraryNeedsRefresh = true; });
+}
+async function saveFeedItem(item: FeedItem) {
+  if (item.saved || feedItemUpdates.has(item.id)) return;
+  const hadFocus = setFeedItemBusy(item);
+  try {
+    await request("/api/articles", {
+      method: "POST",
+      body: JSON.stringify({ url: item.url, title: item.title, captureMarkdown: true }),
+    });
+    const savedUrl = normalizeArticleUrl(item.url).normalizedUrl;
+    for (const candidate of feedItems) {
+      if (normalizeArticleUrl(candidate.url).normalizedUrl === savedUrl) candidate.saved = true;
+    }
+    feedMessage("Saved for later.");
+    libraryNeedsRefresh = true;
+    if (!feedMode) refreshLibraryAfterFeedSave();
+  } catch (error) {
+    feedMessage(`Couldn’t save this link. ${(error as Error).message}`, true);
+  } finally {
+    feedItemUpdates.delete(item.id);
+    renderFeedItems();
+    if (feedMode && hadFocus && document.activeElement === document.body) {
+      feedItemRow(item.id)?.querySelector<HTMLElement>("[data-feed-seen]")?.focus({ preventScroll: true });
+    }
+  }
+}
+async function deleteFeed(feed: Feed) {
+  try {
+    await request(`/api/feeds/${encodeURIComponent(feed.id)}`, { method: "DELETE" });
+    if (await refreshFeeds()) await loadFeeds();
+  } catch (error) {
+    feedMessage(`Couldn’t remove feed. ${(error as Error).message}`, true);
+  }
+}
+function setFeedMode(on: boolean) {
+  if (feedMode === on) return;
+  feedMode = on;
+  if (!on) {
+    feedLoadGeneration++;
+    feedListGeneration++;
+  }
+  $(".library").hidden = on;
+  $("#feeds-view").hidden = !on;
+  $("#search-control").hidden = on;
+  $("#add-open").hidden = on;
+  $("#reading-tab").setAttribute("aria-pressed", String(!on));
+  $("#feeds-tab").setAttribute("aria-pressed", String(on));
+  if (on) {
+    setSearchOpen(false);
+    void refreshFeeds().then(ok => { if (ok) return loadFeeds(); });
+  } else refreshLibraryAfterFeedSave();
+}
+$("#reading-tab").addEventListener("click", () => setFeedMode(false));
+$("#feeds-tab").addEventListener("click", () => setFeedMode(true));
+$("#feed-new").addEventListener("click", () => {
+  feedStatus = "new";
+  $("#feed-new").setAttribute("aria-pressed", "true");
+  $("#feed-all").setAttribute("aria-pressed", "false");
+  void loadFeeds();
+});
+$("#feed-all").addEventListener("click", () => {
+  feedStatus = "all";
+  $("#feed-new").setAttribute("aria-pressed", "false");
+  $("#feed-all").setAttribute("aria-pressed", "true");
+  void loadFeeds();
+});
+$("#feed-source").addEventListener("change", () => void loadFeeds());
+$("#feed-more").addEventListener("click", () => void loadFeeds(true));
+$("#feed-manage-toggle").addEventListener("click", () => {
+  const panel = $("#feed-manage-panel");
+  panel.hidden = !panel.hidden;
+  $("#feed-manage-toggle").setAttribute("aria-expanded", String(!panel.hidden));
+});
+$("#feed-add-toggle").addEventListener("click", () => {
+  const panel = $("#feed-add-panel");
+  panel.hidden = !panel.hidden;
+  $("#feed-add-toggle").setAttribute("aria-expanded", String(!panel.hidden));
+  if (!panel.hidden) $<HTMLInputElement>("#feed-url").focus();
+});
+$("#feed-add-form").addEventListener("submit", async event => {
+  event.preventDefault();
+  if (feedSubmitting) return;
+  feedSubmitting = true;
+  const form = $<HTMLFormElement>("#feed-add-form");
+  const submit = form.querySelector<HTMLButtonElement>('button[type="submit"]')!;
+  const input = $<HTMLInputElement>("#feed-url");
+  submit.disabled = true;
+  try {
+    await request("/api/feeds", { method: "POST", body: JSON.stringify({ url: input.value }) });
+    input.value = "";
+    const refreshed = await refreshFeeds();
+    if (refreshed && await loadFeeds()) {
+      feedMessage("Feed added.");
+      const returnFocus = form.contains(document.activeElement);
+      $("#feed-add-panel").hidden = true;
+      $("#feed-add-toggle").setAttribute("aria-expanded", "false");
+      if (returnFocus) $("#feed-add-toggle").focus();
+    }
+  } catch (error) {
+    feedMessage(`Couldn’t add feed. ${(error as Error).message}`, true);
+  } finally {
+    feedSubmitting = false;
+    submit.disabled = false;
+  }
+});
 let searchTimer: number;
 function setStatus(status: string) {
   if (!statusOrder.includes(status as (typeof statusOrder)[number])) return;
@@ -3253,6 +3547,18 @@ $("#clear-search").addEventListener("click", () => {
 });
 $("#more").addEventListener("click", () => load(false));
 $("#logout").addEventListener("click", async () => {
+  feedLoadGeneration++;
+  feedListGeneration++;
+  $("#primary-tabs").hidden = true;
+  $(".library").hidden = true;
+  $("#feeds-view").hidden = true;
+  $("#articles").replaceChildren();
+  $("#feed-items").replaceChildren();
+  $("#feed-list").replaceChildren();
+  $<HTMLSelectElement>("#feed-source").replaceChildren(new Option("All feeds", ""));
+  $("#feed-notice").replaceChildren();
+  feedItems = [];
+  feeds = [];
   privateFeedUrl = null;
   clearAudioPoll();
   stopExtractionPolling();
@@ -3270,6 +3576,10 @@ $("#logout").addEventListener("click", async () => {
     setListTitle();
     location.assign("/");
   } catch (e) {
+    $("#primary-tabs").hidden = false;
+    if (feedMode) setFeedMode(false);
+    $(".library").hidden = false;
+    void load();
     showNotice((e as Error).message, true);
   }
 });
