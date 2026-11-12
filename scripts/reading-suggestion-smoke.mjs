@@ -55,6 +55,8 @@ export async function checkReadingSuggestion(browser, base) {
     const card = page.locator("#last-opened"), title = card.locator("#last-opened-title");
     await expect(card).toHaveAttribute("aria-label", "Picked for you");
     await expect(title).toHaveText(articles[0].title);
+    await expect(card).not.toContainText("example.com");
+    await expect(card).not.toContainText("Alex Morgan");
     assert.equal(await page.evaluate(() => localStorage.getItem("potem-last-opened-v1")), null, "A suggestion must not start reading.");
     await card.getByRole("button", { name: "Try another" }).click();
     await expect(title).toHaveText(articles[1].title);
@@ -92,6 +94,12 @@ export async function checkReadingSuggestion(browser, base) {
     assert.equal(await page.evaluate(() => document.documentElement.scrollWidth > innerWidth), false);
     const bounds = await card.boundingBox();
     assert.ok(bounds && bounds.x >= 0 && bounds.x + bounds.width <= 390, "Suggestion must fit on a phone.");
+    const shuffle = card.getByRole("button", { name: "Try another" });
+    await expect(shuffle).toHaveCSS("border-radius", "50%");
+    const [shuffleBounds, titleBounds] = await Promise.all([shuffle.boundingBox(), title.boundingBox()]);
+    assert.ok(shuffleBounds?.width === 44 && shuffleBounds.height === 44, "Shuffle must have a 44px touch target.");
+    assert.ok(titleBounds && shuffleBounds.x >= titleBounds.x + titleBounds.width && shuffleBounds.y < titleBounds.y + titleBounds.height,
+      "Shuffle must sit beside the suggestion on a phone.");
     await page.screenshot({ path: path.join(os.tmpdir(), "potem-reading-suggestion-mobile.png") });
     await title.click();
     await expect(page.locator("#reader-title")).toHaveText(articles[1].title);
