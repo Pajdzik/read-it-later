@@ -30,12 +30,13 @@ ArticleCaptureContainer.outboundByHost = {
 export default {
   async fetch(request: Request, env: CaptureEnv): Promise<Response> {
     const path = new URL(request.url).pathname;
-    if (request.method !== "POST" || (path !== "/capture" && path !== "/assemble-audio")) return new Response(null, { status: 404 });
-    if (path === "/capture" && env.MANAGED_CONVERSION_ENABLED !== "true") return Response.json({ version: 1, ok: false, error: { code: "capture_paused", retryable: false } });
+    const capturesArticle = path === "/capture" || path === "/preview";
+    if (request.method !== "POST" || (!capturesArticle && path !== "/assemble-audio")) return new Response(null, { status: 404 });
+    if (capturesArticle && env.MANAGED_CONVERSION_ENABLED !== "true") return Response.json({ version: 1, ok: false, error: { code: "capture_paused", retryable: false } });
     if (path === "/assemble-audio" && env.ARTICLE_AUDIO_ENABLED !== "true") return Response.json({ error: "audio_paused" }, { status: 503 });
     let tokenHash: string | undefined;
     try {
-      if (path === "/capture") return await env.CAPTURE_CONTAINER.getByName("capture").fetch(request);
+      if (capturesArticle) return await env.CAPTURE_CONTAINER.getByName("capture").fetch(request);
       const reader = request.body?.getReader();
       if (!reader) return Response.json({ error: "invalid_request" }, { status: 400 });
       const parts: Uint8Array[] = [];

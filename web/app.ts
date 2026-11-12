@@ -1,6 +1,7 @@
 import { inspectArchive, restoreArchive } from "./archive";
 import { markdownDownload, markdownDownloadName, renderMarkdown } from "./markdown.js";
 import type { IntegrationConfiguration, IntegrationStatus, IntegrationConsent } from "../src/integrations/contracts.js";
+import type { ArticlePreview } from "../src/articles/preview-contract.js";
 import { articlePath, isArticleId } from "../src/articles/identity.js";
 
 declare const __BUILD_INFO__: { commitSha: string; builtAt: string } | null;
@@ -199,7 +200,7 @@ function parseReaderPath(pathname: string): ReaderRoute {
 function listHistoryState(): ReaderHistoryState { return { potem: { version: 1, kind: "list" } }; }
 function readerHistoryState(id: string, fromList: boolean): ReaderHistoryState { return { potem: { version: 1, kind: "reader", articleId: id, fromList } }; }
 function setListTitle() { document.title = "potem — your reading list"; }
-function setArticleTitle(article: Article) { document.title = `${article.title} · Potem`; }
+function setArticleTitle(article: Pick<Article, "title">) { document.title = `${article.title} · Potem`; }
 function isShortcutView() {
   return state.status === "unread" && !state.query.trim() && !state.tag;
 }
@@ -455,7 +456,7 @@ let readerReturnFocus: HTMLElement | null = null;
 const lastOpenedStorageKey = "potem-last-opened-v1";
 const pendingReaderStorageKey = "potem-pending-reader-v1";
 type ReaderRoute = { id: string; slug?: string } | { invalid: true } | null;
-type ReaderHistoryState = { potem?: { version: 1; kind: "list" | "reader"; articleId?: string; fromList?: boolean } };
+type ReaderHistoryState = { potem?: { version: 1; kind: "list" | "reader" | "preview"; articleId?: string; fromList?: boolean; previewId?: string } };
 let readerArticleId: string | null = null;
 let lastOpenedFetchGeneration = 0;
 let lastOpenedArticle: Article | null = null;
@@ -2089,6 +2090,161 @@ function updatePdfReader(article?: Article) {
     else anchor.removeAttribute('href');
   }
 }
+
+type ReaderPreview = {
+  url: string;
+  article?: ArticlePreview;
+  status: string;
+  scrollTop: number;
+  saveState?: "saving" | "saved";
+};
+const readerPreviews = new Map<string, ReaderPreview>();
+const readerLinkDialog = $<HTMLDialogElement>("#reader-link-dialog");
+const readerLinkWebsite = $<HTMLAnchorElement>("#reader-link-website");
+let readerPreview: ReaderPreview | undefined;
+let readerPreviewLoad: AbortController | undefined;
+
+function updateReaderPreviewActions(preview?: ReaderPreview) {
+  const back = $(".reader-back");
+  back.setAttribute("aria-label", preview ? "Back to previous article" : "Close saved copy");
+  $("#reader-preview-actions").hidden = !preview;
+  $("#reader-preview-status").textContent = preview?.status ?? "";
+  const save = $<HTMLButtonElement>("#reader-preview-save");
+  save.hidden = !preview?.article || preview.saveState === "saved";
+  save.disabled = preview?.saveState === "saving";
+}
+
+function leaveReaderPreview() {
+  if (readerLinkDialog.open) readerLinkDialog.close();
+  if (!readerPreview) return;
+  const dialog = $<HTMLDialogElement>("#reader-dialog");
+  readerPreview.scrollTop = dialog.scrollTop;
+  if (readerPreviewLoad) {
+    readerPreviewLoad.abort();
+    readerPreviewLoad = undefined;
+    readerPreview.status = "";
+  }
+  readerPreview = undefined;
+  updateReaderPreviewActions();
+}
+
+function renderReaderPreview(preview: ReaderPreview) {
+  const article = preview.article;
+  const url = article?.url ?? preview.url;
+  const title = article?.title ?? sourceHost(url);
+  setReaderTitle(title);
+  setArticleTitle({ title });
+  $("#reader-metadata").textContent = article
+    ? [sourceHost(url), article.author ? `By ${article.author}` : ""].filter(Boolean).join(" · ")
+    : "";
+  $<HTMLAnchorElement>("#reader-original").href = url;
+  const body = $("#reader-body");
+  body.hidden = !article;
+  body.replaceChildren();
+  if (article) body.append(renderMarkdown(article.markdown, url, article.title));
+  updateReaderPreviewActions(preview);
+}
+
+async function showReaderPreview(preview: ReaderPreview) {
+  leaveReaderPreview();
+  saveReadingPosition();
+  readerPositionContext = null;
+  readerLoadGeneration++;
+  stopExtractionPolling();
+  clearAudioPoll();
+  resetReaderCompletion();
+  readerArticleId = null;
+  state.selected = null;
+  $("#reader-pending").hidden = true;
+  $("#reader-new-copy").hidden = true;
+  $("#reader-audio").hidden = true;
+  $("#reader-audio").replaceChildren();
+  updatePdfReader();
+  readerPreview = preview;
+  const loading = !preview.article && !preview.status;
+  if (loading) preview.status = "Loading linked article…";
+  renderReaderPreview(preview);
+  const dialog = $<HTMLDialogElement>("#reader-dialog");
+  const title = $("#reader-title");
+  if (!dialog.open) showDialog(dialog);
+  dialog.scrollTop = preview.scrollTop;
+  updateReaderToolbarCompactState();
+  title.focus({ preventScroll: true });
+  if (!loading) return;
+
+  const controller = new AbortController();
+  readerPreviewLoad = controller;
+  try {
+    const { article } = await request<{ article: ArticlePreview }>("/api/articles/preview", {
+      method: "POST", body: JSON.stringify({ url: preview.url }), signal: controller.signal,
+    });
+    if (readerPreviewLoad !== controller) return;
+    preview.article = article;
+    preview.status = "";
+  } catch (error) {
+    if (readerPreviewLoad !== controller) return;
+    preview.status = (error as Error).message;
+  } finally {
+    if (readerPreviewLoad === controller) {
+      readerPreviewLoad = undefined;
+      renderReaderPreview(preview);
+      updateReaderToolbarCompactState();
+    }
+  }
+}
+
+$("#reader-body").addEventListener("click", (event) => {
+  if (event.defaultPrevented || event.button !== 0 || event.metaKey || event.ctrlKey || event.shiftKey || event.altKey || readerReturnPending) return;
+  const link = event.target instanceof Element ? event.target.closest<HTMLAnchorElement>("a[href]") : null;
+  const url = link && safeHttpUrl(link.href);
+  if (!url) return;
+  event.preventDefault();
+  readerLinkWebsite.href = url;
+  $("#reader-link-host").textContent = sourceHost(url);
+  showDialog(readerLinkDialog, $("#reader-link-read"));
+});
+
+$("#reader-link-read").addEventListener("click", () => {
+  const preview: ReaderPreview = { url: readerLinkWebsite.href, status: "", scrollTop: 0 };
+  readerLinkDialog.close();
+  const previewId = crypto.randomUUID();
+  readerPreviews.set(previewId, preview);
+  history.pushState({ potem: { version: 1, kind: "preview", previewId, fromList: readerFromList } } satisfies ReaderHistoryState, "", location.href);
+  void showReaderPreview(preview);
+});
+readerLinkWebsite.addEventListener("click", () => readerLinkDialog.close());
+
+$("#reader-preview-save").addEventListener("click", async () => {
+  const preview = readerPreview;
+  const article = preview?.article;
+  if (!preview || !article || preview.saveState) return;
+  preview.saveState = "saving";
+  preview.status = "Saving…";
+  updateReaderPreviewActions(preview);
+  try {
+    await request("/api/articles", {
+      method: "POST",
+      body: JSON.stringify({
+        url: article.url, title: article.title,
+        author: article.author ?? undefined, description: article.description ?? undefined,
+        previewMarkdown: article.markdown,
+      }),
+    });
+    preview.saveState = "saved";
+    preview.status = "Saved to library.";
+    if (parseReaderPath(location.pathname)) {
+      if (!listSnapshot) rememberListView(readerReturnFocus ?? undefined);
+      if (listSnapshot) listSnapshot.forceRefresh = true;
+    } else {
+      void load();
+    }
+  } catch (error) {
+    preview.saveState = undefined;
+    preview.status = `Couldn’t save this article. ${(error as Error).message}`;
+  }
+  if (readerPreview === preview) updateReaderPreviewActions(preview);
+});
+
 function openReader(article: Article, copy: ArticleCopy, opener?: HTMLElement) {
   if (state.selected?.id !== article.id) return;
   if (readerPositionContext && (readerPositionContext.id !== article.id || readerPositionContext.revision !== copy.revision)) saveReadingPosition();
@@ -2195,6 +2351,7 @@ $("#reader-retry").addEventListener("click", async () => {
   }
 });
 function clearReader() {
+  leaveReaderPreview();
   clearAudioPoll();
   $("#reader-new-copy").hidden = true;
   resetReaderCompletion();
@@ -2243,6 +2400,7 @@ function discardPrivateContent() {
   resetSuggestion();
   renderLastOpened();
   clearReader();
+  readerPreviews.clear();
   const detailDialog = $<HTMLDialogElement>("#detail-dialog");
   if (detailDialog.open) detailDialog.close();
   $("#detail-content").replaceChildren();
@@ -2279,25 +2437,20 @@ $("#reader-dialog").addEventListener("close", () => {
 });
 $("#reader-dialog .reader-close").addEventListener("submit", (event) => {
   event.preventDefault();
-  navigateReaderAway();
-  clearReader();
+  closeReaderView();
 });
 $("#reader-dialog").addEventListener("cancel", (event) => {
   event.preventDefault();
-  navigateReaderAway();
-  clearReader();
+  closeReaderView();
 });
 document.addEventListener("pointerdown", (event) => {
   const dialog = $<HTMLDialogElement>("#reader-dialog");
-  if (!dialog.open) return;
+  if (!dialog.open || readerLinkDialog.open) return;
 
   const bounds = dialog.getBoundingClientRect();
   const clickedOutside = event.clientX < bounds.left || event.clientX > bounds.right ||
     event.clientY < bounds.top || event.clientY > bounds.bottom;
-  if (clickedOutside) {
-    navigateReaderAway();
-    clearReader();
-  }
+  if (clickedOutside) closeReaderView();
 }, true);
 $("#reader-dialog").addEventListener("scroll", () => {
   updateReaderToolbarOnScroll();
@@ -2374,13 +2527,31 @@ function navigateReaderAway() {
   if (fromList) { readerReturnPending = true; history.back(); }
   else { history.replaceState(listHistoryState(), "", "/"); readerFromList = false; setListTitle(); restoreListView(); }
 }
+function closeReaderView() {
+  if (readerReturnPending) return;
+  if (readerPreview) {
+    readerReturnPending = true;
+    history.back();
+  } else {
+    navigateReaderAway();
+    clearReader();
+  }
+}
 window.addEventListener("popstate", () => {
   readerReturnPending = false;
+  const entry = (history.state as ReaderHistoryState | null)?.potem;
+  const preview = entry?.kind === "preview" && entry.previewId ? readerPreviews.get(entry.previewId) : undefined;
+  if (preview && state.session?.authenticated) {
+    void showReaderPreview(preview);
+    return;
+  }
+  const wasPreview = Boolean(readerPreview);
+  leaveReaderPreview();
+  if (wasPreview) $("#reader-body").hidden = true;
   const route = parseReaderPath(location.pathname);
   if (route) {
     if (!("id" in route)) { clearReader(); setListTitle(); showNotice("This article link is invalid. Go back to your list and try again.", true); return; }
-    const entry = history.state as ReaderHistoryState | null;
-    readerFromList = Boolean(entry?.potem?.kind === "reader" && entry.potem.fromList);
+    readerFromList = Boolean(entry?.fromList);
     if (state.session?.authenticated) void openArticleById(route.id);
     return;
   }

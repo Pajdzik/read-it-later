@@ -1097,6 +1097,16 @@ button {
 .reader-pending-status { margin: 0 0 14px; line-height: 1.55; }
 .reader-pending-actions { display: flex; flex-wrap: wrap; gap: 8px; }
 .reader-pending[hidden] { display: none; }
+#reader-link-website { text-decoration: none; }
+.reader-preview-actions {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 8px 12px;
+  margin-block: 12px;
+}
+.reader-preview-actions[hidden], #reader-preview-status:empty { display: none; }
+#reader-preview-status { margin: 0; }
 .reader-body {
   margin: 0;
   font: 1.25rem/1.6 Georgia, "Times New Roman", serif;

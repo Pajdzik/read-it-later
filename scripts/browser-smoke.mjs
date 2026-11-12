@@ -14,6 +14,7 @@ import { checkReadingSuggestion } from "./reading-suggestion-smoke.mjs";
 import { captureRecoverySmoke } from "./capture-recovery-smoke.mjs";
 import { enrichmentSmoke } from "./enrichment-smoke.mjs";
 import { readerTitleSmoke } from "./reader-title-smoke.mjs";
+import { readerPreviewSmoke } from "./reader-preview-smoke.mjs";
 import { themeContinuitySmoke } from "./theme-continuity-smoke.mjs";
 
 const storage = await mkdtemp(path.join(os.tmpdir(), "read-later-smoke-"));
@@ -1580,6 +1581,7 @@ try {
   await urlContext.close();
   await readerCompletionSmoke(context, base, sourceBase);
   await pdfArchiveSmoke(context, base);
+  await readerPreviewSmoke(browser, base);
   const cachedPaths = await page.evaluate(async () => {
     const paths = [];
     for (const name of await caches.keys()) {

@@ -56,7 +56,8 @@ export function createCaptureServer(appOrigin: string, execute = executeCapture,
       }
       return;
     }
-    if (request.method !== "POST" || request.url !== "/capture") {
+    const preview = request.url === "/preview";
+    if (request.method !== "POST" || (!preview && request.url !== "/capture")) {
       response.writeHead(404).end(); return;
     }
     if (busy) { send({ version: 1, ok: false, error: { code: "capture_busy", retryable: true } }); return; }
@@ -76,8 +77,8 @@ export function createCaptureServer(appOrigin: string, execute = executeCapture,
       try { body = JSON.parse(Buffer.concat(chunks).toString("utf8")); }
       catch { throw new SourceFetchError("invalid_url", false); }
       if (!body || typeof body.url !== "string" || new TextEncoder().encode(body.url).byteLength > 8 * 1024) throw new SourceFetchError("invalid_url", false);
-      if (body.originalPdfId !== undefined && (typeof body.originalPdfId !== "string" || !/^[a-f0-9-]{36}$/.test(body.originalPdfId))) throw new SourceFetchError("invalid_pdf", false);
-      const article = await execute(body.url, appOrigin, body.originalPdfId, controller.signal);
+      if (body.originalPdfId !== undefined && (preview || typeof body.originalPdfId !== "string" || !/^[a-f0-9-]{36}$/.test(body.originalPdfId))) throw new SourceFetchError("invalid_pdf", false);
+      const article = await execute(body.url, appOrigin, { originalPdfId: body.originalPdfId, signal: controller.signal, preview });
       send({ version: 1, ok: true, article });
     } catch (error) {
       const failure = error instanceof SourceFetchError ? error : new SourceFetchError("capture_unavailable", true);

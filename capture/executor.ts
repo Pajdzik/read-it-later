@@ -38,7 +38,10 @@ export async function extractInThread(html: string, url: string, threadUrl = new
   }
 }
 
-export async function executeCapture(url: string, appOrigin: string, originalPdfId?: string, signal?: AbortSignal, timeoutMs = EXECUTOR_TIMEOUT_MS): Promise<CapturedArticle> {
+type CaptureOptions = { originalPdfId?: string; signal?: AbortSignal; timeoutMs?: number; preview?: boolean };
+
+export async function executeCapture(url: string, appOrigin: string, options: CaptureOptions = {}): Promise<CapturedArticle> {
+  const { originalPdfId, signal, timeoutMs = EXECUTOR_TIMEOUT_MS, preview } = options;
   const controller=new AbortController();
   let response: Response | undefined, rejectAbort: (error: SourceFetchError) => void;
   const cancelled=new Promise<never>((_,reject)=>{rejectAbort=reject;});
@@ -61,17 +64,18 @@ export async function executeCapture(url: string, appOrigin: string, originalPdf
     return result.article;
   };
   const run=async()=>{
-    if(originalPdfId)return convert('stored-pdf',{method:'POST',headers:{'X-Pdf-Id':originalPdfId,'X-Source-Url':encodeURIComponent(url)}});
+    if(originalPdfId && !preview)return convert('stored-pdf',{method:'POST',headers:{'X-Pdf-Id':originalPdfId,'X-Source-Url':encodeURIComponent(url)}});
     const source=await fetchSourceDocument(url,{
       appOrigin, signal: controller.signal,
       fetchHop:(input,init)=>pinnedFetch(input,init,appOrigin),
     });
     const metadata=source.kind==='html' ? await extractInThread(source.html,source.url,undefined,controller.signal) : {};
-    const article=await convert(source.kind,{method:'POST',
+    const path = preview && source.kind === 'pdf' ? 'preview-pdf' : source.kind;
+    const article=await convert(path,{method:'POST',
       headers:{'Content-Type':source.kind==='html' ? 'text/html' : 'application/pdf','X-Source-Url':encodeURIComponent(source.url)},
       body:source.kind==='html' ? source.html : new Uint8Array(source.bytes),
     });
-    return {...article,metadata};
+    return {...article,metadata,...(preview ? { sourceUrl: source.url } : {})};
   };
   try { return await Promise.race([run(),cancelled]); }
   catch(error) {
