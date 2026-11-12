@@ -36,9 +36,12 @@ export async function pdfArchiveSmoke(context, base) {
     assert.equal(library.version,3);
     const exported = library.articles.find(a=>a.id===article.id);
     assert.deepEqual(exported.tags,article.tags); assert.equal(exported.tagsManuallyEdited,true); assert.equal(exported.descriptionOrigin,'manual');
+    assert.equal(Object.hasOwn(exported,'readingTimeMinutes'),false);
+    assert.equal(Object.hasOwn(exported.copy,'readingTimeMinutes'),false);
     assert.ok(manifest.pdfs.some(p=>p.articleId===article.id && p.checksum===hash));
     await page.goto(`${base}/read/${article.id}/preserved-pdf`);
     await expect(page.locator('#reader-body')).toContainText('Private reading copy.');
+    await expect(page.locator('#reader-metadata')).toContainText('1 min read');
     await expect(page.locator('#reader-pdf-open')).toBeVisible();
     await expect(page.locator('#reader-pdf-download')).toHaveAttribute('href',new RegExp(`/api/articles/${article.id}/pdf\\?asset=[a-f0-9-]+&download=1`));
     const original = await page.request.get(`${base}/api/articles/${article.id}/pdf`);

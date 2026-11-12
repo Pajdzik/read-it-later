@@ -1,4 +1,5 @@
 import type { OriginalPdf } from '../contracts';
+import { estimateReadingTimeMinutes } from './reading-time';
 import type { ExtractionJob, ExtractionMetadata } from './jobs';
 
 /** SQL representation shared by request, completion, and undo guards. */
@@ -49,12 +50,13 @@ export async function undoRecapture(
   const restoreCopy = db.prepare(`UPDATE article_copies SET
       markdown = (SELECT markdown FROM article_capture_recovery WHERE article_id = ?),
       captured_at = (SELECT captured_at FROM article_capture_recovery WHERE article_id = ?),
-      source = (SELECT source FROM article_capture_recovery WHERE article_id = ?), revision = ?
+      source = (SELECT source FROM article_capture_recovery WHERE article_id = ?),
+      reading_time_minutes = (SELECT reading_time_minutes FROM article_capture_recovery WHERE article_id = ?), revision = ?
     WHERE article_id = ? AND revision = ? AND EXISTS (
       SELECT 1 FROM article_capture_recovery r JOIN articles a ON a.id=r.article_id
       WHERE r.article_id = ? AND r.resulting_revision = article_copies.revision
         AND (r.previous_metadata IS NULL OR r.resulting_metadata = ${metadataSnapshot('a')}))`)
-    .bind(id, id, id, revision, id, expectedRevision, id);
+    .bind(id, id, id, id, revision, id, expectedRevision, id);
   const restoreMetadata = db.prepare(`UPDATE articles SET
       title = json_extract((SELECT previous_metadata FROM article_capture_recovery WHERE article_id=?), '$[0]'),
       title_origin = json_extract((SELECT previous_metadata FROM article_capture_recovery WHERE article_id=?), '$[1]'),
@@ -101,17 +103,17 @@ export async function completeRecapture(
   const clearSnapshot = db.prepare(`DELETE FROM article_capture_recovery WHERE article_id=? AND ${eligible}`)
     .bind(job.articleId, ...fenceValues);
   const snapshot = db.prepare(`INSERT INTO article_capture_recovery
-      (article_id,markdown,captured_at,source,previous_metadata,resulting_revision,pdf_asset_id)
-    SELECT c.article_id,c.markdown,c.captured_at,c.source,
+      (article_id,markdown,captured_at,source,reading_time_minutes,previous_metadata,resulting_revision,pdf_asset_id)
+    SELECT c.article_id,c.markdown,c.captured_at,c.source,c.reading_time_minutes,
       CASE WHEN j.refresh_metadata=1 THEN ${metadataSnapshot('a')} ELSE NULL END,?,a.pdf_asset_id
     FROM article_copies c JOIN articles a ON a.id=c.article_id
       JOIN article_extraction_jobs j ON j.article_id=a.id
     WHERE ${fence} AND ${matches}`).bind(revision, ...fenceValues);
-  const copy = db.prepare(`INSERT INTO article_copies(article_id,markdown,captured_at,source,revision)
-    SELECT ?,?,?,'paste',? WHERE ${eligible}
+  const copy = db.prepare(`INSERT INTO article_copies(article_id,markdown,captured_at,source,revision,reading_time_minutes)
+    SELECT ?,?,?,'paste',?,? WHERE ${eligible}
     ON CONFLICT(article_id) DO UPDATE SET markdown=excluded.markdown,captured_at=excluded.captured_at,
-      source=excluded.source,revision=excluded.revision`)
-    .bind(job.articleId, result.markdown, now, revision, ...fenceValues);
+      source=excluded.source,revision=excluded.revision,reading_time_minutes=excluded.reading_time_minutes`)
+    .bind(job.articleId, result.markdown, now, revision, estimateReadingTimeMinutes(result.markdown), ...fenceValues);
   const title = result.metadata.title?.trim() || null;
   const author = result.metadata.author?.trim() || null;
   const description = result.metadata.description?.trim() || null;

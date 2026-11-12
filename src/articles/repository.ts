@@ -1,7 +1,8 @@
-import type { Article, ArticleCopy, ArticleCursor } from "../contracts";
+import type { Article, ArticleCopy, ArticleCursor, SavedArticleCopy } from "../contracts";
 import { ValidationError } from "./validation";
 import { isArticleId, newArticleId } from "./identity";
 import { hydrateTags, normalizeTags } from "./tags";
+import { estimateReadingTimeMinutes } from "./reading-time";
 
 export type ArticleStatus = "unread" | "read" | "all";
 
@@ -36,27 +37,30 @@ export interface UpdateArticleInput {
 
 export interface SaveArticleCopyInput extends ArticleCopy {}
 
+const readingTimeColumn = "(SELECT reading_time_minutes FROM article_copies WHERE article_id = articles.id) AS reading_time_minutes";
+
 export async function suggestArticle(db: D1Database, exclude?: string): Promise<{ article: Article | null; hasAlternative: boolean }> {
   // Prefer a different article on shuffle, but keep the sole unread article available.
-  const { results } = await db.prepare(`SELECT id,url,title,author,description,description_origin,tags_manual,created_at,updated_at,read_at
+  const { results } = await db.prepare(`SELECT id,url,title,author,description,description_origin,tags_manual,created_at,updated_at,read_at,${readingTimeColumn}
     FROM articles WHERE read_at IS NULL
     ORDER BY (id = ?) ASC, RANDOM() LIMIT 2`).bind(exclude ?? "").all<Record<string, unknown>>();
   const articles = await hydrateTags(db, results.map(row => mapArticle(row)!));
   return { article: articles[0] ?? null, hasAlternative: results.length > 1 };
 }
 
-function mapArticleCopy(row: Record<string, unknown> | null): ArticleCopy | null {
+function mapArticleCopy(row: Record<string, unknown> | null): SavedArticleCopy | null {
   if (!row) return null;
   return {
     markdown: String(row.markdown),
     capturedAt: String(row.captured_at),
     source: String(row.source) as ArticleCopy["source"],
     revision: String(row.revision),
+    readingTimeMinutes: row.reading_time_minutes == null ? null : Number(row.reading_time_minutes),
   };
 }
 
-export async function getArticleCopy(db: D1Database, id: string): Promise<ArticleCopy | null> {
-  const row = await db.prepare("SELECT markdown,captured_at,source,revision FROM article_copies WHERE article_id = ?")
+export async function getArticleCopy(db: D1Database, id: string): Promise<SavedArticleCopy | null> {
+  const row = await db.prepare("SELECT markdown,captured_at,source,revision,reading_time_minutes FROM article_copies WHERE article_id = ?")
     .bind(id).first<Record<string, unknown>>();
   return mapArticleCopy(row);
 }
@@ -100,18 +104,19 @@ export async function saveArticleCopy(
   id: string,
   copy: SaveArticleCopyInput,
   expectedRevision: string | null,
-): Promise<"saved" | "conflict" | "missing"> {
+): Promise<SavedArticleCopy | "conflict" | "missing"> {
   const now = copy.capturedAt;
+  const readingTimeMinutes = estimateReadingTimeMinutes(copy.markdown);
   const copyWrite = expectedRevision === null
-    ? db.prepare(`INSERT INTO article_copies (article_id,markdown,captured_at,source,revision)
-        SELECT ?,?,?,?,? WHERE EXISTS (SELECT 1 FROM articles WHERE id = ?)
+    ? db.prepare(`INSERT INTO article_copies (article_id,markdown,captured_at,source,revision,reading_time_minutes)
+        SELECT ?,?,?,?,?,? WHERE EXISTS (SELECT 1 FROM articles WHERE id = ?)
         ON CONFLICT(article_id) DO NOTHING`)
-      .bind(id, copy.markdown, now, copy.source, copy.revision, id)
-    : db.prepare(`UPDATE article_copies SET markdown = ?, captured_at = ?, source = ?, revision = ?
+      .bind(id, copy.markdown, now, copy.source, copy.revision, readingTimeMinutes, id)
+    : db.prepare(`UPDATE article_copies SET markdown = ?, captured_at = ?, source = ?, revision = ?, reading_time_minutes = ?
         WHERE article_id = ? AND revision = ? AND EXISTS (SELECT 1 FROM articles WHERE id = ?)`)
-      .bind(copy.markdown, now, copy.source, copy.revision, id, expectedRevision, id);
+      .bind(copy.markdown, now, copy.source, copy.revision, readingTimeMinutes, id, expectedRevision, id);
   const [result] = await db.batch([copyWrite, satisfyExtractionJobs(db, 'id', id, copy)]);
-  if ((result.meta.changes ?? 0) > 0) return "saved";
+  if ((result.meta.changes ?? 0) > 0) return { ...copy, readingTimeMinutes };
   const article = await db.prepare("SELECT 1 AS found FROM articles WHERE id = ?").bind(id).first();
   if (!article) return "missing";
   return "conflict";
@@ -141,6 +146,7 @@ function mapArticle(row: Record<string, unknown> | null): Article | null {
     createdAt: String(row.created_at),
     updatedAt: String(row.updated_at),
     readAt: row.read_at === null ? null : String(row.read_at),
+    readingTimeMinutes: row.reading_time_minutes == null ? null : Number(row.reading_time_minutes),
   };
 }
 
@@ -180,6 +186,7 @@ export async function saveArticle(
 ): Promise<{ article: Article; duplicate: boolean; metadataUpdated: boolean }> {
   const now = new Date().toISOString();
   const insertTitle = input.title.trim();
+  const readingTimeMinutes = input.copy ? estimateReadingTimeMinutes(input.copy.markdown) : null;
   for (let attempt = 0; attempt < 5; attempt++) {
     const id = newArticleId();
     const insert = db.prepare(
@@ -199,10 +206,10 @@ export async function saveArticle(
     if (input.copy) {
       const { markdown, capturedAt, source, revision } = input.copy;
       // Resolve by URL in the same transaction and keep any copy already saved.
-      statements.push(db.prepare(`INSERT INTO article_copies (article_id,markdown,captured_at,source,revision)
-        SELECT id,?,?,?,? FROM articles WHERE normalized_url = ?
+      statements.push(db.prepare(`INSERT INTO article_copies (article_id,markdown,captured_at,source,revision,reading_time_minutes)
+        SELECT id,?,?,?,?,? FROM articles WHERE normalized_url = ?
         ON CONFLICT(article_id) DO NOTHING`)
-        .bind(markdown, capturedAt, source, revision, input.normalizedUrl));
+        .bind(markdown, capturedAt, source, revision, readingTimeMinutes, input.normalizedUrl));
       statements.push(satisfyExtractionJobs(db, 'normalized_url', input.normalizedUrl, input.copy));
     }
     if (input.extractionRequested) {
@@ -221,7 +228,8 @@ export async function saveArticle(
       SELECT id,?,?,? FROM articles WHERE id=? AND normalized_url=? AND enrichment_requested_at=? ON CONFLICT DO NOTHING`)
       .bind(now, now, now, id, input.normalizedUrl, now));
     const [result, metadataResult] = await db.batch(statements);
-    const existing = await db.prepare("SELECT id,url,title,author,description,description_origin,tags_manual,created_at,updated_at,read_at,title_origin FROM articles WHERE normalized_url = ?")
+    const existing = await db.prepare(`SELECT id,url,title,author,description,description_origin,tags_manual,created_at,updated_at,read_at,title_origin,${readingTimeColumn}
+      FROM articles WHERE normalized_url = ?`)
       .bind(input.normalizedUrl).first<Record<string, unknown>>();
     if (!existing) continue; // The ID was occupied; retry only that conflict.
     const [current] = await hydrateTags(db, [mapArticle(existing)!]);
@@ -232,7 +240,8 @@ export async function saveArticle(
 }
 
 export async function getArticle(db: D1Database, id: string): Promise<Article | null> {
-  const row = await db.prepare("SELECT id,url,title,author,description,description_origin,tags_manual,created_at,updated_at,read_at FROM articles WHERE id = ?")
+  const row = await db.prepare(`SELECT id,url,title,author,description,description_origin,tags_manual,created_at,updated_at,read_at,${readingTimeColumn}
+    FROM articles WHERE id = ?`)
     .bind(id).first<Record<string, unknown>>();
   return row ? (await hydrateTags(db, [mapArticle(row)!]))[0] : null;
 }
@@ -262,7 +271,8 @@ export async function listArticles(
     where.push("(created_at < ? OR (created_at = ? AND id < ?))");
     values.push(cursor.createdAt, cursor.createdAt, cursor.id);
   }
-  const sql = `SELECT id,url,title,author,description,description_origin,tags_manual,created_at,updated_at,read_at FROM articles${where.length ? ` WHERE ${where.join(" AND ")}` : ""} ORDER BY created_at DESC,id DESC LIMIT ?`;
+  const sql = `SELECT id,url,title,author,description,description_origin,tags_manual,created_at,updated_at,read_at,${readingTimeColumn}
+    FROM articles${where.length ? ` WHERE ${where.join(" AND ")}` : ""} ORDER BY created_at DESC,id DESC LIMIT ?`;
   values.push(limit + 1);
   const rows = await db.prepare(sql).bind(...values).all<Record<string, unknown>>();
   const found = rows.results ?? [];

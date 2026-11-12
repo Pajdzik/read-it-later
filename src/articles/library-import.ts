@@ -1,11 +1,12 @@
 import { normalizeTags } from './tags';
+import { estimateReadingTimeMinutes } from './reading-time';
 import type { Article, ArticleCopy, Env } from '../contracts';
 import { errorResponse, jsonResponse } from '../http';
 import { isArticleId } from './identity';
 import { validatePortableArticle } from './portable-format';
 import { MAX_IMPORT_BYTES, MAX_IMPORT_ITEMS, MAX_TITLE_LENGTH, normalizeArticleUrl, parseObject, readJson, ValidationError } from './validation';
 const MAX_COPY_BYTES = 256 * 1024;
-type ImportArticle = Article;
+type ImportArticle = Omit<Article, "readingTimeMinutes">;
 export function validateLibrary(value: unknown) {
   const input = parseObject(value, ['version', 'exportedAt', 'articles'], ['version', 'exportedAt', 'articles']);
   if (input.version !== 3) throw new ValidationError('unsupported import version');
@@ -84,10 +85,10 @@ export async function importArticles(request: Request, env: Env, options: Import
         SELECT ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ? ${archiveSessionId ? `WHERE ${guard}` : ''} ON CONFLICT(normalized_url) DO NOTHING`)
         .bind(item.id, item.url, item.normalizedUrl, item.title, item.author, item.description, item.createdAt, item.updatedAt, item.readAt, assets.get(item.id) ?? null, item.descriptionOrigin, item.tagsManuallyEdited ? 1 : 0,
           ...(archiveSessionId ? [archiveSessionId,item.id,token!] : [])));
-      if (item.copy) statements.push(env.DB.prepare(`INSERT INTO article_copies (article_id,markdown,captured_at,source,revision)
-        SELECT ?,?,?,?,? WHERE changes() = 1 AND EXISTS (SELECT 1 FROM articles WHERE id = ?)
+      if (item.copy) statements.push(env.DB.prepare(`INSERT INTO article_copies (article_id,markdown,captured_at,source,revision,reading_time_minutes)
+        SELECT ?,?,?,?,?,? WHERE changes() = 1 AND EXISTS (SELECT 1 FROM articles WHERE id = ?)
         ON CONFLICT(article_id) DO NOTHING`)
-        .bind(item.id, item.copy.markdown, item.copy.capturedAt, item.copy.source, item.copy.revision, item.id));
+        .bind(item.id, item.copy.markdown, item.copy.capturedAt, item.copy.source, item.copy.revision, estimateReadingTimeMinutes(item.copy.markdown), item.id));
       if (item.tags.length) statements.push(env.DB.prepare(`INSERT INTO article_tags(article_id,tag)
         SELECT ?,value FROM json_each(?) WHERE changes()=1 AND EXISTS(SELECT 1 FROM articles WHERE id=?)`)
         .bind(item.id, JSON.stringify(item.tags), item.id));

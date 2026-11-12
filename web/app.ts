@@ -52,6 +52,7 @@ type Article = {
   createdAt: string;
   updatedAt: string;
   readAt: string | null;
+  readingTimeMinutes?: number | null;
   hasCopy?: boolean;
   extraction?: ExtractionStatus;
   podcastFit?: PodcastSuitability;
@@ -64,7 +65,7 @@ type ExtractionStatus = {
 };
 type Session = { authenticated: boolean; csrfToken?: string; audioEnabled?: boolean };
 type Page = { items: Article[]; nextCursor: string | null; capture?: { paused: boolean } };
-type ArticleCopy = { markdown: string; capturedAt: string; source: "paste" | "upload"; revision: string };
+type ArticleCopy = { markdown: string; capturedAt: string; source: "paste" | "upload"; revision: string; readingTimeMinutes?: number | null };
 type PodcastSuitability = { tier: "good" | "mixed" | "poor"; reason: string; spokenWords: number; codeBlocks: number; codeSharePercent: number };
 type AudioStatus = { enabled: boolean; state: "none" | "queued" | "generating" | "ready" | "failed"; episodeId: string | null; sourceRevision: string | null; characters: number; estimatedDurationSeconds: number; estimatedCostUsd: number; errorCode: string | null; suitability: PodcastSuitability | null };
 type PodcastSettings = { enabled: boolean; token: { createdAt: string } | null; usage: { month: string; usedCharacters: number; reservedCharacters: number; freeCharacters: number; budgetUsd: number; estimatedCostUsd: number } };
@@ -791,6 +792,16 @@ function extractionLabel(extraction?: ExtractionStatus) {
   if (extraction.state === "queued") return "Capture queued";
   return extraction.state === "retry_wait" ? "Capture retrying" : "Capturing Markdown";
 }
+function readingTimeLabel(minutes?: number | null) {
+  return minutes && minutes > 0 ? `${minutes} min read` : "";
+}
+function updateArticleReadingTime(meta: HTMLElement, minutes?: number | null) {
+  const current = meta.querySelector(".article-reading-time");
+  const label = readingTimeLabel(minutes);
+  if (!label) current?.remove();
+  else if (current) current.textContent = ` · ${label}`;
+  else meta.append(el("span", ` · ${label}`, "article-reading-time"));
+}
 function renderArticleMeta(article: Article) {
   const meta = el("p", undefined, "article-meta");
   meta.append(el("span", sourceHost(article.url), "article-meta-domain"));
@@ -798,6 +809,7 @@ function renderArticleMeta(article: Article) {
     meta.append(document.createTextNode(" · "));
     meta.append(el("span", `By ${article.author}`));
   }
+  updateArticleReadingTime(meta, article.readingTimeMinutes);
   return meta;
 }
 function updateExtractionBadge(badge: HTMLElement, extraction?: ExtractionStatus) {
@@ -895,7 +907,7 @@ function scheduleExtractionPoll(article: Article) {
         renderLastOpened();
       } else if (row) {
         const meta = row.querySelector<HTMLElement>(".article-meta");
-        if (meta) meta.replaceWith(renderArticleMeta({ ...article, extraction: result.extraction }));
+        if (meta) meta.replaceWith(renderArticleMeta(updated));
         const badge = row.querySelector<HTMLElement>(".extraction-badge");
         if (badge) updateExtractionBadge(badge, result.extraction);
       }
@@ -1833,12 +1845,19 @@ async function renderCopyEditor(article: Article, captureDisclosure: HTMLDetails
         { method: "PUT", body: JSON.stringify({ markdown, source, expectedRevision: saved?.revision ?? null }) },
       );
       saved = result.copy;
+      const meta = list.querySelector<HTMLElement>(`[data-id="${CSS.escape(article.id)}"] .article-meta`);
+      if (meta) updateArticleReadingTime(meta, saved.readingTimeMinutes);
+      if (state.selected?.id === article.id && root.contains(section)) {
+        stopExtractionPolling();
+        state.selected.readingTimeMinutes = saved.readingTimeMinutes;
+      }
       showCopyActions();
       copyDrafts.delete(article.id);
       try {
         const extraction = await request<{ extraction: ExtractionStatus }>(`/api/articles/${encodeURIComponent(article.id)}/extraction`);
         if (state.selected?.id === article.id && root.contains(section)) state.selected.extraction = extraction.extraction;
       } catch { /* A status refresh failure does not change the successful copy save. */ }
+      if (state.selected?.id === article.id && root.contains(section)) scheduleExtractionPoll(state.selected);
       const storedBytes = new TextEncoder().encode(saved.markdown).byteLength;
       showStatus(`Saved ${dateLabel(saved.capturedAt)} · ${saved.source === "upload" ? "uploaded file" : "captured or pasted Markdown"} · ${storedBytes.toLocaleString()} UTF-8 bytes`);
       showNotice("Markdown copy saved.");
@@ -2318,9 +2337,12 @@ function openReader(article: Article, copy: ArticleCopy, opener?: HTMLElement) {
   const canonicalPath = articlePath(article);
   if (location.pathname !== canonicalPath) history.replaceState(readerHistoryState(article.id, readerFromList), "", canonicalPath);
   const capturedOn = dateLabel(copy.capturedAt);
-  metadata.textContent = [sourceHost(article.url), article.author ? `By ${article.author}` : "", capturedOn ? `Captured ${capturedOn}` : ""]
-    .filter(Boolean)
-    .join(" · ");
+  metadata.textContent = [
+    sourceHost(article.url),
+    article.author ? `By ${article.author}` : "",
+    readingTimeLabel(copy.readingTimeMinutes),
+    capturedOn ? `Captured ${capturedOn}` : "",
+  ].filter(Boolean).join(" · ");
   $("#reader-pending").hidden = true;
   $("#reader-new-copy").hidden = true;
   body.hidden = false;

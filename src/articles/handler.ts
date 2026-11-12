@@ -204,7 +204,7 @@ async function putArticleCopy(request: Request, env: Env, id: string, ctx?: Exec
   if (result === 'missing') return fail(404, 'not_found', 'Article not found.');
   if (result === 'conflict') return fail(409, 'revision_conflict', 'This copy changed since you opened it. Reload it before replacing.');
   await scheduleEnrichment(env, id, ctx);
-  return jsonResponse({ copy });
+  return jsonResponse({ copy: result });
 }
 
 async function createArticle(request: Request, env: Env, tokenCapture = false, ctx?: ExecutionContext): Promise<Response> {
@@ -326,7 +326,11 @@ async function exportArticles(env: Env): Promise<Response> {
         }
         if (pageIndex < page.items.length) {
           const { article, copy } = page.items[pageIndex++];
-          controller.enqueue(encoder.encode(`${emitted++ ? ',' : ''}${JSON.stringify({ ...article, ...(copy ? { copy } : {}) })}`));
+          const portable = { id: article.id, url: article.url, title: article.title, author: article.author, description: article.description,
+            tags: article.tags, descriptionOrigin: article.descriptionOrigin, tagsManuallyEdited: article.tagsManuallyEdited,
+            createdAt: article.createdAt, updatedAt: article.updatedAt, readAt: article.readAt,
+            ...(copy ? { copy: { markdown: copy.markdown, capturedAt: copy.capturedAt, source: copy.source, revision: copy.revision } } : {}) };
+          controller.enqueue(encoder.encode(`${emitted++ ? ',' : ''}${JSON.stringify(portable)}`));
           return;
         }
         controller.enqueue(encoder.encode(']}'));

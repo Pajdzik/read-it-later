@@ -165,21 +165,22 @@ describe('article HTTP handlers', () => {
 
     const response = await save(source, markdown);
     expect(response.status).toBe(201);
-    const data = await response.json() as { article: { id: string }; extraction: ExtractionStatus };
+    const data = await response.json() as { article: { id: string; readingTimeMinutes: number | null }; extraction: ExtractionStatus };
     expect(data.extraction.state).toBe('ready');
+    expect(data.article.readingTimeMinutes).toBe(1);
     const getCopy = async () => (await route(request(`/api/articles/${data.article.id}/copy`))).json();
     const saved = await getCopy();
-    expect(saved).toMatchObject({ copy: { markdown } });
-    const duplicate = await save(source + '?utm_source=preview', '# A different preview');
+    expect(saved).toMatchObject({ copy: { markdown, readingTimeMinutes: 1 } });
+    const duplicate = await save(source + '?utm_source=preview', 'word '.repeat(241));
     expect(duplicate.status).toBe(200);
-    expect(await duplicate.json()).toMatchObject({ duplicate: true, article: { id: data.article.id } });
+    expect(await duplicate.json()).toMatchObject({ duplicate: true, article: { id: data.article.id, readingTimeMinutes: 1 } });
     expect(await getCopy()).toEqual(saved);
 
     const link = await route(request('/api/articles', 'POST', { url: 'https://example.com/queued-preview', captureMarkdown: true }));
     const queued = await link.json() as { article: { id: string }; extraction: ExtractionStatus };
     expect(queued.extraction.state).toBe('queued');
     const existing = await save('https://example.com/queued-preview', markdown);
-    expect(await existing.json()).toMatchObject({ duplicate: true, article: { id: queued.article.id }, extraction: { state: 'ready' } });
+    expect(await existing.json()).toMatchObject({ duplicate: true, article: { id: queued.article.id, readingTimeMinutes: 1 }, extraction: { state: 'ready' } });
     expect(await env.DB.prepare('SELECT state FROM article_extraction_jobs WHERE article_id = ?').bind(queued.article.id).first())
       .toEqual({ state: 'succeeded' });
 
@@ -194,13 +195,14 @@ describe('article HTTP handlers', () => {
     const response = (await handleArticles(request('/api/articles', 'POST', { url: 'https://source.example.com/article', captureMarkdown: true }), enabledEnv))!;
     expect(response.status).toBe(201);
     const data = await response.json() as { article: { id: string; title: string; readAt: null }; extraction: ExtractionStatus };
-    expect(data.article).toMatchObject({ title: 'source.example.com/article', readAt: null });
+    expect(data.article).toMatchObject({ title: 'source.example.com/article', readAt: null, readingTimeMinutes: null });
     expect(data.extraction).toMatchObject({ state: 'queued', paused: false });
     expect(fetcher).not.toHaveBeenCalled();
     expect(await (await route(request(`/api/articles/${data.article.id}/copy`))).json()).toEqual({ copy: null });
     // Queue delivery has no dependency on the original request or phone.
     await deliverPendingExtractions(enabledEnv);
     const copyData = await (await route(request(`/api/articles/${data.article.id}/copy`))).json() as { copy: { markdown: string; revision: string } };
+    expect(copyData.copy).toMatchObject({ readingTimeMinutes: 1 });
     expect(copyData.copy.markdown).toContain('Readable article');
     expect(copyData.copy.markdown).toContain('**important formatting**');
     expect(copyData.copy.markdown).toContain('📰');
@@ -208,8 +210,12 @@ describe('article HTTP handlers', () => {
     expect(copyData.copy.markdown).toContain('https://source.example.com/related');
     expect(copyData.copy.markdown).not.toContain('Navigation clutter');
     expect(fetcher).toHaveBeenCalledTimes(1);
-    expect(await (await route(request(`/api/articles/${data.article.id}`))).json()).toMatchObject({ article: { title: 'Extracted article', author: 'Alex', hasCopy: true, extraction: { state: 'ready' } } });
-    await route(request(`/api/articles/${data.article.id}`, 'PATCH', { read: true }));
+    expect(await (await route(request(`/api/articles/${data.article.id}`))).json()).toMatchObject({ article: { title: 'Extracted article', author: 'Alex', hasCopy: true, readingTimeMinutes: 1, extraction: { state: 'ready' } } });
+    const page = await (await route(request('/api/articles'))).json() as { items: unknown[] };
+    expect(page).toMatchObject({ items: [{ id: data.article.id, readingTimeMinutes: 1 }] });
+    expect(page.items[0]).not.toHaveProperty('markdown');
+    expect(await (await route(request(`/api/articles/${data.article.id}`, 'PATCH', { read: true }))).json())
+      .toMatchObject({ article: { readingTimeMinutes: 1 } });
     const duplicate = await route(request('/api/articles', 'POST', { url: 'https://source.example.com/article#section', captureMarkdown: true }));
     expect(duplicate.status).toBe(200);
     expect(await duplicate.json()).toMatchObject({ duplicate: true, article: { id: data.article.id, readAt: expect.any(String) }, extraction: { state: 'ready' } });
@@ -230,7 +236,7 @@ describe('article HTTP handlers', () => {
     expect(await (await route(request(statusPath))).json()).toMatchObject({ extraction: { state: 'failed' } });
     const duplicate = await route(request('/api/articles', 'POST', { url: 'https://source.example.com/retry', captureMarkdown: true }));
     expect(await duplicate.json()).toMatchObject({ extraction: { state: 'failed' } });
-    expect(await (await route(request(`/api/articles/${data.article.id}`))).json()).toMatchObject({ article: { id: data.article.id } });
+    expect(await (await route(request(`/api/articles/${data.article.id}`))).json()).toMatchObject({ article: { id: data.article.id, readingTimeMinutes: null } });
     // Make the terminal generation old enough for the explicit retry cooldown.
     await env.DB.prepare("UPDATE article_extraction_jobs SET updated_at = ?, finished_at = ? WHERE article_id = ?").bind('2026-01-01T00:00:00.000Z', '2026-01-01T00:00:00.000Z', data.article.id).run();
     const retried = await route(request(statusPath + '/retry', 'POST', {}));
@@ -249,7 +255,7 @@ describe('article HTTP handlers', () => {
     try {
       const response = await route(request('/api/articles', 'POST', { url: 'https://source.example.com/link-only', captureMarkdown: false }));
       expect(response.status).toBe(201);
-      expect(await response.json()).toMatchObject({ extraction: { state: 'none' } });
+      expect(await response.json()).toMatchObject({ article: { readingTimeMinutes: null }, extraction: { state: 'none' } });
       expect(fetcher).not.toHaveBeenCalled();
       const rows = await env.DB.prepare('SELECT count(*) AS n FROM article_extraction_jobs').first<{ n: number }>();
       expect(rows?.n).toBe(0);
@@ -285,14 +291,18 @@ describe('article HTTP handlers', () => {
     const first = await route(request('/api/articles/copyart1/copy', 'PUT', { markdown, source: 'paste', expectedRevision: null }));
     expect(first.status).toBe(200);
     const copy = (await first.json() as { copy: { revision: string; capturedAt: string; source: string; markdown: string } }).copy;
-    expect(copy).toMatchObject({ markdown, source: 'paste', capturedAt: expect.any(String), revision: expect.any(String) });
-    expect((await route(request('/api/articles/copyart1/copy', 'PUT', { markdown: 'stale replacement', source: 'paste', expectedRevision: 'stale-revision' }))).status).toBe(409);
-    await expect((await get()).json()).resolves.toMatchObject({ copy: { markdown } });
+    expect(copy).toMatchObject({ markdown, source: 'paste', capturedAt: expect.any(String), revision: expect.any(String), readingTimeMinutes: 1 });
+    expect((await route(request('/api/articles/copyart1/copy', 'PUT', { markdown: 'word '.repeat(241), source: 'paste', expectedRevision: 'stale-revision' }))).status).toBe(409);
+    await expect((await get()).json()).resolves.toMatchObject({ copy: { markdown, readingTimeMinutes: 1 } });
     const boundary = await route(request('/api/articles/copyart1/copy', 'PUT', { markdown: `${markdown}é`, source: 'upload', expectedRevision: copy.revision }));
     expect(boundary.status).toBe(413);
-    const replaced = await route(request('/api/articles/copyart1/copy', 'PUT', { markdown: '## Uploaded', source: 'upload', expectedRevision: copy.revision }));
+    const uploaded = 'word '.repeat(241);
+    const replaced = await route(request('/api/articles/copyart1/copy', 'PUT', { markdown: uploaded, source: 'upload', expectedRevision: copy.revision }));
     expect(replaced.status).toBe(200);
     const current = (await replaced.json() as { copy: { revision: string } }).copy;
+    expect(current).toMatchObject({ markdown: uploaded, readingTimeMinutes: 2 });
+    expect(await (await get()).json()).toEqual({ copy: current });
+    expect(await (await route(request('/api/articles/copyart1'))).json()).toMatchObject({ article: { readingTimeMinutes: 2 } });
     const concurrent = await Promise.all([
       route(request('/api/articles/copyart1/copy', 'PUT', { markdown: '## Concurrent A', source: 'paste', expectedRevision: current.revision })),
       route(request('/api/articles/copyart1/copy', 'PUT', { markdown: '## Concurrent B', source: 'upload', expectedRevision: current.revision })),
@@ -517,9 +527,12 @@ describe('article HTTP handlers', () => {
     }
     await env.DB.prepare('INSERT INTO article_copies(article_id,markdown,captured_at,source,revision) VALUES(?,?,?,?,?)')
       .bind('exp00000', '# Backup 📰\n\nescaped \u0000\t content', '2026-01-04T00:00:00.000Z', 'upload', 'copy-revision-1').run();
+    expect(await (await route(request('/api/articles/exp00000/copy'))).json()).toMatchObject({ copy: { revision: 'copy-revision-1', readingTimeMinutes: null } });
+    expect(await (await route(request('/api/articles/exp00000'))).json()).toMatchObject({ article: { readingTimeMinutes: null } });
     const exported = await route(request('/api/export'));
     const document = await exported.json() as { version: number; articles: Array<{ id: string; copy?: { markdown: string; capturedAt: string; source: string; revision: string } }> };
     expect(document.version).toBe(3); expect(document.articles).toHaveLength(105);
+    expect(document.articles.find((article) => article.id === 'exp00000')).not.toHaveProperty('readingTimeMinutes');
     expect(document.articles.find((article) => article.id === 'exp00000')?.copy).toEqual({ markdown: '# Backup 📰\n\nescaped \u0000\t content', capturedAt: '2026-01-04T00:00:00.000Z', source: 'upload', revision: 'copy-revision-1' });
     await env.DB.prepare('DELETE FROM articles').run();
     const first = await route(request('/api/import', 'POST', document));
@@ -530,6 +543,7 @@ describe('article HTTP handlers', () => {
     expect(item).toEqual({ title: '日本語 📰', read_at: '2026-01-02T00:00:00.000Z' });
     expect(await env.DB.prepare('SELECT markdown,captured_at,source,revision FROM article_copies WHERE article_id = ?').bind('exp00000').first())
       .toEqual({ markdown: '# Backup 📰\n\nescaped \u0000\t content', captured_at: '2026-01-04T00:00:00.000Z', source: 'upload', revision: 'copy-revision-1' });
+    expect(await (await route(request('/api/articles/exp00000/copy'))).json()).toMatchObject({ copy: { revision: 'copy-revision-1', readingTimeMinutes: 1 } });
   });
 
   it('paginates opaque Unicode article IDs up to the import length limit', async () => {

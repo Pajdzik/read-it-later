@@ -9,10 +9,10 @@ export async function captureRecoverySmoke(browser, base) {
   page.on('pageerror', error => errors.push(error.message));
   let article = {
     id: 'recover1', url: 'https://example.com/recover', title: 'Recovery fixture',
-    author: 'Original author', description: 'Original description',
+    author: 'Original author', description: 'Original description', readingTimeMinutes: 1,
     createdAt: '2026-10-01T00:00:00.000Z', updatedAt: '2026-10-01T00:00:00.000Z', readAt: null,
   };
-  let copy = { markdown: '# Original content', revision: 'original', source: 'upload', capturedAt: article.createdAt };
+  let copy = { markdown: '# Original content', revision: 'original', source: 'upload', capturedAt: article.createdAt, readingTimeMinutes: 1 };
   let extraction = { state: 'ready', attempts: 0, errorCode: null, nextAttemptAt: null, paused: false, undoAvailable: false };
   let previous;
   let refresh = false;
@@ -21,7 +21,8 @@ export async function captureRecoverySmoke(browser, base) {
   const complete = (failure = false) => {
     if (!failure) {
       previous = { article: { ...article }, copy: { ...copy } };
-      copy = { ...copy, markdown: '# Recovered content', revision: `recovered-${requests}` };
+      copy = { ...copy, markdown: '# Recovered content', revision: `recovered-${requests}`, readingTimeMinutes: 4 };
+      article = { ...article, readingTimeMinutes: copy.readingTimeMinutes };
       if (refresh) article = { ...article, title: 'Refreshed fixture', author: 'Refreshed author', description: 'Refreshed description' };
     }
     extraction = { ...extraction, undoAvailable: !failure || extraction.undoAvailable,
@@ -56,6 +57,8 @@ export async function captureRecoverySmoke(browser, base) {
     await route.fulfill({ status, contentType: 'application/json', body: JSON.stringify(body) });
   });
   const detail = page.locator('#detail-content');
+  const articleMeta = page.locator('.article[data-id="recover1"] .article-meta');
+  const readerMeta = page.locator('#reader-metadata');
   const edit = async () => {
     await page.locator('.article[data-id="recover1"]').getByRole('button', { name: 'More actions', exact: true }).click();
     await page.locator('.article[data-id="recover1"]').getByRole('button', { name: 'Edit', exact: true }).click();
@@ -71,6 +74,7 @@ export async function captureRecoverySmoke(browser, base) {
   try {
     await page.clock.install();
     await page.goto(base);
+    await expect(articleMeta).toContainText('1 min read');
     await edit();
     const captureDisclosure = detail.locator('details[data-disclosure="capture"]');
     const recapture = detail.getByRole('button', { name: 'Recapture article', exact: true });
@@ -100,6 +104,7 @@ export async function captureRecoverySmoke(browser, base) {
     await poll();
     await expect(detail.locator('#detail-extraction-status')).toHaveText('Recapture completed');
     await expect(page.locator('.article[data-id="recover1"] .article-title')).toHaveText('Refreshed fixture');
+    await expect(articleMeta).toContainText('4 min read');
     await expect(markdown).toHaveValue('Draft typed while recapturing');
     await expect(detail.getByRole('textbox', { name: 'Title', exact: true })).toHaveValue('Title typed while recapturing');
     await expect(recapture).toBeDisabled();
@@ -110,6 +115,7 @@ export async function captureRecoverySmoke(browser, base) {
     await expect(markdown).toHaveValue('# Original content');
     await expect(detail.getByRole('textbox', { name: 'Title', exact: true })).toHaveValue('Recovery fixture');
     await expect(page.locator('.article[data-id="recover1"] .article-title')).toHaveText('Recovery fixture');
+    await expect(articleMeta).toContainText('1 min read');
     await expect(detail.getByRole('button', { name: 'Undo last recapture' })).toBeHidden();
     // Reopen during an active job and verify the persisted status is shown.
     await recapture.click();
@@ -129,12 +135,15 @@ export async function captureRecoverySmoke(browser, base) {
     await expect(detail.locator('#detail-extraction-status')).toHaveText('Recapture queued');
     await detail.getByRole('button', { name: 'Read saved copy' }).click();
     await expect(page.locator('#reader-body')).toHaveText('Original content');
+    await expect(readerMeta).toContainText('1 min read');
     complete();
     await poll();
     await expect(page.getByRole('button', { name: 'New copy available' })).toBeVisible();
     await expect(page.locator('#reader-body')).toHaveText('Original content');
+    await expect(readerMeta).toContainText('1 min read');
     await page.getByRole('button', { name: 'New copy available' }).click();
     await expect(page.locator('#reader-body')).toHaveText('Recovered content');
+    await expect(readerMeta).toContainText('4 min read');
     assert.deepEqual(errors, []);
   } finally { await context.close(); }
 }

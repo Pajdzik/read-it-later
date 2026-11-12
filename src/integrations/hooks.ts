@@ -13,7 +13,7 @@ function snapshot({ article, copy }: SavedArticle) {
       id: article.id, url: article.url, title: article.title, author: article.author,
       description: article.description, savedAt: article.createdAt,
     },
-    copy,
+    copy: copy ? { markdown: copy.markdown, capturedAt: copy.capturedAt, source: copy.source, revision: copy.revision } : null,
   };
 }
 

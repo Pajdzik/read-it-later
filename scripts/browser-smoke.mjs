@@ -217,6 +217,7 @@ try {
   const article = page
     .locator(".article")
     .filter({ hasText: "Browser smoke article" });
+  await expect(article.locator(".article-meta")).not.toContainText("min read");
   const openDetailSection = async (name) => detail.locator(`details[data-disclosure="${name}"]`).evaluate(node => { node.open = true; });
   await title.click();
   const detail = page.locator("#detail-content");
@@ -242,6 +243,7 @@ try {
   await page.unroute("**/api/articles/*/copy");
   await detail.getByRole("button", { name: "Save Markdown copy" }).click();
   await detail.getByText(/pasted Markdown/).waitFor();
+  await expect(article.locator(".article-meta")).toContainText("1 min read");
   await markdown.fill("# Cancelled replacement");
   page.once("dialog", (dialog) => dialog.dismiss());
   await detail.getByRole("button", { name: "Save Markdown copy" }).click();
@@ -793,9 +795,9 @@ try {
   assert.match(await readerBody.textContent(), /!\[Unsafe image\]\(javascript:alert\(4\)\)/);
   assert.equal(await reader.locator("details").count(), 0, "Reader copy details should not be hidden behind a disclosure.");
   const metadata = reader.locator("#reader-metadata");
-  await expect(metadata).toContainText(/^example\.com · By Reader Author · Captured .+/);
+  await expect(metadata).toContainText(/^example\.com · By Reader Author · [1-9]\d* min read · Captured .+/);
   assert.doesNotMatch(await metadata.innerText(), /pasted Markdown|uploaded file|Image references/,
-    "Reader metadata should show only source domain, author, and capture date.");
+    "Reader metadata should show the source domain, author, reading time, and capture date.");
   const alignedBlocks = await Promise.all([
     reader.locator("#reader-title"), metadata, readerBody,
   ].map((element) => element.boundingBox()));
