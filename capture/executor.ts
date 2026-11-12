@@ -5,6 +5,8 @@ import { readBytes } from "../src/articles/pdf";
 import { fetchSourceDocument } from "../src/articles/source-fetch";
 import type { ArticleMetadata } from "../src/articles/metadata";
 import { pinnedFetch } from "./pinned-fetch";
+import { fetchFeedXml } from "./feed-fetch";
+import type { FeedDocument } from "./feed-parser";
 
 /** A separate thread gives synchronous metadata parsing a hard wall-clock and heap limit. */
 export async function extractInThread(html: string, url: string, threadUrl = new URL("./extract-thread.mjs", import.meta.url), signal?: AbortSignal): Promise<ArticleMetadata> {
@@ -79,4 +81,42 @@ export async function executeCapture(url: string, appOrigin: string, originalPdf
     if(error instanceof SourceFetchError)throw error;
     throw new SourceFetchError('converter_unavailable',true);
   } finally { clearTimeout(timer); signal?.removeEventListener('abort',abort); }
+}
+
+export async function executeFeed(url: string, appOrigin: string, signal?: AbortSignal): Promise<FeedDocument> {
+  const controller = new AbortController();
+  const abort = () => controller.abort(signal?.reason);
+  signal?.addEventListener("abort", abort, { once: true });
+  if (signal?.aborted) abort();
+  const timer = setTimeout(() => controller.abort(), EXECUTOR_TIMEOUT_MS);
+  try {
+    const source = await fetchFeedXml(url, appOrigin, controller.signal);
+    controller.signal.throwIfAborted();
+    return await parseFeedInThread(source.xml, source.url, undefined, controller.signal);
+  } catch (error) {
+    if (error instanceof SourceFetchError) throw error;
+    if (controller.signal.aborted) throw new SourceFetchError("timeout", true);
+    throw new SourceFetchError("invalid_feed", false);
+  } finally {
+    clearTimeout(timer);
+    signal?.removeEventListener("abort", abort);
+  }
+}
+
+async function parseFeedInThread(xml: string, url: string, threadUrl = new URL("./feed-thread.mjs", import.meta.url), signal?: AbortSignal): Promise<FeedDocument> {
+  signal?.throwIfAborted();
+  const worker = new Worker(threadUrl, { workerData: { xml, url }, resourceLimits: { maxOldGenerationSizeMb: 32, maxYoungGenerationSizeMb: 8 } });
+  let timer: ReturnType<typeof setTimeout>;
+  let abort: (() => void) | undefined;
+  try {
+    return await new Promise<FeedDocument>((resolve, reject) => {
+      const fail = () => reject(new SourceFetchError("invalid_feed", false));
+      abort = () => reject(new SourceFetchError("timeout", true));
+      signal?.addEventListener("abort", abort, { once: true });
+      timer = setTimeout(fail, 5_000);
+      worker.once("message", message => message?.feed ? resolve(message.feed as FeedDocument) : fail());
+      worker.once("error", fail);
+      worker.once("exit", fail);
+    });
+  } finally { clearTimeout(timer!); if (abort) signal?.removeEventListener("abort", abort); await worker.terminate(); }
 }
