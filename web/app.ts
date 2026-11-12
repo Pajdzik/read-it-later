@@ -2098,9 +2098,15 @@ type ReaderPreview = {
   scrollTop: number;
   saveState?: "saving" | "saved";
 };
+type ReaderLink = { url: string; saveKey: string | null };
+type ReaderLinkSaveResult = { duplicate: boolean };
 const readerPreviews = new Map<string, ReaderPreview>();
 const readerLinkDialog = $<HTMLDialogElement>("#reader-link-dialog");
 const readerLinkWebsite = $<HTMLAnchorElement>("#reader-link-website");
+const readerLinkSave = $<HTMLButtonElement>("#reader-link-save");
+const readerLinkSaveStatus = $("#reader-link-save-status");
+const pendingReaderLinkSaves = new Map<string, Promise<ReaderLinkSaveResult>>();
+let readerLink: ReaderLink | undefined;
 let readerPreview: ReaderPreview | undefined;
 let readerPreviewLoad: AbortController | undefined;
 
@@ -2194,16 +2200,31 @@ async function showReaderPreview(preview: ReaderPreview) {
 }
 
 $("#reader-body").addEventListener("click", (event) => {
-  if (event.defaultPrevented || event.button !== 0 || event.metaKey || event.ctrlKey || event.shiftKey || event.altKey || readerReturnPending) return;
+  if (event.defaultPrevented || event.button !== 0 || event.metaKey || event.ctrlKey || event.shiftKey || event.altKey || readerReturnPending || readerLinkDialog.open) return;
   const link = event.target instanceof Element ? event.target.closest<HTMLAnchorElement>("a[href]") : null;
   const url = link && safeHttpUrl(link.href);
-  if (!url) return;
+  if (!link || !url) return;
   event.preventDefault();
+
+  const key = readerLinkKey(url);
+  const sourceKey = readerLinkKey($<HTMLAnchorElement>("#reader-original").href);
+  const saveKey = key === sourceKey ? null : key;
+  readerLink = { url, saveKey };
+  readerLinkSave.hidden = !saveKey;
+  setReaderLinkSaveStatus();
   readerLinkWebsite.href = url;
   $("#reader-link-host").textContent = sourceHost(url);
+  // The native dialog restores focus to the element active when it opened.
+  link.focus({ preventScroll: true });
   showDialog(readerLinkDialog, $("#reader-link-read"));
+
+  const pending = saveKey ? pendingReaderLinkSaves.get(saveKey) : undefined;
+  if (pending) void showReaderLinkSaveResult(readerLink, pending);
 });
 
+readerLinkDialog.addEventListener("close", () => {
+  if (!readerLinkDialog.open) readerLink = undefined;
+});
 $("#reader-link-read").addEventListener("click", () => {
   const preview: ReaderPreview = { url: readerLinkWebsite.href, status: "", scrollTop: 0 };
   readerLinkDialog.close();
@@ -2257,53 +2278,39 @@ function readerLinkKey(url: string) {
     throw error;
   }
 }
-function addReaderLinkSaveButtons(content: DocumentFragment, sourceUrl: string) {
-  const sourceKey = readerLinkKey(sourceUrl);
-  const buttonsByUrl = new Map<string, { button: HTMLButtonElement; label: string }[]>();
-  for (const link of content.querySelectorAll<HTMLAnchorElement>("a[href]")) {
-    const url = link.href;
-    const key = readerLinkKey(url);
-    if (!key || key === sourceKey) continue;
-
-    const label = link.textContent?.trim() || link.querySelector("img")?.alt || link.hostname;
-    const button = el("button", "+", "reader-link-save");
-    button.type = "button";
-    button.title = "Save linked article";
-    button.setAttribute("aria-label", `Save linked article: ${label}`);
-    const status = el("span", undefined, "reader-link-save-status");
-    status.setAttribute("role", "status");
-    link.after(button, status);
-
-    const group = buttonsByUrl.get(key) ?? [];
-    group.push({ button, label });
-    buttonsByUrl.set(key, group);
-    button.addEventListener("click", async () => {
-      if (button.getAttribute("aria-disabled") === "true") return;
-      for (const entry of group) entry.button.setAttribute("aria-disabled", "true");
-      status.classList.remove("error");
-      status.textContent = "Saving…";
-      try {
-        const { duplicate } = await request<{ duplicate: boolean }>("/api/articles", {
-          method: "POST",
-          body: JSON.stringify({ url, captureMarkdown: true }),
-        });
-        status.textContent = duplicate ? "Already saved" : "Saved";
-        for (const entry of group) {
-          entry.button.textContent = "✓";
-          entry.button.title = "Linked article saved";
-          entry.button.setAttribute("aria-label", `Linked article saved: ${entry.label}`);
-        }
-      } catch {
-        status.textContent = "Couldn’t save. Try again.";
-        status.classList.add("error");
-        for (const entry of group) entry.button.removeAttribute("aria-disabled");
-        return;
-      }
-
-      refreshLibraryAfterReaderSave();
-    });
+function setReaderLinkSaveStatus(message = "", disabled = false, failed = false) {
+  if (disabled) readerLinkSave.setAttribute("aria-disabled", "true");
+  else readerLinkSave.removeAttribute("aria-disabled");
+  readerLinkSaveStatus.classList.toggle("error", failed);
+  readerLinkSaveStatus.textContent = message;
+}
+async function showReaderLinkSaveResult(link: ReaderLink, pending: Promise<ReaderLinkSaveResult>) {
+  setReaderLinkSaveStatus("Saving…", true);
+  const isCurrent = () => readerLinkDialog.open && readerLink === link;
+  try {
+    const { duplicate } = await pending;
+    if (isCurrent()) setReaderLinkSaveStatus(duplicate ? "Already saved" : "Saved to library", true);
+  } catch {
+    if (isCurrent()) setReaderLinkSaveStatus("Couldn’t save. Try again.", false, true);
   }
 }
+readerLinkSave.addEventListener("click", () => {
+  const link = readerLink;
+  const key = link?.saveKey;
+  if (!readerLinkDialog.open || !link || !key || readerLinkSave.getAttribute("aria-disabled") === "true") return;
+  const pending = request<ReaderLinkSaveResult>("/api/articles", {
+    method: "POST",
+    body: JSON.stringify({ url: link.url, captureMarkdown: true }),
+  }).then((result) => {
+    refreshLibraryAfterReaderSave();
+    return result;
+  }).finally(() => {
+    pendingReaderLinkSaves.delete(key);
+  });
+  pendingReaderLinkSaves.set(key, pending);
+  void showReaderLinkSaveResult(link, pending);
+});
+
 function openReader(article: Article, copy: ArticleCopy, opener?: HTMLElement) {
   if (state.selected?.id !== article.id) return;
   if (readerPositionContext && (readerPositionContext.id !== article.id || readerPositionContext.revision !== copy.revision)) saveReadingPosition();
@@ -2325,9 +2332,7 @@ function openReader(article: Article, copy: ArticleCopy, opener?: HTMLElement) {
   $("#reader-new-copy").hidden = true;
   body.hidden = false;
   original.href = safeHttpUrl(article.url) || "#";
-  const content = renderMarkdown(copy.markdown, article.url, article.title);
-  addReaderLinkSaveButtons(content, article.url);
-  body.replaceChildren(content);
+  body.replaceChildren(renderMarkdown(copy.markdown, article.url, article.title));
   const audioPanel = $("#reader-audio"); audioPanel.hidden = true; audioPanel.replaceChildren();
   if (state.session?.audioEnabled === true) attachAudioControl(audioPanel, article, true);
   resetReaderCompletion(article);
