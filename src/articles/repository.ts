@@ -11,6 +11,7 @@ export interface SaveArticleInput {
   title: string;
   author?: string;
   description?: string;
+  copy?: ArticleCopy;
   extractionRequested?: boolean;
   enrichmentRequested?: boolean;
   enrichAfterCopy?: boolean;
@@ -109,18 +110,21 @@ export async function saveArticleCopy(
     : db.prepare(`UPDATE article_copies SET markdown = ?, captured_at = ?, source = ?, revision = ?
         WHERE article_id = ? AND revision = ? AND EXISTS (SELECT 1 FROM articles WHERE id = ?)`)
       .bind(copy.markdown, now, copy.source, copy.revision, id, expectedRevision, id);
-  const satisfyJobs = db.prepare(`UPDATE article_extraction_jobs
-      SET state = CASE WHEN kind='recapture' THEN 'failed' ELSE 'succeeded' END,
-          lease_token = NULL, lease_expires_at = NULL,
-          error_code = CASE WHEN kind='recapture' THEN 'copy_changed' ELSE NULL END, finished_at = ?, updated_at = ?
-      WHERE article_id = ? AND state IN ('queued','running','retry_wait')
-        AND EXISTS (SELECT 1 FROM article_copies c WHERE c.article_id = ? AND c.revision = ?)`)
-    .bind(now, now, id, id, copy.revision);
-  const [result] = await db.batch([copyWrite, satisfyJobs]);
+  const [result] = await db.batch([copyWrite, satisfyExtractionJobs(db, 'id', id, copy)]);
   if ((result.meta.changes ?? 0) > 0) return "saved";
   const article = await db.prepare("SELECT 1 AS found FROM articles WHERE id = ?").bind(id).first();
   if (!article) return "missing";
   return "conflict";
+}
+
+function satisfyExtractionJobs(db: D1Database, column: 'id' | 'normalized_url', key: string, copy: ArticleCopy): D1PreparedStatement {
+  return db.prepare(`UPDATE article_extraction_jobs
+      SET state = CASE WHEN kind='recapture' THEN 'failed' ELSE 'succeeded' END,
+          lease_token = NULL, lease_expires_at = NULL,
+          error_code = CASE WHEN kind='recapture' THEN 'copy_changed' ELSE NULL END, finished_at = ?, updated_at = ?
+      WHERE article_id = (SELECT id FROM articles WHERE ${column} = ?) AND state IN ('queued','running','retry_wait')
+        AND EXISTS (SELECT 1 FROM article_copies c WHERE c.article_id = article_extraction_jobs.article_id AND c.revision = ?)`)
+    .bind(copy.capturedAt, copy.capturedAt, key, copy.revision);
 }
 
 function mapArticle(row: Record<string, unknown> | null): Article | null {
@@ -192,6 +196,15 @@ export async function saveArticle(
       .bind(input.author ?? null, input.description ?? null, input.description ?? null, now, input.normalizedUrl,
         input.author ?? null, input.description ?? null);
     const statements = [insert, updateDuplicate];
+    if (input.copy) {
+      const { markdown, capturedAt, source, revision } = input.copy;
+      // Resolve by URL in the same transaction and keep any copy already saved.
+      statements.push(db.prepare(`INSERT INTO article_copies (article_id,markdown,captured_at,source,revision)
+        SELECT id,?,?,?,? FROM articles WHERE normalized_url = ?
+        ON CONFLICT(article_id) DO NOTHING`)
+        .bind(markdown, capturedAt, source, revision, input.normalizedUrl));
+      statements.push(satisfyExtractionJobs(db, 'normalized_url', input.normalizedUrl, input.copy));
+    }
     if (input.extractionRequested) {
       // Resolve by URL inside the transaction: an ID collision must never queue
       // work for the unrelated article occupying the generated ID.

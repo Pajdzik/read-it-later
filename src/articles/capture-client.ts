@@ -1,14 +1,20 @@
 import { assetId, MAX_PDF_BYTES } from "./pdf";
 import type { Env, OriginalPdf } from "../contracts";
 import { CAPTURE_TIMEOUT_MS, MAX_CAPTURE_RESPONSE_BYTES, MAX_MARKDOWN_BYTES, SourceFetchError, captureErrorCodes, type CapturedArticle } from "./capture-protocol";
+import { normalizeArticleUrl } from "./validation";
 
 export function isBackgroundCapturePaused(env: Env): boolean {
-  return env.BACKGROUND_CAPTURE_ENABLED !== "true" || env.MANAGED_CONVERSION_ENABLED === "false" || !env.ARTICLE_EXTRACTOR || !env.EXTRACTION_QUEUE;
+  return !captureService(env) || !env.EXTRACTION_QUEUE;
+}
+
+function captureService(env: Env): Env["ARTICLE_EXTRACTOR"] {
+  return env.BACKGROUND_CAPTURE_ENABLED === "true" && env.MANAGED_CONVERSION_ENABLED !== "false"
+    ? env.ARTICLE_EXTRACTOR : undefined;
 }
 
 function invalidResponse(): never { throw new SourceFetchError("invalid_capture_response", true); }
 
-async function readResult(response: Response, signal: AbortSignal): Promise<CapturedArticle> {
+async function readResult(response: Response, signal: AbortSignal, preview: boolean): Promise<CapturedArticle> {
   if (!response.ok) {
     await response.body?.cancel().catch(() => undefined);
     throw new SourceFetchError("capture_unavailable", true);
@@ -51,6 +57,7 @@ async function readResult(response: Response, signal: AbortSignal): Promise<Capt
   const article = result.article;
   const originalPdf = article?.originalPdf;
   const conversionError = article?.conversionError;
+  if (preview && (originalPdf || conversionError)) invalidResponse();
   if (originalPdf && (!assetId(originalPdf.id) || !/^[a-f0-9]{64}$/.test(originalPdf.checksum) ||
     !Number.isInteger(originalPdf.bytes) || originalPdf.bytes < 1 || originalPdf.bytes > MAX_PDF_BYTES ||
     typeof originalPdf.capturedAt !== "string" || !Number.isFinite(Date.parse(originalPdf.capturedAt)) ||
@@ -59,6 +66,11 @@ async function readResult(response: Response, signal: AbortSignal): Promise<Capt
   if (result.ok !== true || !article || typeof article.markdown !== "string" || (!article.markdown.trim() && !conversionError) ||
     new TextEncoder().encode(article.markdown).byteLength > MAX_MARKDOWN_BYTES ||
     !article.metadata || typeof article.metadata !== "object" || Array.isArray(article.metadata)) invalidResponse();
+  let sourceUrl: string | undefined;
+  if (preview && article.sourceUrl !== undefined) {
+    try { sourceUrl = normalizeArticleUrl(article.sourceUrl).url; }
+    catch { invalidResponse(); }
+  }
   const metadata: CapturedArticle["metadata"] = {};
   for (const [key, limit] of [["title", 500], ["author", 200], ["description", 500]] as const) {
     const value = article.metadata[key];
@@ -67,32 +79,55 @@ async function readResult(response: Response, signal: AbortSignal): Promise<Capt
       metadata[key] = value;
     }
   }
-  return { markdown: article.markdown, metadata, ...(originalPdf ? { originalPdf: originalPdf as OriginalPdf } : {}), ...(conversionError ? { conversionError } : {}) };
+  return { markdown: article.markdown, metadata, ...(sourceUrl ? { sourceUrl } : {}), ...(originalPdf ? { originalPdf: originalPdf as OriginalPdf } : {}), ...(conversionError ? { conversionError } : {}) };
 }
 
 /** Private service call. The application Worker never fetches source URLs or parses source HTML. */
 export async function captureArticle(url: string, env: Env, originalPdfId?: string): Promise<CapturedArticle> {
-  if (isBackgroundCapturePaused(env) || !env.ARTICLE_EXTRACTOR) throw new SourceFetchError("capture_paused", false);
+  const service = captureService(env);
+  if (!service || !env.EXTRACTION_QUEUE) throw new SourceFetchError("capture_paused", false);
+  return requestCapture(service, "capture", { url, ...(originalPdfId ? { originalPdfId } : {}) });
+}
+
+export async function captureArticlePreview(url: string, env: Env, signal?: AbortSignal): Promise<CapturedArticle> {
+  const service = captureService(env);
+  if (!service) throw new SourceFetchError("capture_paused", false);
+  return requestCapture(service, "preview", { url }, signal);
+}
+
+async function requestCapture(
+  service: NonNullable<Env["ARTICLE_EXTRACTOR"]>, path: "capture" | "preview",
+  body: { url: string; originalPdfId?: string }, signal?: AbortSignal,
+): Promise<CapturedArticle> {
   const controller = new AbortController();
   let response: Response | undefined;
-  let timer: ReturnType<typeof setTimeout>;
-  const timeout = new Promise<never>((_, reject) => {
-    timer = setTimeout(() => {
+  let abort!: () => void;
+  const cancelled = new Promise<never>((_, reject) => {
+    abort = () => {
       controller.abort();
       void response?.body?.cancel().catch(() => undefined);
       reject(new SourceFetchError("timeout", true));
-    }, CAPTURE_TIMEOUT_MS);
+    };
   });
+  const timer = setTimeout(abort, CAPTURE_TIMEOUT_MS);
+  signal?.addEventListener("abort", abort, { once: true });
   try {
-    const pending = env.ARTICLE_EXTRACTOR.fetch("https://capture.internal/capture", {
+    if (signal?.aborted) {
+      abort();
+      return await cancelled;
+    }
+    const pending = service.fetch(`https://capture.internal/${path}`, {
       method: "POST", headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ url, ...(originalPdfId ? { originalPdfId } : {}) }), signal: controller.signal,
+      body: JSON.stringify(body), signal: controller.signal,
     });
     void pending.then(late => { if (controller.signal.aborted) void late.body?.cancel().catch(() => undefined); }).catch(() => undefined);
-    response = await Promise.race([pending, timeout]);
-    return await Promise.race([readResult(response, controller.signal), timeout]);
+    response = await Promise.race([pending, cancelled]);
+    return await Promise.race([readResult(response, controller.signal, path === "preview"), cancelled]);
   } catch (error) {
     if (error instanceof SourceFetchError) throw error;
     throw new SourceFetchError("capture_unavailable", true);
-  } finally { clearTimeout(timer!); }
+  } finally {
+    clearTimeout(timer);
+    signal?.removeEventListener("abort", abort);
+  }
 }

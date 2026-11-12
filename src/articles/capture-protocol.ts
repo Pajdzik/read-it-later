@@ -24,6 +24,7 @@ export class SourceFetchError extends Error {
 export interface CapturedArticle {
   markdown: string;
   metadata: ArticleMetadata;
+  sourceUrl?: string;
   originalPdf?: OriginalPdf;
   conversionError?: { code: string; retryable: boolean };
 }

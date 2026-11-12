@@ -18,7 +18,7 @@ function hasPdfText(markdown: string): boolean {
 export async function managedConversion(request: Request, env: ManagedEnv): Promise<Response> {
   const send = (article: CapturedArticle) => Response.json({ version: 1, ok: true, article });
   const url = new URL(request.url);
-  if (request.method !== 'POST' || !['/html', '/pdf', '/stored-pdf'].includes(url.pathname)) return new Response(null, { status: 404 });
+  if (request.method !== 'POST' || !['/html', '/pdf', '/stored-pdf', '/preview-pdf'].includes(url.pathname)) return new Response(null, { status: 404 });
   if (env.MANAGED_CONVERSION_ENABLED !== 'true' || !env.AI) return Response.json({ version: 1, ok: false, error: { code: 'capture_paused', retryable: false } });
   let originalPdf: CapturedArticle['originalPdf'];
   try {
@@ -43,10 +43,10 @@ export async function managedConversion(request: Request, env: ManagedEnv): Prom
       }
     } else {
       bytes = await readBytes(request.body, pdf ? MAX_PDF_BYTES : MAX_SOURCE_HTML_BYTES);
-      if (pdf) {
+      if (url.pathname === '/pdf') {
         try { const { objectKey: _key, ...summary } = await stagePdf(env, bytes, sourceUrl); originalPdf = summary; }
         catch { throw new SourceFetchError('pdf_storage_unavailable', true); }
-      } else {
+      } else if (!pdf) {
         // The executor already extracted metadata. Keep the original bounded bytes
         // available if HTMLRewriter fails.
         try {

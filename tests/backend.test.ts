@@ -122,6 +122,72 @@ describe('article HTTP handlers', () => {
     expect((await route(request('/api/articles', 'POST', { url: 'https://example.com/invalid-meta', description: 3 }))).status).toBe(400);
   });
 
+  it('previews a linked page without adding it or queuing work', async () => {
+    const source = 'https://example.com/linked-page';
+    const finalUrl = 'https://example.com/stories/linked-page';
+    const markdown = '# Linked page\n\n[Another story](another-story)';
+    const fetcher = vi.fn(async (_url: string, _init: RequestInit) => Response.json({
+      version: 1, ok: true, article: { markdown, sourceUrl: finalUrl, metadata: { title: 'Linked page', author: 'Ada' } },
+    }));
+    const previewEnv: Env = {
+      ...env, BACKGROUND_CAPTURE_ENABLED: 'true', EXTRACTION_QUEUE: undefined,
+      ARTICLE_EXTRACTOR: { fetch: fetcher, connect() { throw new Error('No socket access'); } },
+    };
+    const path = '/api/articles/preview';
+    const response = (await handleArticles(request(path, 'POST', { url: source }), previewEnv))!;
+    expect(response.status).toBe(200);
+    expect(response.headers.get('Cache-Control')).toContain('no-store');
+    expect(await response.json()).toEqual({
+      article: { url: finalUrl, title: 'Linked page', author: 'Ada', description: null, markdown },
+    });
+    expect(fetcher).toHaveBeenCalledTimes(1);
+    const [url, init] = fetcher.mock.calls[0];
+    expect(url).toBe('https://capture.internal/preview');
+    expect(init.body).toBe(JSON.stringify({ url: source }));
+    for (const table of ['articles', 'article_copies', 'article_extraction_jobs', 'article_enrichment_jobs']) {
+      expect(await env.DB.prepare(`SELECT count(*) AS count FROM ${table}`).first()).toEqual({ count: 0 });
+    }
+
+    const withoutSession = new Request('https://service.example/api/articles/preview', {
+      method: 'POST', headers: { Authorization: 'Bearer capture-token' },
+    });
+    expect((await handleArticles(withoutSession, { ...previewEnv, ...ownerEnv, DEV_AUTH_BYPASS: 'false' }))?.status).toBe(401);
+    expect((await handleArticles(request(path, 'POST', { url: source }, { Origin: 'https://other.example' }), previewEnv))?.status).toBe(403);
+    expect((await handleArticles(request(path, 'POST', { url: 'file:///example' }), previewEnv))?.status).toBe(400);
+    expect((await handleArticles(request(path, 'POST', { url: source }), { ...previewEnv, BACKGROUND_CAPTURE_ENABLED: 'false' }))?.status).toBe(503);
+    expect(fetcher).toHaveBeenCalledTimes(1);
+  });
+
+  it('saves the displayed preview copy in one request and keeps an existing copy on retry', async () => {
+    const source = 'https://example.com/save-preview';
+    const markdown = '# Linked article\n\nThis is the content from the preview.';
+    const save = (url: string, previewMarkdown: string) => route(request('/api/articles', 'POST', { url, title: 'Linked article', previewMarkdown }));
+
+    const response = await save(source, markdown);
+    expect(response.status).toBe(201);
+    const data = await response.json() as { article: { id: string }; extraction: ExtractionStatus };
+    expect(data.extraction.state).toBe('ready');
+    const getCopy = async () => (await route(request(`/api/articles/${data.article.id}/copy`))).json();
+    const saved = await getCopy();
+    expect(saved).toMatchObject({ copy: { markdown } });
+    const duplicate = await save(source + '?utm_source=preview', '# A different preview');
+    expect(duplicate.status).toBe(200);
+    expect(await duplicate.json()).toMatchObject({ duplicate: true, article: { id: data.article.id } });
+    expect(await getCopy()).toEqual(saved);
+
+    const link = await route(request('/api/articles', 'POST', { url: 'https://example.com/queued-preview', captureMarkdown: true }));
+    const queued = await link.json() as { article: { id: string }; extraction: ExtractionStatus };
+    expect(queued.extraction.state).toBe('queued');
+    const existing = await save('https://example.com/queued-preview', markdown);
+    expect(await existing.json()).toMatchObject({ duplicate: true, article: { id: queued.article.id }, extraction: { state: 'ready' } });
+    expect(await env.DB.prepare('SELECT state FROM article_extraction_jobs WHERE article_id = ?').bind(queued.article.id).first())
+      .toEqual({ state: 'succeeded' });
+
+    expect((await save('https://example.com/empty-preview', ' ')).status).toBe(400);
+    expect((await save('https://example.com/large-preview', 'x'.repeat(256 * 1024 + 1))).status).toBe(413);
+    expect(await env.DB.prepare('SELECT count(*) AS count FROM articles').first()).toEqual({ count: 2 });
+  });
+
   it('acknowledges a durable request before fetching and preserves copies on duplicate adds', async () => {
     const fetcher = vi.fn(async () => captureFixture('# Readable article\n\nKeep this **important formatting** and Unicode 📰.\n\n```js\nconst saved = true;\n```\n\n[Related reading](https://source.example.com/related)', { title: 'Extracted article', author: 'Alex' }));
     const enabledEnv: Env = { ...env, BACKGROUND_CAPTURE_ENABLED: 'true', ARTICLE_EXTRACTOR: { fetch: fetcher, connect() { throw new Error('No socket access'); } } };

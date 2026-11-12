@@ -83,6 +83,18 @@ beforeEach(async () => {
 });
 
 describe('managed conversion', () => {
+  it('converts a PDF preview without storing the original PDF', async () => {
+    const sourceUrl = 'https://news.example.com/preview.pdf';
+    const response = await managedConversion(new Request('http://potem.convert/preview-pdf', {
+      method: 'POST', headers: { 'X-Source-Url': encodeURIComponent(sourceUrl) }, body: pdfBytes,
+    }), ai());
+    expect(await response.json()).toEqual({
+      version: 1, ok: true, article: { markdown: '# Converted\n\nReadable document.', metadata: {} },
+    });
+    expect(await env.DB.prepare('SELECT COUNT(*) AS n FROM pdf_assets').first()).toEqual({ n: 0 });
+    expect((await env.PDF_BUCKET.list()).objects).toEqual([]);
+  });
+
   it('uses bounded fetched HTML and the final URL without requesting image inference', async () => {
     const binding = ai('## Article\n\nKeep **formatting**, [links](https://news.example.com/next), `code`, and tables.');
     const response = await managedConversion(new Request('http://potem.convert/html', { method: 'POST', headers: { 'X-Source-Url': encodeURIComponent('https://news.example.com/redirected/page') }, body: '<html><article>Article</article></html>' }),binding);

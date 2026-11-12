@@ -2,6 +2,7 @@ import { importArticles } from "./library-import";
 import { handleArchive } from "../archive/handler";
 import { getOriginalPdf, originalPdfSummaries, servePdf } from "./pdf";
 import type { Article, ArticleCopy, Env } from '../contracts.js';
+import type { ArticlePreview } from './preview-contract.js';
 import { errorResponse } from '../contracts.js';
 import { exceptionResponse, jsonResponse, logUnexpectedError, PRIVATE_HEADERS } from '../http.js';
 import { deleteArticle, getArticle, getArticleCopy, listArticles, listArticlesForExport, saveArticle, saveArticleCopy, suggestArticle, updateArticle } from './repository.js';
@@ -12,7 +13,8 @@ import {
 import { isResponse, requireSession, validateCaptureToken } from '../auth/core.js';
 import { getExtractionStatus, getExtractionStatuses, retryExtractionJob } from './jobs.js';
 import { scheduleExtraction } from './extraction-queue';
-import { isBackgroundCapturePaused } from './capture-client.js';
+import { captureArticlePreview, isBackgroundCapturePaused } from './capture-client.js';
+import { MAX_MARKDOWN_BYTES, SourceFetchError } from './capture-protocol.js';
 import { isArticleId } from './identity.js';
 import { deliverArticle, integrationConfigurations, integrationStatuses } from '../integrations/registry';
 import { IntegrationError } from '../integrations/types';
@@ -22,7 +24,6 @@ import { requestRecapture, undoRecapture } from './recovery.js';
 import { getPodcastFitStatuses } from '../audio';
 
 const PRIVATE = PRIVATE_HEADERS;
-const MAX_COPY_BYTES = 256 * 1024;
 const MAX_COPY_ENVELOPE_BYTES = 2 * 1024 * 1024;
 
 function fail(status: number, code: string, message: string): Response { return errorResponse(status, code, message); }
@@ -62,6 +63,7 @@ export async function handleArticles(request: Request, env: Env, ctx?: Execution
     }
     if (url.pathname === '/api/articles' && method === 'POST') return await createArticle(request, env, false, ctx);
     if (url.pathname === '/api/articles' && method === 'GET') return await listRoute(url, env);
+    if (url.pathname === '/api/articles/preview' && method === 'POST') return await previewArticle(request, env);
     if (url.pathname === '/api/articles/suggestion' && method === 'GET') {
       const exclude = url.searchParams.get('exclude');
       if (exclude !== null && !isArticleId(exclude)) throw new ValidationError('exclude must be a valid article ID');
@@ -147,14 +149,51 @@ export async function handleArticles(request: Request, env: Env, ctx?: Execution
   }
 }
 
-async function putArticleCopy(request: Request, env: Env, id: string, ctx?: ExecutionContext): Promise<Response> {
-  const input = parseObject(await readJson(request, MAX_COPY_ENVELOPE_BYTES), ['markdown', 'source', 'expectedRevision'], ['markdown', 'source', 'expectedRevision']);
-  if (typeof input.markdown !== 'string') throw new ValidationError('markdown must be text');
-  const markdown = input.markdown;
+async function previewArticle(request: Request, env: Env): Promise<Response> {
+  const input = parseObject(await readJson(request), ['url'], ['url']);
+  const { url } = normalizeArticleUrl(input.url);
+  try {
+    const { markdown, metadata, sourceUrl } = await captureArticlePreview(url, env, request.signal);
+    const article: ArticlePreview = {
+      url: sourceUrl ?? url,
+      title: metadata.title?.trim() || defaultTitle(sourceUrl ?? url),
+      author: metadata.author?.trim() || null,
+      description: metadata.description?.trim() || null,
+      markdown,
+    };
+    return jsonResponse({ article });
+  } catch (error) {
+    if (!(error instanceof SourceFetchError)) throw error;
+    switch (error.code) {
+      case 'capture_paused':
+      case 'capture_busy':
+      case 'capture_unavailable':
+      case 'converter_unavailable':
+        return fail(503, error.code, 'Reader previews are temporarily unavailable. Try again or open the website.');
+      case 'timeout':
+      case 'conversion_timeout':
+        return fail(504, error.code, 'The preview took too long. Try again or open the website.');
+      case 'invalid_url':
+      case 'unsafe_destination':
+        return fail(422, error.code, 'This link cannot be opened in the reader.');
+      default:
+        return fail(502, error.code, 'This page could not be loaded in the reader. You can still open the website.');
+    }
+  }
+}
+
+function validateCopyMarkdown(markdown: unknown): string {
+  if (typeof markdown !== 'string') throw new ValidationError('markdown must be text');
   if (!markdown.trim()) throw new ValidationError('Markdown copy must not be blank');
   const encoded = new TextEncoder().encode(markdown);
   if (new TextDecoder('utf-8', { fatal: true }).decode(encoded) !== markdown) throw new ValidationError('Markdown copy must contain valid Unicode text');
-  if (encoded.byteLength > MAX_COPY_BYTES) throw new BodyTooLargeError('Markdown copy must be at most 262144 UTF-8 bytes');
+  if (encoded.byteLength > MAX_MARKDOWN_BYTES) throw new BodyTooLargeError(`Markdown copy must be at most ${MAX_MARKDOWN_BYTES} UTF-8 bytes`);
+  return markdown;
+}
+
+async function putArticleCopy(request: Request, env: Env, id: string, ctx?: ExecutionContext): Promise<Response> {
+  const input = parseObject(await readJson(request, MAX_COPY_ENVELOPE_BYTES), ['markdown', 'source', 'expectedRevision'], ['markdown', 'source', 'expectedRevision']);
+  const markdown = validateCopyMarkdown(input.markdown);
   if (input.source !== 'paste' && input.source !== 'upload') throw new ValidationError('source must be paste or upload');
   const expectedRevision = input.expectedRevision;
   if (expectedRevision !== null && (typeof expectedRevision !== 'string' || !/^[A-Za-z0-9_-]{1,128}$/.test(expectedRevision))) {
@@ -169,11 +208,17 @@ async function putArticleCopy(request: Request, env: Env, id: string, ctx?: Exec
 }
 
 async function createArticle(request: Request, env: Env, tokenCapture = false, ctx?: ExecutionContext): Promise<Response> {
-  const input = parseObject(await readJson(request), ['url', 'title', 'author', 'description', 'captureMarkdown', 'enrichAfterCopy'], ['url']);
+  const fields = ['url', 'title', 'author', 'description', 'captureMarkdown', 'enrichAfterCopy'];
+  if (!tokenCapture) fields.push('previewMarkdown');
+  const input = parseObject(await readJson(request, tokenCapture ? undefined : MAX_COPY_ENVELOPE_BYTES), fields, ['url']);
   if (tokenCapture && ('author' in input || 'description' in input || 'enrichAfterCopy' in input)) throw new ValidationError('capture tokens cannot set article metadata');
   if (input.enrichAfterCopy !== undefined && typeof input.enrichAfterCopy !== 'boolean') throw new ValidationError('enrichAfterCopy must be a boolean');
   if (input.captureMarkdown !== undefined && typeof input.captureMarkdown !== 'boolean') throw new ValidationError('captureMarkdown must be a boolean');
   const extractionRequested = input.captureMarkdown === true || (tokenCapture && input.captureMarkdown !== false);
+  const copy: ArticleCopy | undefined = 'previewMarkdown' in input
+    ? { markdown: validateCopyMarkdown(input.previewMarkdown), capturedAt: new Date().toISOString(), source: 'paste', revision: crypto.randomUUID() }
+    : undefined;
+  if (copy && extractionRequested) throw new ValidationError('A preview copy does not need background capture.');
   const normalized = normalizeArticleUrl(input.url);
   const fallbackTitle = defaultTitle(normalized.url);
   const suppliedTitle = input.title === undefined ? undefined : validateTitle(input.title, fallbackTitle);
@@ -181,11 +226,11 @@ async function createArticle(request: Request, env: Env, tokenCapture = false, c
   const author = input.author === undefined ? undefined : optionalMetadata(input.author, 'author', 200);
   const description = input.description === undefined ? undefined : optionalMetadata(input.description, 'description', 500);
   const result = await saveArticle(env.DB, {
-    ...normalized, title, author: author ?? undefined, description: description ?? undefined, extractionRequested, enrichmentRequested: enrichmentEnabled(env), enrichAfterCopy: input.enrichAfterCopy === true,
+    ...normalized, title, author: author ?? undefined, description: description ?? undefined, copy, extractionRequested, enrichmentRequested: enrichmentEnabled(env), enrichAfterCopy: input.enrichAfterCopy === true,
     titleOrigin: suppliedTitle ? 'supplied' : 'fallback',
   });
   if (extractionRequested) await scheduleExtraction(env, result.article.id, ctx);
-  if (!result.duplicate) await scheduleEnrichment(env, result.article.id, ctx);
+  if (!result.duplicate || copy) await scheduleEnrichment(env, result.article.id, ctx);
   // Capture tokens can confirm that work was accepted, but cannot learn
   // whether a URL already exists or inspect any stored article metadata.
   if (tokenCapture) return jsonResponse({ ok: true, extractionRequested });

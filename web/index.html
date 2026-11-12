@@ -242,7 +242,7 @@
       <div id="detail-content"></div>
     </dialog>
     <dialog id="reader-dialog" class="dialog reader-dialog" aria-labelledby="reader-title">
-      <nav class="reader-toolbar" aria-label="Saved copy controls">
+      <nav class="reader-toolbar" aria-label="Reader controls">
         <div class="reader-column reader-toolbar-inner">
           <form method="dialog" class="reader-close">
             <button class="reader-back" aria-label="Close saved copy" title="Back">
@@ -267,6 +267,10 @@
             <a id="reader-pdf-open" target="_blank" rel="noopener noreferrer">Open saved PDF</a>
             <a id="reader-pdf-download" target="_blank" rel="noopener noreferrer">Download PDF</a>
           </p>
+          <div id="reader-preview-actions" class="reader-preview-actions" hidden>
+            <button id="reader-preview-save" class="button primary" type="button" hidden>Save to library</button>
+            <p id="reader-preview-status" class="muted" role="status" tabindex="-1"></p>
+          </div>
         </header>
         <section id="reader-pending" class="reader-pending" hidden aria-live="polite">
           <p id="reader-pending-status" class="reader-pending-status"></p>
@@ -292,6 +296,17 @@
           </div>
           <p id="reader-read-error" class="notice error" role="alert" hidden></p>
         </footer>
+      </div>
+    </dialog>
+    <dialog id="reader-link-dialog" class="dialog" aria-labelledby="reader-link-heading">
+      <form method="dialog" class="dialog-close">
+        <button class="icon-button" aria-label="Cancel">×</button>
+      </form>
+      <h2 id="reader-link-heading">Open link</h2>
+      <p id="reader-link-host" class="muted"></p>
+      <div class="reader-pending-actions">
+        <button id="reader-link-read" class="button primary" type="button">Read in Potem</button>
+        <a id="reader-link-website" class="button secondary" target="_blank" rel="noopener noreferrer">Open website</a>
       </div>
     </dialog>
     <dialog id="podcast-dialog" class="dialog podcast-dialog" aria-labelledby="podcast-heading">
