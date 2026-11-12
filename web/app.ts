@@ -303,9 +303,6 @@ function renderLastOpened() {
   const shuffle = $<HTMLButtonElement>("#suggestion-shuffle");
   shuffle.hidden = Boolean(inProgress || lastOpenedError || !suggestedArticle || !suggestionHasAlternative);
   shuffle.disabled = suggestionLoading;
-  const source = $("#last-opened-source");
-  source.hidden = !article || isContinueReading;
-  source.textContent = article && !isContinueReading ? `${sourceHost(article.url)}${article.author ? ` · ${article.author}` : ""}` : "";
   if (article) {
     link.textContent = article.title; link.href = articlePath(article); link.dataset.articleId = article.id;
     if (!link.dataset.navigationBound) {
