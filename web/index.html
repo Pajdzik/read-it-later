@@ -31,7 +31,7 @@
         >
           <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 5v14M5 12h14" /></svg>
         </button>
-        <div id="search-control" class="search-control">
+        <div id="search-control" class="search-control library-only-control">
           <button
             id="search-toggle"
             class="icon-button"
@@ -60,7 +60,11 @@
       </div>
     </header>
     <main class="shell">
-      <section class="library" aria-label="Your articles">
+      <nav id="primary-tabs" class="primary-tabs" aria-label="Potem sections" hidden>
+        <button id="reading-tab" aria-pressed="true" aria-controls="reading-list" type="button">Reading list</button>
+        <button id="feeds-tab" aria-pressed="false" aria-controls="feeds-view" type="button">Feeds</button>
+      </nav>
+      <section id="reading-list" class="library" aria-label="Your articles">
         <div class="list-controls">
           <div id="status-tabs" class="tabs" role="group" aria-label="Filter articles">
             <button type="button" data-status="unread" aria-pressed="true">
@@ -108,6 +112,42 @@
         <button id="more" class="button secondary more" type="button" hidden>
           Show more
         </button>
+      </section>
+      <section id="feeds-view" class="feeds-view" aria-label="RSS feeds" hidden>
+        <div class="list-controls">
+          <div class="tabs" role="group" aria-label="Filter feed items">
+            <button id="feed-new" type="button" aria-pressed="true">New</button>
+            <button id="feed-all" type="button" aria-pressed="false">All</button>
+          </div>
+          <select id="feed-source" aria-label="Select feed">
+            <option value="">All feeds</option>
+          </select>
+        </div>
+        <div class="feed-manage">
+          <div class="feed-manage-actions">
+            <button id="feed-add-toggle" class="text-button" type="button" aria-expanded="false" aria-controls="feed-add-panel">Add feed</button>
+            <button id="feed-manage-toggle" class="text-button" type="button" aria-expanded="false" aria-controls="feed-manage-panel" hidden>Manage feeds</button>
+          </div>
+          <div id="feed-add-panel" hidden>
+            <form id="feed-add-form">
+              <label class="sr-only" for="feed-url">RSS or Atom feed URL</label>
+              <input id="feed-url" type="url" inputmode="url" maxlength="8192" placeholder="Paste a feed URL…" required>
+              <button class="button secondary" type="submit">Add feed</button>
+            </form>
+          </div>
+          <div id="feed-manage-panel" hidden>
+            <ul id="feed-list" class="feed-list" aria-label="Subscribed feeds"></ul>
+          </div>
+        </div>
+        <div id="feed-notice" class="notice" role="status" aria-live="polite" hidden></div>
+        <div id="feed-loading" class="loading" role="status" hidden>Loading feed posts…</div>
+        <ul id="feed-items" class="articles" aria-label="Feed items"></ul>
+        <div id="feed-empty" class="empty" hidden>
+          <span class="empty-icon" aria-hidden="true">✳</span>
+          <h3>No feed items yet</h3>
+          <p>Add an RSS or Atom feed to see its latest articles here.</p>
+        </div>
+        <button id="feed-more" class="button secondary more" type="button" hidden>Show more</button>
       </section>
       <footer class="footer">
         <button id="build-info-open" class="build-info-button" type="button" aria-haspopup="dialog">Local build</button>

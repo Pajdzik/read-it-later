@@ -40,6 +40,12 @@ The frontend is bundled with esbuild. JavaScript and CSS use content-hashed file
 
 Optional **Prepare audio** generates an English narration of a saved copy and publishes the completed MP3 to a private podcast feed. Your phone's podcast app handles downloads, speed, queues, and background playback. Feed refreshes and downloads never start generation, and completed episodes stay in private R2 storage. Production enables narration with the configured Google project and requires a separately stored Google credential secret; local and staging leave it disabled. See [podcast setup and design](docs/podcast.md).
 
+### RSS and Atom subscriptions
+
+Open **Feeds** and add an RSS or Atom URL. The combined timeline shows new posts first. Use the source picker to browse one subscription. **Save for later** adds a post to the reading list through the normal capture flow. **Mark seen** hides it from **New**, and you can find it again under **All**. Feed seen status is independent of the reading list’s read status.
+
+The Worker refreshes subscriptions through the private capture service on its hourly schedule. Feed previews and seen status live in D1. Apply the D1 migrations and deploy the capture service before deploying the app Worker, as the production workflow already does.
+
 ### Automatic tags and fallback descriptions
 
 Owner-editable tags appear below article leads and filter the library alongside search and read state. Article details also allow description editing and deliberate clearing. JSON/ZIP library exports use v3 and GitHub Markdown uses frontmatter v2. JSON v1/v2 and legacy IDs are not accepted.

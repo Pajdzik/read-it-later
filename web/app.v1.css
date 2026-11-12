@@ -1536,6 +1536,24 @@ body:has(#reader-dialog[open]) {
 .reader-pdf-actions { display: flex; flex-wrap: wrap; gap: 1rem; font-size: .9rem; }
 .reader-pdf-actions[hidden] { display: none; }
 
+.primary-tabs { display:flex; gap:1.6rem; border-bottom:1px solid var(--line); margin:0 0 1.2rem; }
+.primary-tabs button { border:0; border-bottom:2px solid transparent; background:transparent; padding:.65rem .1rem; color:var(--muted); }
+.primary-tabs button[aria-pressed="true"] { color:var(--title); border-color:var(--accent); font-weight:650; }
+.feed-manage { margin: .6rem 0 1rem; }
+.feed-manage-actions { display: flex; flex-wrap: wrap; align-items: center; gap: 1rem; }
+#feed-manage-panel, #feed-add-panel { padding: .6rem 0; }
+#feed-source { min-width: 0; max-width: 100%; background: var(--white); color: var(--ink); }
+#feed-add-form { display:flex; gap:.5rem; width:100%; }
+#feed-url { min-width:0; flex:1; padding:.55rem .7rem; border:1px solid var(--line); border-radius:.55rem; background:var(--white); }
+.feed-list { list-style:none; width:100%; padding:0; margin:.25rem 0; border-top:1px solid var(--line); }
+.feed-source-row { display:flex; align-items:center; gap:.8rem; padding:.55rem 0; border-bottom:1px solid var(--line); font-size:.9rem; }
+.feed-source-row span:first-child { flex:1; min-width:0; overflow-wrap:anywhere; }
+.feed-item { padding:1rem 0; }
+.feed-preview { color:var(--muted); margin:.4rem 0; max-width:70ch; }
+.feed-meta { font-size:.78rem; margin:.35rem 0; }
+.feed-item .article-actions { display: flex; flex-wrap: wrap; gap: 1rem; margin-top: .5rem; }
+@media(max-width:520px) { .feed-source-row { flex-wrap:wrap; } #feed-add-form { align-items:stretch; } #feed-add-form .button { white-space:nowrap; } }
+
 /* Topic tags share the library's compact, keyboard-accessible controls. */
 .article-tags { display: flex; flex-wrap: wrap; gap: .4rem; margin: .55rem 0; }
 .tag-chip { font: inherit; font-size: .66rem; color: var(--muted); background: transparent; border: 1px solid var(--line); border-radius: 1rem; padding: .12rem .4rem; cursor: pointer; overflow-wrap: anywhere; max-width: 100%; }

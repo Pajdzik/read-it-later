@@ -50,6 +50,8 @@ export async function pinnedFetch(input: string, init: RequestInit, appOrigin?: 
   const address = await resolvePublicAddress(target.hostname, resolve);
   init.signal?.throwIfAborted();
   const options = pinnedRequestOptions(target, address, init.signal);
+  const requestedAccept = new Headers(init.headers).get("accept");
+  if (requestedAccept) (options.headers as Record<string, string>).Accept = requestedAccept;
   return new Promise((resolveResponse, reject) => {
     const request = (target.protocol === "https:" ? httpsRequest : httpRequest)(options, upstream => {
       try {

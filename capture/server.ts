@@ -1,6 +1,7 @@
 import { createServer } from "node:http";
 import { SourceFetchError, type CaptureResult } from "../src/articles/capture-protocol";
-import { executeCapture } from "./executor";
+import { executeCapture, executeFeed } from "./executor";
+import type { FeedDocument } from "./feed-parser";
 import { assembleAudio, AudioAssemblyError, type AudioAssemblyResult } from "./audio-assembler";
 import { createReadStream } from "node:fs";
 import { rm } from "node:fs/promises";
@@ -8,11 +9,12 @@ import { pipeline } from "node:stream/promises";
 
 type AudioInput = { version: 1; episodeId: string; chunkKeys: string[] };
 type AudioExecutor = (input: AudioInput, capability: string, signal: AbortSignal) => Promise<AudioAssemblyResult>;
+type FeedResult = { version: 1; ok: true; feed: FeedDocument } | Extract<CaptureResult, { ok: false }>;
 
 export function createCaptureServer(appOrigin: string, execute = executeCapture, assemble: AudioExecutor = async (input, capability, signal) => assembleAudio({ ...input, capability, signal })) {
   let busy = false;
   const server = createServer(async (request, response) => {
-    const send = (result: CaptureResult) => {
+    const send = (result: CaptureResult | FeedResult) => {
       if(response.destroyed || response.writableEnded)return;
       response.writeHead(200, { "Content-Type": "application/json", "Cache-Control": "no-store" });
       response.end(JSON.stringify(result));
@@ -52,6 +54,34 @@ export function createCaptureServer(appOrigin: string, execute = executeCapture,
       } finally {
         response.removeListener("close", disconnect);
         if (result) await rm(result.directory, { recursive: true, force: true });
+        busy = false;
+      }
+      return;
+    }
+    if (request.method === "POST" && request.url === "/feed") {
+      if (busy) { send({ version: 1, ok: false, error: { code: "capture_busy", retryable: true } }); return; }
+      busy = true;
+      const controller = new AbortController();
+      const disconnect = () => { if (!response.writableEnded) controller.abort(); };
+      response.once("close", disconnect);
+      try {
+        const chunks: Buffer[] = [];
+        let size = 0;
+        for await (const chunk of request) {
+          size += chunk.length;
+          if (size > 64 * 1024) throw new SourceFetchError("invalid_url", false);
+          chunks.push(chunk);
+        }
+        let body: { url?: unknown } | null;
+        try { body = JSON.parse(Buffer.concat(chunks).toString("utf8")); } catch { throw new SourceFetchError("invalid_url", false); }
+        if (typeof body?.url !== "string" || new TextEncoder().encode(body.url).byteLength > 8 * 1024) throw new SourceFetchError("invalid_url", false);
+        const feed = await executeFeed(body.url, appOrigin, controller.signal);
+        send({ version: 1, ok: true, feed });
+      } catch (error) {
+        const failure = error instanceof SourceFetchError ? error : new SourceFetchError("capture_unavailable", true);
+        send({ version: 1, ok: false, error: { code: failure.code, retryable: failure.retryable, retryAfterSeconds: failure.retryAfterSeconds } });
+      } finally {
+        response.removeListener("close", disconnect);
         busy = false;
       }
       return;

@@ -6,6 +6,7 @@ import { errorResponse, logUnexpectedError } from "./http";
 import { consumeExtractionBatch, recoverExtractionJobs } from "./articles/processor";
 import { consumeAudioBatch, recoverAudioJobs } from './audio';
 import { handleAudio } from './audio/handler';
+import { handleFeeds, refreshFeeds } from './feeds/handler';
 
 const securityHeaders = {
   "Cache-Control": "private, no-store",
@@ -47,12 +48,12 @@ export default {
     else await consumeExtractionBatch(batch, env);
   },
   async scheduled(_controller: ScheduledController, env: Env): Promise<void> {
-    // Run independently: a paused or failed capture recovery must not block enrichment.
-    const results = await Promise.allSettled([recoverExtractionJobs(env), recoverEnrichmentJobs(env), recoverAudioJobs(env)]);
+    // Run independently so one maintenance task cannot prevent the others from starting.
+    const results = await Promise.allSettled([recoverExtractionJobs(env), recoverEnrichmentJobs(env), recoverAudioJobs(env), refreshFeeds(env)]);
     try { if (results.some(result => result.status === 'rejected')) throw new Error('recovery_failed'); }
     catch {
       logUnexpectedError("worker.scheduled");
-      throw new Error("Background extraction processing failed");
+      throw new Error("Scheduled maintenance failed");
     }
   },
   async fetch(request: Request, env: Env, ctx?: ExecutionContext): Promise<Response> {
@@ -65,6 +66,7 @@ export default {
         let response: Response | null;
         if (isAuthPath(url.pathname)) response = await handleAuth(request, env);
         else if (isAudioPath(url.pathname)) response = await handleAudio(request, env);
+        else if (url.pathname === '/api/feeds' || url.pathname.startsWith('/api/feeds/')) response = await handleFeeds(request, env);
         else if (url.pathname === '/api' || url.pathname.startsWith('/api/')) response = await handleArticles(request, env, ctx);
         else response = null;
         return withSecurityHeaders(response ?? errorResponse(404, "not_found", "Route not found"));
