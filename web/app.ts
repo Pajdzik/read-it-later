@@ -175,8 +175,13 @@ function restoreReadingPosition(context: { id: string; revision: string }) {
           dialog.scrollTop + bounds.top + position.fraction * bounds.height - readerToolbarAnchorY(dialog, toolbar)));
       } else dialog.scrollTop = position.scrollTop;
     }
+    const restoredScrollTop = dialog.scrollTop;
     requestAnimationFrame(() => {
       if (readerPositionContext === context && generation === readerPositionRestoreGeneration) {
+        // WebKit can reset the dialog's scroll after reopening at a different viewport size.
+        if (dialog.open && restoredScrollTop > 0 && dialog.scrollTop === 0) {
+          dialog.scrollTop = restoredScrollTop;
+        }
         readerPositionRestorePending = false;
         restoringReaderPosition = false;
       }
