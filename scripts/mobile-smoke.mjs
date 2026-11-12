@@ -8,6 +8,9 @@ import assert from "node:assert/strict";
 import net from "node:net";
 import { createServer } from "node:http";
 
+// WebKit can report a 44px box as 43.99998px after a viewport resize.
+const minimumMeasuredTouchSize = 44 - 0.01;
+
 const temporary = await mkdtemp(path.join(os.tmpdir(), "read-later-mobile-"));
 const storage = path.join(temporary, "d1");
 const portServer = net.createServer();
@@ -347,7 +350,7 @@ async function runProfile(name, browserType, device) {
   await expect.poll(async () => (await readyReader.locator(".reader-toolbar").boundingBox())?.y).toBeGreaterThanOrEqual(0);
   const readerBack = readyReader.locator(".reader-close button");
   const readerBackBounds = await readerBack.boundingBox();
-  assert.ok(readerBackBounds && readerBackBounds.width >= 44 && readerBackBounds.height >= 44 &&
+  assert.ok(readerBackBounds && readerBackBounds.width >= minimumMeasuredTouchSize && readerBackBounds.height >= minimumMeasuredTouchSize &&
     readerBackBounds.y >= 0 && readerBackBounds.y + readerBackBounds.height <= page.viewportSize().height,
     `${name}: Back control should remain reachable after long scrolling: ${JSON.stringify(readerBackBounds)}.`);
   assert.ok(await readyReader.evaluate((dialog) => dialog.scrollTop > 0), `${name}: long copy should scroll within the reader.`);
@@ -639,7 +642,7 @@ async function runProfile(name, browserType, device) {
     top: footer.getBoundingClientRect().top,
     bodyBottom: document.querySelector("#reader-body").getBoundingClientRect().bottom,
   }));
-  assert.ok(completionMetrics.button.height >= 44 && Math.abs(completionMetrics.width - completionMetrics.button.width) < 1 &&
+  assert.ok(completionMetrics.button.height >= minimumMeasuredTouchSize && Math.abs(completionMetrics.width - completionMetrics.button.width) < 1 &&
     completionMetrics.top >= completionMetrics.bodyBottom + 23,
     `${name}: completion button must follow the article and fill the mobile column: ${JSON.stringify(completionMetrics)}`);
   await readyReader.locator("#reader-more-button").tap();
@@ -653,7 +656,7 @@ async function runProfile(name, browserType, device) {
     moreBounds.x < deleteBounds.x + deleteBounds.width && deleteBounds.x >= 0 && deleteBounds.x + deleteBounds.width <= viewportWidth &&
     (Math.abs(deleteBounds.y - (moreBounds.y + moreBounds.height)) < 12 || Math.abs(moreBounds.y - (deleteBounds.y + deleteBounds.height)) < 12),
     `${name}: reader actions menu should be adjacent to its trigger: ${JSON.stringify({ deleteBounds, moreBounds })}`);
-  assert.ok(deleteBounds && deleteBounds.width < completionMetrics.width && deleteBounds.height >= 44,
+  assert.ok(deleteBounds && deleteBounds.width < completionMetrics.width && deleteBounds.height >= minimumMeasuredTouchSize,
     `${name}: Delete must remain a compact secondary action with a touch-sized target: ${JSON.stringify(deleteBounds)}`);
   await page.keyboard.press("Escape");
   await expect(readyReader.locator("#reader-actions-menu")).toBeHidden();
@@ -699,7 +702,7 @@ async function runProfile(name, browserType, device) {
     `${name}: short landscape reader has horizontal overflow.`);
   await readyReader.evaluate((dialog) => { dialog.scrollTop = dialog.scrollHeight; });
   const landscapeBackBounds = await readyReader.locator(".reader-close button").boundingBox();
-  assert.ok(landscapeBackBounds && landscapeBackBounds.width >= 44 && landscapeBackBounds.height >= 44 &&
+  assert.ok(landscapeBackBounds && landscapeBackBounds.width >= minimumMeasuredTouchSize && landscapeBackBounds.height >= minimumMeasuredTouchSize &&
     landscapeBackBounds.y >= 0 && landscapeBackBounds.y + landscapeBackBounds.height <= 390,
     `${name}: Back control must remain reachable in short landscape: ${JSON.stringify(landscapeBackBounds)}.`);
   await page.screenshot({ path: screenshot("landscape-reader-short") });
