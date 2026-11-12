@@ -37,7 +37,7 @@ describe('per-article capture recovery', () => {
     expect(await requestRecapture(env.DB, id, oldCopy.revision, false, time())).toBe('queued');
     expect(await getExtractionStatus(env.DB, id)).toMatchObject({ state: 'ready', recovery: { state: 'queued', generation: 1 }, undoAvailable: false });
     const job = await claimExtractionJob(env.DB, time());
-    expect(await getArticleCopy(env.DB, id)).toEqual(oldCopy);
+    expect(await getArticleCopy(env.DB, id)).toEqual({ ...oldCopy, readingTimeMinutes: 1 });
     expect(await claimExtractionJob(env.DB, time())).toBeNull();
     expect(await completeExtractionJob(env.DB, job!, result, time(10))).toBe(true);
     expect(await getArticleCopy(env.DB, id)).toMatchObject({ markdown: result.markdown, capturedAt: time(10), revision: expect.not.stringMatching(oldCopy.revision) });
@@ -136,7 +136,7 @@ describe('per-article capture recovery', () => {
     await claimExtractionJob(env.DB, time(490));
     await reconcileExtractionJobs(env.DB, time(610));
     expect(await getExtractionStatus(env.DB, id)).toMatchObject({ state: 'ready', recovery: { state: 'failed', attempts: 3, errorCode: 'lease_expired' } });
-    expect(await getArticleCopy(env.DB, id)).toEqual(oldCopy);
+    expect(await getArticleCopy(env.DB, id)).toEqual({ ...oldCopy, readingTimeMinutes: 1 });
   });
 
   it('retains the prior undo on failure and replaces it only on the next success', async () => {

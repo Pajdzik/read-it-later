@@ -8,7 +8,7 @@ import { getArticle, getArticleCopy, saveArticleCopy } from '../src/articles/rep
 const origin = 'http://localhost:8787';
 const baseEnv: Env = { ...testEnv, APP_ORIGIN: origin, DEV_AUTH_BYPASS: 'true', GITHUB_BACKUP_REPOSITORY: 'Pajdzik/Kamilpedia', GITHUB_BACKUP_BRANCH: 'main', GITHUB_BACKUP_PATH: 'Articles', GITHUB_BACKUP_TOKEN: 'server-only-backup-token' };
 const copy: ArticleCopy = { markdown: '# 日本語 📰\n\nQuoted “text” & café.\n', capturedAt: '2026-10-01T01:00:00.000Z', source: 'upload', revision: 'first-revision' };
-const article: Article = { id: 'k7m2q9x4', url: 'https://example.com/source?q=one%20two', title: 'Why we read', author: 'Author', description: 'Description', tags: ['research'], descriptionOrigin: 'manual', tagsManuallyEdited: false, createdAt: '2026-01-01T00:00:00.000Z', updatedAt: '2026-01-02T00:00:00.000Z', readAt: null };
+const article: Article = { id: 'k7m2q9x4', url: 'https://example.com/source?q=one%20two', title: 'Why we read', author: 'Author', description: 'Description', tags: ['research'], descriptionOrigin: 'manual', tagsManuallyEdited: false, createdAt: '2026-01-01T00:00:00.000Z', updatedAt: '2026-01-02T00:00:00.000Z', readAt: null, readingTimeMinutes: 1 };
 let env: Env;
 const api = (path: string, method = 'GET', body?: unknown) => new Request(`${origin}${path}`, { method, headers: { Origin: origin, 'X-CSRF-Token': 'dev-bypass', 'Content-Type': 'application/json' }, ...(body === undefined ? {} : { body: JSON.stringify(body) }) });
 const route = async (path: string, method = 'GET', body?: unknown, settings = env) => (await handleArticles(api(path, method, body), settings))!;
@@ -54,7 +54,7 @@ describe('GitHub integration', () => {
     expect(remote.remote).toBe(articleMarkdown(article, copy));
     expect(remote.remote).toContain('tags: [\"research\"]\ndescriptionOrigin: \"manual\"\ntagsManuallyEdited: false');
     expect(await getArticle(env.DB, article.id)).toEqual(article);
-    expect(await getArticleCopy(env.DB, article.id)).toEqual(copy);
+    expect(await getArticleCopy(env.DB, article.id)).toEqual({ ...copy, readingTimeMinutes: 1 });
   });
 
   it('always reads GitHub, detects deletion, and recreates the same ID path after title edits', async () => {

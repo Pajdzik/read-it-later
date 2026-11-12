@@ -166,7 +166,7 @@ describe("D1 background extraction jobs", () => {
     const manual = { markdown: "manual", capturedAt: "2026-10-06T10:00:30.000Z", source: "paste" as const, revision: "manual-rev" };
     expect(await saveArticleCopy(env.DB, saved.article.id, { ...manual, revision: "rejected" }, "wrong-revision")).toBe("conflict");
     expect(await getExtractionStatus(env.DB, saved.article.id)).toMatchObject({ state: "running", attempts: 1 });
-    expect(await saveArticleCopy(env.DB, saved.article.id, manual, null)).toBe("saved");
+    expect(await saveArticleCopy(env.DB, saved.article.id, manual, null)).toEqual({ ...manual, readingTimeMinutes: 1 });
     expect(await getExtractionStatus(env.DB, saved.article.id)).toMatchObject({ state: "ready", attempts: 1 });
     await completeExtractionJob(env.DB, job!, { markdown: "background", metadata: { title: "Won't win" } }, "2026-10-06T10:00:40.000Z");
     expect(await env.DB.prepare("SELECT markdown,revision FROM article_copies WHERE article_id = ?").bind(saved.article.id).first())

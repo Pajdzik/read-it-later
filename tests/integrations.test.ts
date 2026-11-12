@@ -7,7 +7,7 @@ import { integrationConfigurations } from '../src/integrations/registry';
 
 const origin = 'http://localhost:8787';
 const article: Article = { tags: [], descriptionOrigin: null, tagsManuallyEdited: false, id: 'k7m2q9x4', url: 'https://example.com/article', title: 'A saved article', author: 'Ada', description: null,
-  createdAt: '2026-01-01T00:00:00.000Z', updatedAt: '2026-01-01T00:00:00.000Z', readAt: null };
+  createdAt: '2026-01-01T00:00:00.000Z', updatedAt: '2026-01-01T00:00:00.000Z', readAt: null, readingTimeMinutes: 1 };
 const copy: ArticleCopy = { markdown: '# 日本語 📰\n\nAn exact saved body.\n', source: 'paste', capturedAt: '2026-10-01T00:00:00.000Z', revision: 'copy-one' };
 const hooks = [{ id: 'kindle', name: 'Kindle', destination: 'My reading device', description: 'Send the saved article to my Kindle delivery service.' },
   { id: 'archive', name: 'Private archive', destination: 'My vault', description: 'Keep a copy in my private archive.' }];
@@ -78,12 +78,13 @@ describe('optional article integrations', () => {
     expect(requests[0].url).toBe('https://article-hooks/hooks/kindle');
     const payload = await requests[0].json<{ version: number; deliveryId: string; article: object; copy: ArticleCopy }>();
     expect(payload).toMatchObject({ version: 1, event: 'article.delivery.requested', copy, article: { id: article.id, title: article.title, savedAt: article.createdAt } });
+    expect(payload.copy).toEqual(copy);
     expect(payload.article).not.toHaveProperty('readAt');
     expect(payload.article).not.toHaveProperty('updatedAt');
     expect(requests[0].headers.get('Idempotency-Key')).toBe(payload.deliveryId);
     expect(await (await deliver()).json()).toMatchObject({ unchanged: true });
     expect(requests).toHaveLength(1);
-    expect(await getArticleCopy(env.DB, article.id)).toEqual(copy);
+    expect(await getArticleCopy(env.DB, article.id)).toEqual({ ...copy, readingTimeMinutes: 1 });
     expect(await getArticle(env.DB, article.id)).toEqual(article);
   });
 
@@ -126,7 +127,7 @@ describe('optional article integrations', () => {
     expect(failed.status).toBe(502);
     expect(JSON.stringify(await failed.json())).not.toContain('secret provider diagnostics');
     expect(await (await route(`${articlePath}/integrations`)).json()).toMatchObject({ integrations: [{ state: 'not_saved' }, { state: 'not_saved' }] });
-    expect(await getArticleCopy(env.DB, article.id)).toEqual(copy);
+    expect(await getArticleCopy(env.DB, article.id)).toEqual({ ...copy, readingTimeMinutes: 1 });
     failure = false;
     expect((await deliver()).status).toBe(200);
     expect(seen).toHaveLength(2);

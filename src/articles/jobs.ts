@@ -1,5 +1,6 @@
 import type { ArticleCopy, ExtractionMessage, ExtractionStatus, OriginalPdf } from "../contracts";
 import { completeRecapture, metadataSnapshot } from './recovery';
+import { estimateReadingTimeMinutes } from './reading-time';
 
 export interface ExtractionJob {
   articleId: string;
@@ -193,14 +194,15 @@ export async function completeExtractionJob(
     source: "paste",
     revision: crypto.randomUUID(),
   };
+  const readingTimeMinutes = estimateReadingTimeMinutes(result.markdown);
   const fence = `EXISTS (SELECT 1 FROM article_extraction_jobs j
       WHERE j.article_id = ? AND j.generation = ? AND j.state = 'running'
         AND j.lease_token = ? AND j.lease_expires_at > ?)`;
-  const insertCopy = db.prepare(`INSERT INTO article_copies(article_id,markdown,captured_at,source,revision)
-      SELECT ?,?,?,?,? WHERE ${fence} AND EXISTS (SELECT 1 FROM articles WHERE id = ?)
+  const insertCopy = db.prepare(`INSERT INTO article_copies(article_id,markdown,captured_at,source,revision,reading_time_minutes)
+      SELECT ?,?,?,?,?,? WHERE ${fence} AND EXISTS (SELECT 1 FROM articles WHERE id = ?)
         AND NOT EXISTS (SELECT 1 FROM article_copies WHERE article_id = ?)
       ON CONFLICT(article_id) DO NOTHING`)
-    .bind(job.articleId, copy.markdown, copy.capturedAt, copy.source, copy.revision,
+    .bind(job.articleId, copy.markdown, copy.capturedAt, copy.source, copy.revision, readingTimeMinutes,
       job.articleId, job.generation, job.leaseToken, now, job.articleId, job.articleId);
   const title = result.metadata.title?.trim() || null;
   const author = result.metadata.author?.trim() || null;

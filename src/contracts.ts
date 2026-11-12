@@ -85,6 +85,7 @@ export interface Article {
   createdAt: string;
   updatedAt: string;
   readAt: string | null;
+  readingTimeMinutes: number | null;
 }
 
 export interface ArticleCopy {
@@ -93,6 +94,8 @@ export interface ArticleCopy {
   source: "paste" | "upload";
   revision: string;
 }
+
+export interface SavedArticleCopy extends ArticleCopy { readingTimeMinutes: number | null }
 
 export type { IntegrationConfiguration, IntegrationStatus, IntegrationConsent } from './integrations/contracts';
 

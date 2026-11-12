@@ -109,6 +109,7 @@ describe('managed conversion', () => {
     const article = (await api<{ article: Article }>('/api/articles/pdf00001')).article;
     expect(article.originalPdf?.checksum).toBe(await checksum(pdfBytes));
     expect(article.title).toBe('Saved title'); expect(article.readAt).toBeNull();
+    expect(article.readingTimeMinutes).toBe(1);
     const object = await env.PDF_BUCKET.get(assetKey(article.originalPdf!.id));
     expect(new Uint8Array(await object!.arrayBuffer())).toEqual(pdfBytes);
     const copy = await env.DB.prepare('SELECT markdown FROM article_copies WHERE article_id=?').bind(article.id).first<{markdown:string}>();
@@ -118,6 +119,7 @@ describe('managed conversion', () => {
     await add(); await capture(ai('# document.pdf\n## Contents\n### Page 1\n\n\n'));
     const original = await getOriginalPdf(env.DB,'pdf00001'); expect(original).toBeDefined();
     expect(await env.DB.prepare('SELECT error_code,state FROM article_extraction_jobs').first()).toEqual({ error_code: 'pdf_no_text', state: 'failed' });
+    expect(await api('/api/articles/pdf00001')).toMatchObject({ article: { readingTimeMinutes: null } });
     await env.DB.prepare('UPDATE article_extraction_jobs SET updated_at=?').bind(ago()).run();
     await api('/api/articles/pdf00001/extraction/retry',{ method: 'POST',body:'{}' });
     const service = await capture(ai('Recovered text'));
@@ -248,13 +250,18 @@ describe('PDF lifecycle', () => {
     const current = await env.DB.prepare('SELECT revision FROM article_copies').first<{revision:string}>();
     await env.DB.prepare('UPDATE article_extraction_jobs SET updated_at=?').bind(ago()).run();
     expect(await requestRecapture(env.DB,'pdf00001',current!.revision)).toBe('queued');
-    await capture(ai('New revision'));
+    expect(await api('/api/articles/pdf00001')).toMatchObject({ article: { readingTimeMinutes: 1 } });
+    const markdown = 'New revision. ' + 'word '.repeat(239).trimEnd();
+    await capture(ai(markdown));
     const replacement = await getOriginalPdf(env.DB,'pdf00001'); expect(replacement!.id).not.toBe(old!.id);
     expect((await route(`/api/articles/pdf00001/pdf?asset=${old!.id}`)).status).toBe(200);
-    const copy = await env.DB.prepare('SELECT revision,markdown FROM article_copies').first<{revision:string;markdown:string}>(); expect(copy!.markdown).toBe('New revision');
-    expect(await undoRecapture(env.DB,'pdf00001',copy!.revision)).toBe('saved');
+    const { copy } = await api<{ copy: { revision: string } }>('/api/articles/pdf00001/copy');
+    expect(copy).toMatchObject({ markdown, readingTimeMinutes: 2 });
+    expect(await api('/api/articles/pdf00001')).toMatchObject({ article: { readingTimeMinutes: 2 } });
+    expect(await undoRecapture(env.DB,'pdf00001',copy.revision)).toBe('saved');
     expect((await getOriginalPdf(env.DB,'pdf00001'))!.id).toBe(old!.id);
-    expect((await env.DB.prepare('SELECT markdown FROM article_copies').first<{markdown:string}>())!.markdown).toContain('Readable document');
+    expect(await api('/api/articles/pdf00001/copy')).toMatchObject({ copy: { markdown: expect.stringContaining('Readable document'), readingTimeMinutes: 1 } });
+    expect(await api('/api/articles/pdf00001')).toMatchObject({ article: { readingTimeMinutes: 1 } });
   });
   it('rejects stale job publication and cleans only unreferenced files with durable retries', async () => {
     await add(); const job = await claimExtractionJob(env.DB); expect(job).not.toBeNull();
@@ -320,7 +327,10 @@ describe('complete portable archives', () => {
     const response = await route('/api/archive'); expect(response.status).toBe(200);
     const file = new File([await response.arrayBuffer()],'archive.zip');
     const portable = unzipSync(new Uint8Array(await file.arrayBuffer()));
-    expect(JSON.parse(new TextDecoder().decode(portable['library.json'])).articles[0].id).toBe('pdf00001');
+    const exportedArticle = JSON.parse(new TextDecoder().decode(portable['library.json'])).articles[0];
+    expect(exportedArticle.id).toBe('pdf00001');
+    expect(exportedArticle).not.toHaveProperty('readingTimeMinutes');
+    expect(exportedArticle.copy).not.toHaveProperty('readingTimeMinutes');
     expect(portable[`pdf/${originalArticle.originalPdf!.id}.pdf`]).toEqual(pdfBytes);
     const archive = await inspectArchive(file,()=>undefined);
     await env.DB.prepare('DELETE FROM articles').run(); await env.DB.prepare('DELETE FROM pdf_assets').run();
@@ -328,6 +338,7 @@ describe('complete portable archives', () => {
     expect(await restoreArchive(file,archive,api,()=>undefined)).toEqual({imported:1,skipped:0});
     const restored = (await api<{article:Article}>('/api/articles/pdf00001')).article;
     expect({...restored,originalPdf:undefined,extraction:undefined,hasCopy:undefined}).toMatchObject({id:originalArticle.id,url:originalArticle.url,title:originalArticle.title,readAt:originalArticle.readAt});
+    expect(restored.readingTimeMinutes).toBe(1);
     expect(restored.originalPdf!.checksum).toBe(originalArticle.originalPdf!.checksum);
     expect(await api('/api/articles/pdf00001/copy')).toEqual(oldCopy);
     expect(await restoreArchive(file,archive,api,()=>undefined)).toEqual({imported:0,skipped:1});
