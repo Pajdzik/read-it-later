@@ -726,6 +726,10 @@ try {
   assert.equal(new URL(relativeUrl).href, "https://example.com/chapter?q=1#part");
   assert.equal(await readerBody.getByRole("link", { name: "Root" }).getAttribute("href"), "https://example.com/reference");
   assert.equal(await readerBody.getByRole("link", { name: "Fragment" }).getAttribute("href"), "https://example.com/browser-smoke?utm_source=smoke#inside");
+  await expect(readerBody.getByRole("button", { name: /^Save linked article:/ })).toHaveCount(3);
+  await expect(readerBody.locator('a[href="https://example.com/chapter?q=1#part"] + button'))
+    .toHaveAccessibleName("Save linked article: Relative");
+  await expect(readerBody.locator('a[href$="#inside"] + button')).toHaveCount(0);
   assert.equal(await readerBody.locator("pre code").textContent(),
     `const value = '<script>alert(3)</script>';\nconst wideValue = '${"wide-code-".repeat(30)}';\n`);
   assert.equal(await readerBody.locator("table tbody tr").count(), 1, "Markdown tables should render as tables.");
@@ -772,6 +776,8 @@ try {
     const attrs = [];
     for (const node of root.querySelectorAll("*")) {
       for (const attr of node.attributes) {
+        if (node.matches("a + button.reader-link-save") && ["class", "type", "title", "aria-label"].includes(attr.name)) continue;
+        if (node.matches("a + button.reader-link-save + span.reader-link-save-status") && ["class", "role"].includes(attr.name)) continue;
         if (["alt", "decoding", "href", "loading", "referrerpolicy", "rel", "src", "start", "target"].includes(attr.name)) continue;
         attrs.push(`${node.tagName.toLowerCase()}[${attr.name}]`);
       }
@@ -1582,6 +1588,53 @@ try {
   await readerCompletionSmoke(context, base, sourceBase);
   await pdfArchiveSmoke(context, base);
   await readerPreviewSmoke(browser, base);
+  const linkPage = await context.newPage();
+  linkPage.on("pageerror", (error) => errors.push(error.message));
+  await linkPage.goto(base + "/");
+  const linkOpener = linkPage.locator("#articles").getByRole("link", { name: "Browser smoke article", exact: true });
+  const linkReader = linkPage.locator("#reader-dialog");
+  const linkBody = linkReader.locator("#reader-body");
+  await linkOpener.click();
+  const linkedSave = linkBody.getByRole("button", { name: "Save linked article: valid HTTPS link" });
+  const linkedStatus = linkBody.locator('a[href="https://example.net/read"] + button + [role="status"]');
+  await expect(linkedSave).toHaveText("+");
+  await linkPage.route("**/api/articles", async (route) => {
+    if (route.request().method() === "POST")
+      await route.fulfill({ status: 503, json: { error: { message: "Simulated linked article save failure" } } });
+    else await route.continue();
+  });
+  await linkedSave.focus();
+  await linkPage.keyboard.press("Enter");
+  await expect(linkedStatus).toHaveText("Couldn’t save. Try again.");
+  await expect(linkedSave).toBeEnabled();
+  await expect(linkedSave).toBeFocused();
+  await linkPage.unroute("**/api/articles");
+
+  const linkedArticleResponse = () => linkPage.waitForResponse((response) =>
+    response.url() === base + "/api/articles" && response.request().method() === "POST");
+  const [createdLink] = await Promise.all([linkedArticleResponse(), linkPage.keyboard.press("Enter")]);
+  assert.equal(createdLink.status(), 201);
+  assert.deepEqual(createdLink.request().postDataJSON(), { url: "https://example.net/read", captureMarkdown: true });
+  const { article: linkedArticle, extraction } = await createdLink.json();
+  assert.equal(extraction.state, "queued");
+  await expect(linkedStatus).toHaveText("Saved");
+  const savedLink = linkBody.getByRole("button", { name: "Linked article saved: valid HTTPS link" });
+  await expect(savedLink).toBeDisabled();
+  await expect(savedLink).toBeFocused();
+  await linkReader.getByRole("button", { name: "Close saved copy" }).click();
+  await expect(linkPage).toHaveURL(base + "/");
+  await expect(linkOpener).toBeFocused();
+  await expect(linkPage.locator(`.article[data-id="${linkedArticle.id}"]`)).toBeVisible();
+
+  await linkOpener.click();
+  const [duplicateLink] = await Promise.all([linkedArticleResponse(), linkedSave.click()]);
+  assert.equal(duplicateLink.status(), 200);
+  const duplicateResult = await duplicateLink.json();
+  assert.equal(duplicateResult.duplicate, true);
+  assert.equal(duplicateResult.article.id, linkedArticle.id);
+  await expect(linkedStatus).toHaveText("Already saved");
+  await linkPage.close();
+
   const cachedPaths = await page.evaluate(async () => {
     const paths = [];
     for (const name of await caches.keys()) {

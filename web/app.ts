@@ -3,7 +3,7 @@ import { markdownDownload, markdownDownloadName, renderMarkdown } from "./markdo
 import type { IntegrationConfiguration, IntegrationStatus, IntegrationConsent } from "../src/integrations/contracts.js";
 import type { ArticlePreview } from "../src/articles/preview-contract.js";
 import { articlePath, isArticleId } from "../src/articles/identity.js";
-import { normalizeArticleUrl } from "../src/articles/validation.js";
+import { normalizeArticleUrl, ValidationError } from "../src/articles/validation.js";
 
 declare const __BUILD_INFO__: { commitSha: string; builtAt: string } | null;
 
@@ -2091,7 +2091,6 @@ function updatePdfReader(article?: Article) {
     else anchor.removeAttribute('href');
   }
 }
-
 type ReaderPreview = {
   url: string;
   article?: ArticlePreview;
@@ -2215,6 +2214,15 @@ $("#reader-link-read").addEventListener("click", () => {
 });
 readerLinkWebsite.addEventListener("click", () => readerLinkDialog.close());
 
+function refreshLibraryAfterReaderSave() {
+  if (parseReaderPath(location.pathname)) {
+    if (!listSnapshot) rememberListView(readerReturnFocus ?? undefined);
+    if (listSnapshot) listSnapshot = { ...listSnapshot, forceRefresh: true };
+  } else {
+    void load();
+  }
+}
+
 $("#reader-preview-save").addEventListener("click", async () => {
   const preview = readerPreview;
   const article = preview?.article;
@@ -2233,12 +2241,7 @@ $("#reader-preview-save").addEventListener("click", async () => {
     });
     preview.saveState = "saved";
     preview.status = "Saved to library.";
-    if (parseReaderPath(location.pathname)) {
-      if (!listSnapshot) rememberListView(readerReturnFocus ?? undefined);
-      if (listSnapshot) listSnapshot.forceRefresh = true;
-    } else {
-      void load();
-    }
+    refreshLibraryAfterReaderSave();
   } catch (error) {
     preview.saveState = undefined;
     preview.status = `Couldn’t save this article. ${(error as Error).message}`;
@@ -2246,6 +2249,61 @@ $("#reader-preview-save").addEventListener("click", async () => {
   if (readerPreview === preview) updateReaderPreviewActions(preview);
 });
 
+function readerLinkKey(url: string) {
+  try {
+    return normalizeArticleUrl(url).normalizedUrl;
+  } catch (error) {
+    if (error instanceof ValidationError) return null;
+    throw error;
+  }
+}
+function addReaderLinkSaveButtons(content: DocumentFragment, sourceUrl: string) {
+  const sourceKey = readerLinkKey(sourceUrl);
+  const buttonsByUrl = new Map<string, { button: HTMLButtonElement; label: string }[]>();
+  for (const link of content.querySelectorAll<HTMLAnchorElement>("a[href]")) {
+    const url = link.href;
+    const key = readerLinkKey(url);
+    if (!key || key === sourceKey) continue;
+
+    const label = link.textContent?.trim() || link.querySelector("img")?.alt || link.hostname;
+    const button = el("button", "+", "reader-link-save");
+    button.type = "button";
+    button.title = "Save linked article";
+    button.setAttribute("aria-label", `Save linked article: ${label}`);
+    const status = el("span", undefined, "reader-link-save-status");
+    status.setAttribute("role", "status");
+    link.after(button, status);
+
+    const group = buttonsByUrl.get(key) ?? [];
+    group.push({ button, label });
+    buttonsByUrl.set(key, group);
+    button.addEventListener("click", async () => {
+      if (button.getAttribute("aria-disabled") === "true") return;
+      for (const entry of group) entry.button.setAttribute("aria-disabled", "true");
+      status.classList.remove("error");
+      status.textContent = "Saving…";
+      try {
+        const { duplicate } = await request<{ duplicate: boolean }>("/api/articles", {
+          method: "POST",
+          body: JSON.stringify({ url, captureMarkdown: true }),
+        });
+        status.textContent = duplicate ? "Already saved" : "Saved";
+        for (const entry of group) {
+          entry.button.textContent = "✓";
+          entry.button.title = "Linked article saved";
+          entry.button.setAttribute("aria-label", `Linked article saved: ${entry.label}`);
+        }
+      } catch {
+        status.textContent = "Couldn’t save. Try again.";
+        status.classList.add("error");
+        for (const entry of group) entry.button.removeAttribute("aria-disabled");
+        return;
+      }
+
+      refreshLibraryAfterReaderSave();
+    });
+  }
+}
 function openReader(article: Article, copy: ArticleCopy, opener?: HTMLElement) {
   if (state.selected?.id !== article.id) return;
   if (readerPositionContext && (readerPositionContext.id !== article.id || readerPositionContext.revision !== copy.revision)) saveReadingPosition();
@@ -2267,7 +2325,9 @@ function openReader(article: Article, copy: ArticleCopy, opener?: HTMLElement) {
   $("#reader-new-copy").hidden = true;
   body.hidden = false;
   original.href = safeHttpUrl(article.url) || "#";
-  body.replaceChildren(renderMarkdown(copy.markdown, article.url, article.title));
+  const content = renderMarkdown(copy.markdown, article.url, article.title);
+  addReaderLinkSaveButtons(content, article.url);
+  body.replaceChildren(content);
   const audioPanel = $("#reader-audio"); audioPanel.hidden = true; audioPanel.replaceChildren();
   if (state.session?.audioEnabled === true) attachAudioControl(audioPanel, article, true);
   resetReaderCompletion(article);
