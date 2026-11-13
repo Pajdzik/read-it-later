@@ -10,11 +10,12 @@ For visual design, responsive interactions, and interface wording, see the [Pote
 
 - **One owner, multiple devices.** GitHub login allows one configured numeric user ID. There is no public registration, collaboration, or separate library per account.
 - **Reading starts with the saved copy.** Click an article title or lead to read its preserved Markdown; articles without a copy open the copy editor. The **Mark as read** and **Mark as unread** actions stay visible in each library row. Edit and Open original are grouped under More actions, which dismisses with Escape or an outside click. At the end of a saved article, **Mark as read** (or **Mark as unread**) saves the change and returns to the library. Reading never marks an article read automatically; read state changes explicitly.
-- **The reading list comes first.** The responsive website offers Unread, Read, and All views, search, pagination, an Add dialog, article details, title editing, and deletion. Light, dark, and system themes are available.
+- **Ratings and favorites.** Use thumbs up or down at the end of a saved article to record a private rating. Press the selected thumb again to clear it. The star adds the article to Favorites, which includes both read and unread articles.
+- **The reading list comes first.** The responsive website offers Unread, Read, All, and Favorites views, search, pagination, an Add dialog, article details, title editing, and deletion. Light, dark, and system themes are available.
 - **Capture should stay lightweight.** Use the website, a desktop bookmarklet, an iOS Shortcut, or an installed PWA share target where supported. Native apps, browser extensions, and email ingestion are deferred.
 - **Keep the stack small.** One TypeScript Worker serves the API and website; one D1 database stores the library and authentication records. Use plain HTML/CSS/browser TypeScript, prepared SQL, and migrations, without a frontend framework or ORM.
 - **Use Cloudflare hosting.** Workers Static Assets and D1 serve the app. Wrangler resource IDs remain placeholders and capture is disabled pending the fresh prelaunch database reset. See [prelaunch reset](docs/prelaunch-reset.md) before deployment.
-- **Backups must be portable.** Versioned JSON exports contain article data and Markdown; complete ZIP64 archives additionally include preserved PDFs. Both restore without copying authentication records.
+- **Backups must be portable.** Versioned JSON exports contain article data, including ratings and favorites, and Markdown. Complete ZIP64 archives also include preserved PDFs. Both restore without copying authentication records.
 
 ## Architecture
 
@@ -70,7 +71,7 @@ A unique SQL constraint handles concurrent duplicate saves. Duplicates keep thei
 
 | Table | Purpose |
 | --- | --- |
-| `articles` | ID, submitted URL, unique normalized URL, title, optional author/description, description provenance, tag edit protection, created/updated timestamps, nullable read timestamp |
+| `articles` | ID, submitted URL, unique normalized URL, title, optional author/description, description provenance, tag edit protection, created/updated timestamps, nullable read timestamp, private rating and favorite status |
 | `sessions` | Hashed session tokens, CSRF tokens, expiry and creation time |
 | `oauth_states` | Short-lived hashed OAuth state and browser binding |
 | `capture_tokens` | Hashed save-only tokens, labels, creation and revocation dates |
@@ -121,11 +122,11 @@ All API payloads are JSON with camelCase fields. Errors use `{error: {code, mess
 | `GET /api/session` | Authentication state and CSRF token for the signed-in client |
 | `GET /auth/github`, `GET /auth/github/callback` | Start and complete owner login |
 | `POST /auth/logout` | Revoke the current session |
-| `GET /api/articles` | Filter/search/page with `status`, `q`, `limit`, `cursor`; includes library-wide `capture.paused` |
+| `GET /api/articles` | Filter by `status` (`unread`, `read`, `all`, `favorites`) and optional `tag`, search with `q`, and paginate with `limit` and `cursor`. Includes library-wide `capture.paused`. |
 | `POST /api/articles` | Owner save `{url, title?}`; returns the saved article and duplicate/metadata-update flags |
 | `POST /api/capture` | Bearer-token save `{url, title?}`; returns only `{ok:true, extractionRequested}` with HTTP 200 for both new and duplicate saves |
 | `GET /api/articles/:id` | Retrieve an article |
-| `PATCH /api/articles/:id` | Change title and/or read state |
+| `PATCH /api/articles/:id` | Update article metadata, read state, `rating` (`up`, `down`, or `null`), or `favorite` (`true` or `false`) |
 | `DELETE /api/articles/:id` | Delete an article |
 | `GET /api/articles/:id/pdf` | Open preserved PDF; `?download=1` downloads it |
 | `GET /api/archive` | Download complete ZIP64 archive including PDFs |

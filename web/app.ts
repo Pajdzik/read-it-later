@@ -53,6 +53,8 @@ type Article = {
   updatedAt: string;
   readAt: string | null;
   readingTimeMinutes?: number | null;
+  rating: 'up' | 'down' | null;
+  favorite: boolean;
   hasCopy?: boolean;
   extraction?: ExtractionStatus;
   podcastFit?: PodcastSuitability;
@@ -231,10 +233,12 @@ async function restoreListView() {
   }
   let refreshed = true;
   if (completion || snapshot?.forceRefresh || (snapshot && list.children.length !== snapshot.rowCount)) {
-    refreshed = await load() === true;
-    for (let page = 1; refreshed && page < (snapshot?.pageCount || 1) && state.cursor; page++) {
-      if (parseReaderPath(location.pathname)) return;
-      refreshed = await load(false) === true;
+    for (let page = 0; page < (snapshot?.pageCount ?? 1); page++) {
+      const task = load(page === 0);
+      const generation = loadGeneration;
+      refreshed = await task === true;
+      if (parseReaderPath(location.pathname) || generation !== loadGeneration) return;
+      if (!refreshed || !state.cursor) break;
     }
   }
   if (parseReaderPath(location.pathname)) return;
@@ -476,7 +480,13 @@ let readerFromList = false;
 let readerReturnPending = false;
 let pendingReadCompletion: string | null = null;
 let readerReadRequest: object | null = null;
+type ReaderFeedbackPatch = { rating: Article['rating'] } | { favorite: boolean };
+type ReaderFeedbackRetry = { patch: ReaderFeedbackPatch; error: string };
+const readerFeedbackRetries = new Map<string, ReaderFeedbackRetry>();
+const readerFeedbackPending = new Set<string>();
+let readerFeedbackSessionGeneration = 0;
 let listSnapshot: { scrollY: number; cursor: string | null; pageCount: number; focus: HTMLElement | null; focusArticleId: string | null; focusKind: "title" | "lead" | "other"; status: string; query: string; tag: string; rowCount: number; forceRefresh?: boolean } | null = null;
+let favoritesRefreshGeneration = 0;
 let extractionPollTimer = 0;
 let extractionPollStartedAt = 0;
 const detailDisclosureState = new Map<string, Map<string, boolean>>();
@@ -1223,6 +1233,9 @@ function render(items: Article[], append = false) {
     } else if (state.status === "podcast") {
       heading.textContent = "No podcast picks on this page";
       message.textContent = state.cursor ? "Show more to check older articles." : "Save more prose-focused articles to find good podcast candidates.";
+    } else if (state.status === "favorites") {
+      heading.textContent = state.tag ? `No favorites tagged ‘${state.tag}’` : "No favorites yet";
+      message.textContent = state.tag ? "Try another tag or change the list filter." : "Star an article at the end of the reader to find it here.";
     } else if (state.tag) {
       heading.textContent = `No ${state.status === "all" ? "" : state.status + " "}articles tagged ‘${state.tag}’`;
       message.textContent = "Try another tag or change the list filter.";
@@ -1283,6 +1296,38 @@ async function load(reset = true) {
       $<HTMLButtonElement>("#more").disabled = false;
     }
   }
+}
+async function refreshFavoritesAfterFeedback() {
+  const refreshGeneration = ++favoritesRefreshGeneration;
+  if (!state.session?.authenticated) return;
+  if (state.status !== "favorites") {
+    if (listSnapshot?.status === "favorites") listSnapshot = { ...listSnapshot, forceRefresh: true };
+    return;
+  }
+  if ($<HTMLDialogElement>("#reader-dialog").open || $<HTMLDialogElement>("#detail-dialog").open) {
+    if (listSnapshot) listSnapshot = { ...listSnapshot, forceRefresh: true };
+    return;
+  }
+  const snapshot = state.loading && listSnapshot?.status === "favorites" && listSnapshot.query === state.query && listSnapshot.tag === state.tag
+    ? listSnapshot : null;
+  const scrollY = snapshot?.scrollY ?? window.scrollY;
+  const focus = document.activeElement instanceof HTMLElement ? document.activeElement : null;
+  const focusedArticle = focus?.closest<HTMLElement>(".article");
+  const focusArticleId = focusedArticle?.dataset.id ?? snapshot?.focusArticleId;
+  const focusKind = snapshot?.focusKind ?? (focus?.classList.contains("article-lead") ? "lead" : "title");
+  const pageCount = snapshot?.pageCount ?? Math.max(1, Math.ceil(list.children.length / 50));
+  const view = { status: state.status, query: state.query, tag: state.tag };
+  const sameView = () => refreshGeneration === favoritesRefreshGeneration && state.status === view.status && state.query === view.query && state.tag === view.tag && !parseReaderPath(location.pathname) && !$<HTMLDialogElement>("#reader-dialog").open && !$<HTMLDialogElement>("#detail-dialog").open;
+  for (let page = 0; page < pageCount; page++) {
+    const task = load(page === 0);
+    const generation = loadGeneration;
+    if (!await task || !sameView() || loadGeneration !== generation) return;
+    if (!state.cursor) break;
+  }
+  window.scrollTo(0, scrollY);
+  if (!focusArticleId || document.activeElement !== document.body) return;
+  const rowTarget = list.querySelector<HTMLElement>(`.article[data-id="${CSS.escape(focusArticleId)}"] .${focusKind === "lead" ? "article-lead" : "article-title"}`);
+  (rowTarget ?? document.querySelector<HTMLElement>('[data-status="favorites"]'))?.focus({ preventScroll: true });
 }
 async function saveReadState(article: Article, read: boolean): Promise<Article> {
   invalidateLoads();
@@ -1948,6 +1993,81 @@ function resetReaderCompletion(article?: Article) {
   deleteButton.removeAttribute("aria-busy");
   $("#reader-read-label").textContent = article?.readAt ? "Mark as unread" : "Mark as read";
   button.querySelector("svg")!.outerHTML = iconMarkup(article?.readAt ? "mark-unread" : "mark-read");
+  renderReaderFeedback(article);
+}
+function renderReaderFeedback(article?: Article) {
+  const up = $<HTMLButtonElement>("#reader-rating-up");
+  const down = $<HTMLButtonElement>("#reader-rating-down");
+  const favorite = $<HTMLButtonElement>("#reader-favorite-toggle");
+  const error = $("#reader-feedback-error");
+  const retry = readerFeedbackRetries.get(article?.id || "");
+  const pending = Boolean(article && readerFeedbackPending.has(article.id));
+  up.setAttribute("aria-pressed", String(article?.rating === "up"));
+  down.setAttribute("aria-pressed", String(article?.rating === "down"));
+  favorite.setAttribute("aria-pressed", String(article?.favorite === true));
+  const locked = !article || readerReadRequest !== null;
+  for (const control of [up, down, favorite]) {
+    control.disabled = locked;
+    control.setAttribute("aria-disabled", String(locked || pending));
+    if (pending) control.setAttribute("aria-busy", "true");
+    else control.removeAttribute("aria-busy");
+  }
+  $<HTMLButtonElement>("#reader-read-toggle").disabled = !article || pending || readerReadRequest !== null;
+  $<HTMLButtonElement>("#reader-delete-button").disabled = !article || pending || readerReadRequest !== null;
+  error.replaceChildren();
+  error.hidden = !retry;
+  if (article && retry) {
+    error.append(document.createTextNode(`Couldn’t save feedback. ${retry.error} `));
+    const button = el("button", "Retry", "button secondary");
+    button.type = "button";
+    button.addEventListener("click", () => {
+      if (document.activeElement === button) {
+        const selector = "favorite" in retry.patch ? "#reader-favorite-toggle"
+          : retry.patch.rating === "down" || (retry.patch.rating === null && article.rating === "down") ? "#reader-rating-down" : "#reader-rating-up";
+        $(selector).focus({ preventScroll: true });
+      }
+      void submitReaderFeedback(article, retry.patch);
+    });
+    error.append(button);
+  }
+}
+async function submitReaderFeedback(article: Article, patch: ReaderFeedbackPatch) {
+  if (readerFeedbackPending.has(article.id) || readerReadRequest || !state.session?.authenticated) return;
+  const sessionGeneration = readerFeedbackSessionGeneration;
+  const currentSession = () => sessionGeneration === readerFeedbackSessionGeneration && state.session?.authenticated;
+  const reader = $<HTMLDialogElement>("#reader-dialog");
+  readerFeedbackPending.add(article.id);
+  readerFeedbackRetries.delete(article.id);
+  renderReaderFeedback(article);
+  try {
+    const { article: updated } = await request<{ article: Article }>(`/api/articles/${encodeURIComponent(article.id)}`, {
+      method: "PATCH", body: JSON.stringify(patch),
+    });
+    if (!currentSession()) return;
+    if (state.selected?.id === article.id) {
+      state.selected = { ...state.selected, rating: updated.rating, favorite: updated.favorite };
+      if (reader.open || $<HTMLDialogElement>("#detail-dialog").open) scheduleExtractionPoll(state.selected);
+    }
+    if ("favorite" in patch) void refreshFavoritesAfterFeedback();
+  } catch (error) {
+    if (currentSession()) readerFeedbackRetries.set(article.id, { patch, error: (error as Error).message });
+  } finally {
+    readerFeedbackPending.delete(article.id);
+    if (currentSession() && reader.open && readerArticleId === article.id && state.selected?.id === article.id) {
+      renderReaderFeedback(state.selected);
+    }
+  }
+}
+for (const [selector, rating] of [
+  ["#reader-rating-up", "up"],
+  ["#reader-rating-down", "down"],
+  ["#reader-favorite-toggle", null],
+] as const) {
+  $<HTMLButtonElement>(selector).addEventListener("click", () => {
+    const article = state.selected;
+    if (!article || readerArticleId !== article.id || $("#reader-completion").hidden) return;
+    void submitReaderFeedback(article, rating ? { rating: article.rating === rating ? null : rating } : { favorite: !article.favorite });
+  });
 }
 $("#reader-actions-menu").addEventListener("toggle", (event) => {
   const expanded = (event as ToggleEvent).newState === "open";
@@ -1976,7 +2096,7 @@ window.addEventListener("resize", dismissReaderActions, { passive: true });
 $("#reader-read-toggle").addEventListener("click", async () => {
   const article = state.selected;
   const dialog = $<HTMLDialogElement>("#reader-dialog");
-  if (!article || readerArticleId !== article.id || !dialog.open || $("#reader-completion").hidden || readerReadRequest) return;
+  if (!article || readerArticleId !== article.id || !dialog.open || $("#reader-completion").hidden || readerReadRequest || readerFeedbackPending.has(article.id)) return;
   const generation = readerLoadGeneration;
   const operation = {};
   readerReadRequest = operation;
@@ -1985,6 +2105,7 @@ $("#reader-read-toggle").addEventListener("click", async () => {
   button.disabled = true;
   $<HTMLButtonElement>("#reader-more-button").disabled = true;
   $<HTMLButtonElement>("#reader-delete-button").disabled = true;
+  renderReaderFeedback(article);
   button.setAttribute("aria-busy", "true");
   $("#reader-read-label").textContent = "Saving…";
   $("#reader-read-error").hidden = true;
@@ -2007,13 +2128,18 @@ $("#reader-read-toggle").addEventListener("click", async () => {
     const feedback = $("#reader-read-error");
     feedback.textContent = `Couldn’t update this article. ${(error as Error).message} Try again.`;
     feedback.hidden = false;
+  } finally {
+    if (readerReadRequest === operation) {
+      readerReadRequest = null;
+      if (readerArticleId === article.id && dialog.open) renderReaderFeedback(state.selected || article);
+    }
   }
 });
 $("#reader-delete-button").addEventListener("click", async () => {
   const article = state.selected;
   const dialog = $<HTMLDialogElement>("#reader-dialog");
   const button = $<HTMLButtonElement>("#reader-delete-button");
-  if (!article || readerArticleId !== article.id || !dialog.open || $("#reader-completion").hidden || button.disabled || readerReadRequest) return;
+  if (!article || readerArticleId !== article.id || !dialog.open || $("#reader-completion").hidden || button.disabled || readerReadRequest || readerFeedbackPending.has(article.id)) return;
   const readerMenu = $<HTMLElement>("#reader-actions-menu");
   if (readerMenu.matches(":popover-open")) readerMenu.hidePopover();
   if (!confirm(`Delete “${article.title}”? This can’t be undone.`)) {
@@ -2022,15 +2148,18 @@ $("#reader-delete-button").addEventListener("click", async () => {
   }
 
   const generation = readerLoadGeneration;
+  const operation = {};
+  readerReadRequest = operation;
   button.disabled = true;
   $<HTMLButtonElement>("#reader-more-button").disabled = true;
   button.setAttribute("aria-busy", "true");
   $<HTMLButtonElement>("#reader-read-toggle").disabled = true;
+  renderReaderFeedback(article);
   $("#reader-read-error").hidden = true;
   try {
     invalidateLoads();
     await request(`/api/articles/${encodeURIComponent(article.id)}`, { method: "DELETE" });
-    const isCurrent = generation === readerLoadGeneration && readerArticleId === article.id && dialog.open;
+    const isCurrent = generation === readerLoadGeneration && readerReadRequest === operation && readerArticleId === article.id && dialog.open;
     clearLastOpened(article.id);
     copyDrafts.delete(article.id);
     if (listSnapshot) {
@@ -2058,6 +2187,11 @@ $("#reader-delete-button").addEventListener("click", async () => {
     feedback.textContent = `Couldn’t delete this article. ${(error as Error).message} Try again.`;
     feedback.hidden = false;
     $<HTMLButtonElement>("#reader-more-button").focus({ preventScroll: true });
+  } finally {
+    if (readerReadRequest === operation) {
+      readerReadRequest = null;
+      if (readerArticleId === article.id && dialog.open) renderReaderFeedback(state.selected || article);
+    }
   }
 });
 function setReaderTitle(text: string) {
@@ -2476,6 +2610,8 @@ function restoreReaderFocus(opener = readerReturnFocus) {
   opener.focus({ preventScroll: true });
 }
 function discardPrivateContent() {
+  readerFeedbackSessionGeneration++;
+  readerFeedbackRetries.clear();
   invalidateLoads();
   $('#tag-controls').hidden = true;
   $<HTMLSelectElement>('#tag-filter').replaceChildren(new Option('All tags', ''));
@@ -3428,7 +3564,7 @@ $("#add-form").addEventListener("submit", async (e) => {
     if (!browserCaptureDraft?.savedCopyRevision) button.disabled = false;
   }
 });
-const statusOrder = ["unread", "read", "all", "podcast"] as const;
+const statusOrder = ["unread", "read", "all", "favorites", "podcast"] as const;
 type Feed = { id: string; url: string; title: string; lastFetchedAt: string | null; lastError: string | null };
 type FeedItem = { id: string; feedId: string; url: string; title: string; preview: string; publishedAt: string; seen: boolean; saved: boolean };
 let feedItems: FeedItem[] = [];

@@ -91,7 +91,8 @@ async function exportLibrary(base) {
   return validateBackupEnvelope(value);
 }
 function restoredDefaults(item) {
-  return { ...item, tags: item.tags ?? [], descriptionOrigin: item.descriptionOrigin ?? (item.description ? 'manual' : null), tagsManuallyEdited: item.tagsManuallyEdited ?? false };
+  return { ...item, tags: item.tags ?? [], descriptionOrigin: item.descriptionOrigin ?? (item.description ? 'manual' : null),
+    tagsManuallyEdited: item.tagsManuallyEdited ?? false, rating: item.rating ?? null, favorite: item.favorite ?? false };
 }
 function sorted(value) { return value.articles.slice().sort((a, b) => a.id.localeCompare(b.id)); }
 async function write(vault, name, value) {
@@ -135,7 +136,7 @@ async function main() {
       version: 3, exportedAt: "2026-01-02T03:04:05.000Z", articles: [{
         id: "exist001", url: "https://example.invalid/keep?utm_source=prior", title: "Preserved existing title",
         author: "Existing author", description: "Existing description", tags: ["existing"], descriptionOrigin: "manual", tagsManuallyEdited: true, createdAt: "2020-01-01T00:00:00.000Z",
-        updatedAt: "2021-02-03T04:05:06.000Z", readAt: "2022-03-04T05:06:07.000Z",
+        updatedAt: "2021-02-03T04:05:06.000Z", readAt: "2022-03-04T05:06:07.000Z", rating: "up", favorite: true,
         copy: { markdown: "Existing bytes Ω\n", capturedAt: "2026-01-02T03:04:05.000Z", source: "paste", revision: "existing-revision" },
       }],
     };

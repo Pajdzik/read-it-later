@@ -11,6 +11,7 @@ export interface EnrichmentMessage { version: 1; kind: 'enrichment'; articleId: 
 export type ArticleMessage = ExtractionMessage | EnrichmentMessage;
 export type { AudioMessage } from './audio/contracts';
 export type DescriptionOrigin = 'manual' | 'extracted' | 'generated' | null;
+export type ArticleRating = 'up' | 'down' | null;
 export interface EnrichmentStatus {
   state: 'queued' | 'running' | 'retry_wait' | 'deferred' | 'succeeded' | 'failed' | 'skipped';
   paused: boolean;
@@ -86,6 +87,8 @@ export interface Article {
   updatedAt: string;
   readAt: string | null;
   readingTimeMinutes: number | null;
+  rating: ArticleRating;
+  favorite: boolean;
 }
 
 export interface ArticleCopy {

@@ -86,6 +86,44 @@ export async function readerCompletionSmoke(context, base, sourceBase) {
     assert.ok(metrics.top >= metrics.bodyBottom + 23 && Math.abs(metrics.left - metrics.bodyLeft) < 1 && metrics.height >= 44,
       `Completion footer layout: ${JSON.stringify(metrics)}`);
     await page.screenshot({ path: "/tmp/potem-reader-completion-desktop.png" });
+    const up = reader.getByRole("button", { name: "Thumbs up" });
+    const down = reader.getByRole("button", { name: "Thumbs down" });
+    const favorite = reader.getByRole("button", { name: "Favorite" });
+    await up.focus();
+    await page.keyboard.press("Enter");
+    await expect(up).toHaveAttribute("aria-pressed", "true");
+    assert.equal(await up.evaluate((button) => document.activeElement === button), true, "Saving feedback should keep keyboard focus on its control.");
+    await down.focus();
+    await page.keyboard.press("Space");
+    await expect(down).toHaveAttribute("aria-pressed", "true");
+    await expect(up).toHaveAttribute("aria-pressed", "false");
+    await down.click();
+    await expect(down).toHaveAttribute("aria-pressed", "false");
+    await favorite.click();
+    await expect(favorite).toHaveAttribute("aria-pressed", "true");
+    const persistedFeedback = await page.evaluate(async (id) => (await (await fetch(`/api/articles/${id}`)).json()).article, first.id);
+    assert.equal(persistedFeedback.rating, null, "A repeated rating should clear it.");
+    assert.equal(persistedFeedback.favorite, true, "Favorite should persist independently from rating.");
+    let feedbackFailure = true;
+    let retryPayload;
+    await page.route(`**/api/articles/${first.id}`, async (route) => {
+      if (route.request().method() !== "PATCH") return route.continue();
+      const payload = route.request().postDataJSON();
+      if (feedbackFailure) {
+        feedbackFailure = false;
+        return route.fulfill({ status: 503, json: { error: { message: "Temporary feedback failure" } } });
+      }
+      retryPayload = payload;
+      return route.continue();
+    });
+    await up.click();
+    await expect(page.locator("#reader-feedback-error")).toContainText("Temporary feedback failure");
+    await expect(down).toBeEnabled();
+    await page.locator("#reader-feedback-error").getByRole("button", { name: "Retry" }).click();
+    await expect(up).toHaveAttribute("aria-pressed", "true");
+    assert.deepEqual(retryPayload, { rating: "up" }, "Retry must resend the saved feedback payload.");
+    assert.ok(await reader.evaluate((dialog) => dialog.open && dialog.scrollTop > 0), "Feedback saves must preserve the reader and its scroll position.");
+    await page.unroute(`**/api/articles/${first.id}`);
     let patchCount = 0;
     let fail = true;
     let release;
@@ -225,6 +263,39 @@ export async function readerCompletionSmoke(context, base, sourceBase) {
     assert.ok(Math.abs(restoredScroll - libraryScroll) <= 1, `Completion should preserve the scrolled library position: ${libraryScroll} → ${restoredScroll}.`);
     assert.ok(await row(second.id).evaluate((element) => element.classList.contains("is-read")));
     await page.unroute("**/api/articles?*");
+
+    // A rating that finishes after navigation persists without repainting another article.
+    await page.goto(`${base}/read/${first.id}`);
+    await expect(up).toHaveAttribute("aria-pressed", "true");
+    await expect(favorite).toHaveAttribute("aria-pressed", "true");
+    let releaseFeedback;
+    let signalFeedback;
+    const feedbackGate = new Promise((resolve) => { releaseFeedback = resolve; });
+    const feedbackStarted = new Promise((resolve) => { signalFeedback = resolve; });
+    await page.route(`**/api/articles/${first.id}`, async (route) => {
+      if (route.request().method() !== "PATCH") return route.continue();
+      const response = await route.fetch();
+      signalFeedback();
+      await feedbackGate;
+      await route.fulfill({ response });
+    });
+    await down.click();
+    await feedbackStarted;
+    await reader.getByRole("button", { name: "Close saved copy" }).click();
+    await page.locator('[data-status="all"]').click();
+    await row(second.id).locator(".article-title").click();
+    await expect(reader.locator("#reader-title")).toHaveText(second.title);
+    const feedbackResponse = page.waitForResponse((response) => response.request().method() === "PATCH" && response.url().endsWith(first.id));
+    releaseFeedback();
+    await (await feedbackResponse).finished();
+    await page.evaluate(() => new Promise((resolve) => requestAnimationFrame(() => requestAnimationFrame(resolve))));
+    await expect(reader.locator("#reader-title")).toHaveText(second.title);
+    await expect(down).toHaveAttribute("aria-pressed", "false");
+    const staleFeedback = await page.evaluate(async (id) => (await (await fetch(`/api/articles/${id}`)).json()).article.rating, first.id);
+    assert.equal(staleFeedback, "down");
+    await page.unroute(`**/api/articles/${first.id}`);
+    await reader.getByRole("button", { name: "Close saved copy" }).click();
+
     await row(second.id).locator(".article-title").click();
     await moreActions.click();
     let deleteCount = 0;

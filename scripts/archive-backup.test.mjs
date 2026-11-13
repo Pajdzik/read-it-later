@@ -61,6 +61,19 @@ test("accepts empty JSON v3 libraries and rejects older envelopes", () => {
   assert.throws(() => validateBackupEnvelope({ ...backup(), version: 2 }), /Invalid/);
 });
 
+test("preserves optional feedback fields and accepts older v3 records without them", () => {
+  const old = article("old00001");
+  delete old.rating;
+  delete old.favorite;
+  assert.deepEqual(validateBackupEnvelope(backup([old])).articles[0], old);
+  const current = { ...article("new00001"), rating: "down", favorite: true };
+  const restored = splitImportBatches(backup([current]))[0].articles[0];
+  assert.equal(restored.rating, "down");
+  assert.equal(restored.favorite, true);
+  for (const invalid of [{ ...current, rating: "neutral" }, { ...current, favorite: 1 }])
+    assert.throws(() => validateBackupEnvelope(backup([invalid])), /Invalid backup/);
+});
+
 test("rejects authentication fields, unknown envelope fields, and malformed article/copy fields", () => {
   for (const value of [
     { ...backup(), auth: { token: "private" } },

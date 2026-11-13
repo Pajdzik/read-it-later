@@ -7,7 +7,7 @@ import { integrationConfigurations } from '../src/integrations/registry';
 
 const origin = 'http://localhost:8787';
 const article: Article = { tags: [], descriptionOrigin: null, tagsManuallyEdited: false, id: 'k7m2q9x4', url: 'https://example.com/article', title: 'A saved article', author: 'Ada', description: null,
-  createdAt: '2026-01-01T00:00:00.000Z', updatedAt: '2026-01-01T00:00:00.000Z', readAt: null, readingTimeMinutes: 1 };
+  createdAt: '2026-01-01T00:00:00.000Z', updatedAt: '2026-01-01T00:00:00.000Z', readAt: null, readingTimeMinutes: 1, rating: 'down', favorite: true };
 const copy: ArticleCopy = { markdown: '# 日本語 📰\n\nAn exact saved body.\n', source: 'paste', capturedAt: '2026-10-01T00:00:00.000Z', revision: 'copy-one' };
 const hooks = [{ id: 'kindle', name: 'Kindle', destination: 'My reading device', description: 'Send the saved article to my Kindle delivery service.' },
   { id: 'archive', name: 'Private archive', destination: 'My vault', description: 'Keep a copy in my private archive.' }];
@@ -33,8 +33,8 @@ beforeEach(async () => {
   };
   kindle = integrationConfigurations(env)[0];
   await env.DB.prepare('DELETE FROM articles').run();
-  await env.DB.prepare('INSERT INTO articles(id,url,normalized_url,title,author,created_at,updated_at) VALUES(?,?,?,?,?,?,?)')
-    .bind(article.id, article.url, article.url, article.title, article.author, article.createdAt, article.updatedAt).run();
+  await env.DB.prepare('INSERT INTO articles(id,url,normalized_url,title,author,created_at,updated_at,rating,favorite) VALUES(?,?,?,?,?,?,?,?,?)')
+    .bind(article.id, article.url, article.url, article.title, article.author, article.createdAt, article.updatedAt, article.rating, Number(article.favorite)).run();
   await saveArticleCopy(env.DB, article.id, copy, null);
 });
 
@@ -81,6 +81,8 @@ describe('optional article integrations', () => {
     expect(payload.copy).toEqual(copy);
     expect(payload.article).not.toHaveProperty('readAt');
     expect(payload.article).not.toHaveProperty('updatedAt');
+    expect(payload.article).not.toHaveProperty('rating');
+    expect(payload.article).not.toHaveProperty('favorite');
     expect(requests[0].headers.get('Idempotency-Key')).toBe(payload.deliveryId);
     expect(await (await deliver()).json()).toMatchObject({ unchanged: true });
     expect(requests).toHaveLength(1);
@@ -92,7 +94,7 @@ describe('optional article integrations', () => {
     await deliver();
     let statuses = await (await route(`${articlePath}/integrations`)).json<{ integrations: Array<{ id: string; state: string }> }>();
     expect(statuses.integrations.map(item => item.state)).toEqual(['saved', 'not_saved']);
-    await route(articlePath, 'PATCH', { read: true });
+    await route(articlePath, 'PATCH', { read: true, rating: 'up', favorite: false });
     expect(await (await deliver()).json()).toMatchObject({ unchanged: true });
     await route(articlePath, 'PATCH', { title: 'Updated title' });
     statuses = await (await route(`${articlePath}/integrations`)).json();

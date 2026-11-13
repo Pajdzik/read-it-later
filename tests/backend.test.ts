@@ -65,6 +65,21 @@ describe('article HTTP handlers', () => {
     expect(token?.status).toBe(401);
   });
 
+  it('patches rating and favorite independently and lists favorites across read states', async () => {
+    const made = await route(request('/api/articles', 'POST', { url: 'https://example.com/feedback', title: 'Feedback', captureMarkdown: false }));
+    const id = (await made.json() as { article: { id: string } }).article.id;
+    const rated = await route(request(`/api/articles/${id}`, 'PATCH', { rating: 'up' }));
+    expect(await rated.json()).toMatchObject({ article: { rating: 'up', favorite: false } });
+    const favored = await route(request(`/api/articles/${id}`, 'PATCH', { favorite: true }));
+    expect(await favored.json()).toMatchObject({ article: { rating: 'up', favorite: true } });
+    await route(request(`/api/articles/${id}`, 'PATCH', { read: true }));
+    expect(await (await route(request('/api/articles?status=favorites&q=Feedback'))).json()).toMatchObject({ items: [{ id, readAt: expect.any(String), rating: 'up', favorite: true }] });
+    expect((await route(request('/api/articles?status=favorites&tag=missing'))).status).toBe(200);
+    expect(await (await route(request('/api/articles?status=favorites&tag=missing'))).json()).toMatchObject({ items: [] });
+    expect((await route(request(`/api/articles/${id}`, 'PATCH', { rating: 'meh' }))).status).toBe(400);
+    expect((await route(request(`/api/articles/${id}`, 'PATCH', { favorite: 1 }))).status).toBe(400);
+  });
+
   it('uses short IDs and rejects legacy or malformed IDs at every article boundary', async () => {
     const created = await route(request('/api/articles', 'POST', { url: 'https://example.com/short-identity', title: 'Short identity' }));
     const { article } = await created.json() as { article: { id: string } };
@@ -525,15 +540,17 @@ describe('article HTTP handlers', () => {
         .bind(`exp${String(i).padStart(5, "0")}`, `https://example.com/${i}`, `https://example.com/${i}`, i === 0 ? '日本語 📰' : `Title ${i}`,
           new Date(Date.UTC(2026, 0, 1, 0, 0, i)).toISOString(), new Date(Date.UTC(2026, 0, 1, 0, 0, i)).toISOString(), i === 0 ? '2026-01-02T00:00:00.000Z' : null).run();
     }
+    await env.DB.prepare("UPDATE articles SET rating='down',favorite=1 WHERE id='exp00000'").run();
     await env.DB.prepare('INSERT INTO article_copies(article_id,markdown,captured_at,source,revision) VALUES(?,?,?,?,?)')
       .bind('exp00000', '# Backup 📰\n\nescaped \u0000\t content', '2026-01-04T00:00:00.000Z', 'upload', 'copy-revision-1').run();
     expect(await (await route(request('/api/articles/exp00000/copy'))).json()).toMatchObject({ copy: { revision: 'copy-revision-1', readingTimeMinutes: null } });
     expect(await (await route(request('/api/articles/exp00000'))).json()).toMatchObject({ article: { readingTimeMinutes: null } });
     const exported = await route(request('/api/export'));
-    const document = await exported.json() as { version: number; articles: Array<{ id: string; copy?: { markdown: string; capturedAt: string; source: string; revision: string } }> };
+    const document = await exported.json() as { version: number; articles: Array<{ id: string; rating?: string | null; favorite?: boolean; copy?: { markdown: string; capturedAt: string; source: string; revision: string } }> };
     expect(document.version).toBe(3); expect(document.articles).toHaveLength(105);
     expect(document.articles.find((article) => article.id === 'exp00000')).not.toHaveProperty('readingTimeMinutes');
     expect(document.articles.find((article) => article.id === 'exp00000')?.copy).toEqual({ markdown: '# Backup 📰\n\nescaped \u0000\t content', capturedAt: '2026-01-04T00:00:00.000Z', source: 'upload', revision: 'copy-revision-1' });
+    expect(document.articles.find((article) => article.id === 'exp00000')).toMatchObject({ rating: 'down', favorite: true });
     await env.DB.prepare('DELETE FROM articles').run();
     const first = await route(request('/api/import', 'POST', document));
     expect(first.status).toBe(200); expect(await first.json()).toEqual({ imported: 105, skipped: 0 });
@@ -541,6 +558,7 @@ describe('article HTTP handlers', () => {
     expect(await second.json()).toEqual({ imported: 0, skipped: 105 });
     const item = await env.DB.prepare('SELECT title,read_at FROM articles WHERE id = ?').bind('exp00000').first<{ title: string; read_at: string }>();
     expect(item).toEqual({ title: '日本語 📰', read_at: '2026-01-02T00:00:00.000Z' });
+    expect(await env.DB.prepare('SELECT rating,favorite FROM articles WHERE id=?').bind('exp00000').first()).toEqual({ rating: 'down', favorite: 1 });
     expect(await env.DB.prepare('SELECT markdown,captured_at,source,revision FROM article_copies WHERE article_id = ?').bind('exp00000').first())
       .toEqual({ markdown: '# Backup 📰\n\nescaped \u0000\t content', captured_at: '2026-01-04T00:00:00.000Z', source: 'upload', revision: 'copy-revision-1' });
     expect(await (await route(request('/api/articles/exp00000/copy'))).json()).toMatchObject({ copy: { revision: 'copy-revision-1', readingTimeMinutes: 1 } });

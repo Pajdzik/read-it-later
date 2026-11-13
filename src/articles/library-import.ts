@@ -15,7 +15,7 @@ export function validateLibrary(value: unknown) {
   const seenIds = new Set<string>();
   const normalized: Array<ImportArticle & { normalizedUrl: string; copy?: ArticleCopy }> = [];
   for (const value of input.articles) {
-    const item = parseObject(value, ['id', 'url', 'title', 'author', 'description', 'tags', 'descriptionOrigin', 'tagsManuallyEdited', 'createdAt', 'updatedAt', 'readAt', 'copy'], ['id', 'url', 'title', 'createdAt', 'updatedAt', 'readAt']);
+    const item = parseObject(value, ['id', 'url', 'title', 'author', 'description', 'tags', 'descriptionOrigin', 'tagsManuallyEdited', 'createdAt', 'updatedAt', 'readAt', 'rating', 'favorite', 'copy'], ['id', 'url', 'title', 'createdAt', 'updatedAt', 'readAt']);
     if (!isArticleId(item.id)) throw new ValidationError('article id must contain eight lowercase letters or digits');
     if (seenIds.has(item.id)) throw new ValidationError('import contains duplicate article IDs');
     seenIds.add(item.id);
@@ -45,7 +45,9 @@ export function validateLibrary(value: unknown) {
     }
     try { validatePortableArticle({ ...item, ...(copy ? { copy } : {}) }); }
     catch { throw new ValidationError('article is invalid'); }
-    normalized.push({ id: item.id, url: url.url, normalizedUrl: url.normalizedUrl, title: item.title.trim(), author, description, descriptionOrigin: descriptionOrigin as Article["descriptionOrigin"], tags, tagsManuallyEdited, createdAt, updatedAt, readAt, ...(copy ? { copy } : {}) });
+    const rating = item.rating === undefined ? null : item.rating as Article['rating'];
+    const favorite = item.favorite === true;
+    normalized.push({ id: item.id, url: url.url, normalizedUrl: url.normalizedUrl, title: item.title.trim(), author, description, descriptionOrigin: descriptionOrigin as Article["descriptionOrigin"], tags, tagsManuallyEdited, createdAt, updatedAt, readAt, rating, favorite, ...(copy ? { copy } : {}) });
   }
   return normalized;
 }
@@ -81,9 +83,9 @@ export async function importArticles(request: Request, env: Env, options: Import
     const guard = `EXISTS(SELECT 1 FROM archive_records r JOIN archive_sessions s ON s.id=r.session_id
       WHERE r.session_id=? AND r.article_id=? AND r.committed=0 AND s.completed=1 AND s.commit_token=?)`;
     for (const item of toInsert) {
-      statements.push(env.DB.prepare(`INSERT INTO articles (id,url,normalized_url,title,author,description,created_at,updated_at,read_at,pdf_asset_id,description_origin,tags_manual)
-        SELECT ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ? ${archiveSessionId ? `WHERE ${guard}` : ''} ON CONFLICT(normalized_url) DO NOTHING`)
-        .bind(item.id, item.url, item.normalizedUrl, item.title, item.author, item.description, item.createdAt, item.updatedAt, item.readAt, assets.get(item.id) ?? null, item.descriptionOrigin, item.tagsManuallyEdited ? 1 : 0,
+      statements.push(env.DB.prepare(`INSERT INTO articles (id,url,normalized_url,title,author,description,created_at,updated_at,read_at,pdf_asset_id,description_origin,tags_manual,rating,favorite)
+        SELECT ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ? ${archiveSessionId ? `WHERE ${guard}` : ''} ON CONFLICT(normalized_url) DO NOTHING`)
+        .bind(item.id, item.url, item.normalizedUrl, item.title, item.author, item.description, item.createdAt, item.updatedAt, item.readAt, assets.get(item.id) ?? null, item.descriptionOrigin, item.tagsManuallyEdited ? 1 : 0, item.rating, item.favorite ? 1 : 0,
           ...(archiveSessionId ? [archiveSessionId,item.id,token!] : [])));
       if (item.copy) statements.push(env.DB.prepare(`INSERT INTO article_copies (article_id,markdown,captured_at,source,revision,reading_time_minutes)
         SELECT ?,?,?,?,?,? WHERE changes() = 1 AND EXISTS (SELECT 1 FROM articles WHERE id = ?)

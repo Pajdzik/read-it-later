@@ -8,7 +8,7 @@ export type PortableCopy = { markdown: string; capturedAt: string; source: 'past
 export type PortableArticle = {
   id: string; url: string; title: string; author?: string | null; description?: string | null;
   tags?: string[]; descriptionOrigin?: 'manual' | 'extracted' | 'generated' | null; tagsManuallyEdited?: boolean;
-  createdAt: string; updatedAt: string; readAt: string | null; copy?: PortableCopy;
+  createdAt: string; updatedAt: string; readAt: string | null; rating?: 'up' | 'down' | null; favorite?: boolean; copy?: PortableCopy;
 };
 export const isPortableShortId = isArticleId;
 export function isPortableTimestamp(value: unknown): value is string {
@@ -20,13 +20,15 @@ function object(value: unknown): value is Record<string, unknown> { return !!val
 export function validatePortableArticle(value: unknown): asserts value is PortableArticle {
   if (!object(value)) throw new Error('article');
   const item = value;
-  const allowed = ['id','url','title','author','description','tags','descriptionOrigin','tagsManuallyEdited','createdAt','updatedAt','readAt','copy'];
+  const allowed = ['id','url','title','author','description','tags','descriptionOrigin','tagsManuallyEdited','createdAt','updatedAt','readAt','rating','favorite','copy'];
   if (Object.keys(item).some(key => !allowed.includes(key))) throw new Error('article');
   if (['id','url','title','createdAt','updatedAt','readAt'].some(key => !Object.hasOwn(item, key))) throw new Error('article');
   if (!isArticleId(item.id)) throw new Error('id');
   if (typeof item.url !== 'string' || !item.url || new TextEncoder().encode(item.url).byteLength > 8192) throw new Error('url');
   if (typeof item.title !== 'string' || !item.title.trim() || item.title.trim().length > 500) throw new Error('title');
   if (!isPortableTimestamp(item.createdAt) || !isPortableTimestamp(item.updatedAt) || !(item.readAt === null || isPortableTimestamp(item.readAt))) throw new Error('timestamp');
+  if (item.rating !== undefined && item.rating !== null && item.rating !== 'up' && item.rating !== 'down') throw new Error('rating');
+  if (item.favorite !== undefined && typeof item.favorite !== 'boolean') throw new Error('favorite');
   if (!(item.author === undefined || item.author === null || (typeof item.author === 'string' && !!item.author.trim() && item.author.length <= 200))) throw new Error('author');
   if (!(item.description === undefined || item.description === null || (typeof item.description === 'string' && !!item.description.trim() && item.description.length <= 500))) throw new Error('description');
   if (item.tags !== undefined) {

@@ -120,6 +120,7 @@ async function runProfile(name, browserType, device) {
   browsers.push(browser);
   const context = await browser.newContext({ ...device, serviceWorkers: "allow" });
   const page = await context.newPage();
+  const expectStatus = (status) => expect(page.locator(`[data-status="${status}"]`)).toHaveAttribute("aria-pressed", "true");
   const errors = [];
   const failedRequests = [];
   const pendingListRequests = new Set();
@@ -413,6 +414,37 @@ async function runProfile(name, browserType, device) {
   await page.locator("#theme-toggle").selectOption("dark");
   await page.locator("#settings-dialog .dialog-close button").tap();
 
+  await titleButton.tap();
+  await expect(readyReader.locator("#reader-title")).toHaveText(shareTitle);
+  const favoriteToggle = readyReader.locator("#reader-favorite-toggle");
+  const favoriteResponsePromise = page.waitForResponse((response) =>
+    new URL(response.url()).pathname === `/api/articles/${encodeURIComponent(shareArticleId)}` && response.request().method() === "PATCH");
+  await favoriteToggle.tap();
+  const favoriteResponse = await favoriteResponsePromise;
+  assert.equal(favoriteResponse.status(), 200, `${name}: favoriting from the reader should save successfully.`);
+  assert.equal((await favoriteResponse.json()).article.favorite, true, `${name}: favorite state should persist.`);
+  await page.locator("#reader-dialog .reader-close button").tap();
+  await waitForList(titleButton);
+  await page.locator('[data-status="favorites"]').tap();
+  await expectStatus("favorites");
+  const favoriteTitle = page.locator("#articles").getByRole("link", { name: shareTitle, exact: true });
+  await favoriteTitle.waitFor();
+  await favoriteTitle.tap();
+  await expect(readyReader.locator("#reader-title")).toHaveText(shareTitle);
+  await expect(readyReader.locator("#reader-favorite-toggle")).toHaveAttribute("aria-pressed", "true");
+  const unfavoriteResponsePromise = page.waitForResponse((response) =>
+    new URL(response.url()).pathname === `/api/articles/${encodeURIComponent(shareArticleId)}` && response.request().method() === "PATCH");
+  await readyReader.locator("#reader-favorite-toggle").tap();
+  const unfavoriteResponse = await unfavoriteResponsePromise;
+  assert.equal(unfavoriteResponse.status(), 200, `${name}: removing a favorite from the reader should save successfully.`);
+  assert.equal((await unfavoriteResponse.json()).article.favorite, false, `${name}: unstar state should persist.`);
+  await page.locator("#reader-dialog .reader-close button").tap();
+  await expectStatus("favorites");
+  await page.locator("#empty h3").getByText("No favorites yet").waitFor();
+  await expect(page.locator('[data-status="favorites"]')).toBeFocused();
+  await page.locator('[data-status="unread"]').tap();
+  await expectStatus("unread");
+
   // A duplicate normalized URL keeps its original record and state.
   await page.locator("#add-open").tap();
   await page.locator("#add-url").fill(`${sourceBase}/shared-${name}?utm_source=other`);
@@ -506,7 +538,6 @@ async function runProfile(name, browserType, device) {
       emit(cancel ? "touchcancel" : "touchend", points.at(-1));
     }, { points, cancel, fingers });
   };
-  const expectStatus = (status) => expect(page.locator(`[data-status="${status}"]`)).toHaveAttribute("aria-pressed", "true");
   const left = [[320, 180], [100, 180]];
   const right = [...left].reverse();
   // Swipe the article panel itself, including content, blank space, and tabs.
@@ -517,7 +548,11 @@ async function runProfile(name, browserType, device) {
   await swipe(".library", left);
   await expectStatus("all");
   await swipe(".library", left);
-  await expectStatus("all"); // Stop at the last tab.
+  await expectStatus("favorites");
+  await swipe(".library", left);
+  await expectStatus("favorites"); // Podcast is hidden unless enabled.
+  await swipe("#status-tabs", right);
+  await expectStatus("all");
   await swipe("#status-tabs", right);
   await expectStatus("read");
   await article.waitFor();
@@ -533,6 +568,24 @@ async function runProfile(name, browserType, device) {
   assert.equal(page.url(), listUrl, `${name}: swiping a title opened the reader.`);
   await swipe(".library", right);
   await expectStatus("unread"); // Stop at the first tab.
+  await page.locator('[data-status="favorites"]').tap();
+  await expectStatus("favorites");
+  await page.locator("#empty h3").getByText("No favorites yet").waitFor();
+  const beforeNarrowTabs = page.viewportSize();
+  const podcastTab = page.locator('[data-status="podcast"]');
+  const podcastWasHidden = await podcastTab.evaluate((button) => button.hidden);
+  await page.setViewportSize({ width: 320, height: beforeNarrowTabs.height });
+  await podcastTab.evaluate((button) => { button.hidden = false; });
+  const narrowTabs = await page.locator("#status-tabs").evaluate((tabs) => {
+    const bounds = [...tabs.querySelectorAll("button")].map((button) => button.getBoundingClientRect());
+    return { width: tabs.clientWidth, scrollWidth: tabs.scrollWidth,
+      withinViewport: bounds.every((rect) => rect.left >= 0 && rect.right <= innerWidth),
+      wrapped: bounds.some((rect) => rect.top > bounds[0].top) };
+  });
+  assert.ok(narrowTabs.scrollWidth <= narrowTabs.width + 1 && narrowTabs.withinViewport && narrowTabs.wrapped,
+    `${name}: all five tabs, including Podcast picks, should wrap and stay reachable at 320px: ${JSON.stringify(narrowTabs)}.`);
+  await podcastTab.evaluate((button, hidden) => { button.hidden = hidden; }, podcastWasHidden);
+  await page.setViewportSize(beforeNarrowTabs);
   if (browserType === chromium) {
     // Keep raw protocol input isolated from Playwright's touchscreen input state.
     const nativePage = await context.newPage();
@@ -638,13 +691,17 @@ async function runProfile(name, browserType, device) {
   const completionMetrics = await completion.evaluate((footer) => ({
     left: footer.getBoundingClientRect().left,
     width: footer.getBoundingClientRect().width,
-    button: footer.querySelector("button").getBoundingClientRect().toJSON(),
+    button: footer.querySelector("#reader-read-toggle").getBoundingClientRect().toJSON(),
+    feedback: [...footer.querySelectorAll(".reader-feedback-button")].map((button) => button.getBoundingClientRect().toJSON()),
     top: footer.getBoundingClientRect().top,
     bodyBottom: document.querySelector("#reader-body").getBoundingClientRect().bottom,
   }));
   assert.ok(completionMetrics.button.height >= minimumMeasuredTouchSize && Math.abs(completionMetrics.width - completionMetrics.button.width) < 1 &&
     completionMetrics.top >= completionMetrics.bodyBottom + 23,
     `${name}: completion button must follow the article and fill the mobile column: ${JSON.stringify(completionMetrics)}`);
+  assert.ok(completionMetrics.feedback.length === 3 && completionMetrics.feedback.every(({ width, height, bottom }) =>
+    width >= 44 && height >= 44 && bottom <= completionMetrics.button.top),
+    `${name}: all feedback buttons must be touch-sized and above the read button.`);
   await readyReader.locator("#reader-more-button").tap();
   const readerDelete = readyReader.locator("#reader-delete-button");
   await readerDelete.waitFor({ state: "visible" });

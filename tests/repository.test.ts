@@ -1,6 +1,6 @@
 import { env } from "cloudflare:workers";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { deleteArticle, listArticles, saveArticle, saveArticleCopy, updateArticle } from "../src/articles/repository";
+import { deleteArticle, getArticle, listArticles, saveArticle, saveArticleCopy, updateArticle } from "../src/articles/repository";
 import * as identity from "../src/articles/identity";
 
 async function clearArticles() {
@@ -143,6 +143,29 @@ describe("D1 article repository", () => {
     expect((await listArticles(env.DB, { status: "all", q: "_", limit: 10 })).items).toHaveLength(0);
     const plan = await env.DB.prepare("EXPLAIN QUERY PLAN SELECT id FROM articles WHERE read_at IS NULL ORDER BY created_at DESC,id DESC LIMIT 51").all<{ detail: string }>();
     expect(plan.results?.some((row) => row.detail.includes("articles_read_created"))).toBe(true);
+  });
+
+  it("updates rating and favorites independently and filters favorites across read states", async () => {
+    const first = await saveArticle(env.DB, { url: "https://example.com/fav-one", normalizedUrl: "https://example.com/fav-one", title: "Find me", titleOrigin: "supplied" });
+    const second = await saveArticle(env.DB, { url: "https://example.com/fav-two", normalizedUrl: "https://example.com/fav-two", title: "Find me too", titleOrigin: "supplied" });
+    await updateArticle(env.DB, first.article.id, { tags: ["later"] });
+    await updateArticle(env.DB, second.article.id, { tags: ["later"] });
+    await updateArticle(env.DB, first.article.id, { rating: "up", favorite: true });
+    await updateArticle(env.DB, first.article.id, { read: true });
+    await updateArticle(env.DB, second.article.id, { rating: "down", favorite: true });
+    await updateArticle(env.DB, second.article.id, { rating: null });
+    const page = await listArticles(env.DB, { status: "favorites", q: "Find me", limit: 1 });
+    expect(page.items).toHaveLength(1);
+    expect(page.nextCursor).toBeTruthy();
+    const next = await listArticles(env.DB, { status: "favorites", q: "Find me", limit: 1, cursor: page.nextCursor! });
+    expect(next.items).toHaveLength(1);
+    expect(new Set([...page.items, ...next.items].map(a => a.id))).toEqual(new Set([first.article.id, second.article.id]));
+    expect((await listArticles(env.DB, { status: "favorites", tag: "missing", limit: 10 })).items).toHaveLength(0);
+    expect((await listArticles(env.DB, { status: "favorites", tag: "later", limit: 10 })).items).toHaveLength(2);
+    expect((await listArticles(env.DB, { status: "favorites", limit: 10 })).items).toEqual(expect.arrayContaining([expect.objectContaining({ id: second.article.id, rating: null, favorite: true })]));
+    const unchanged = await updateArticle(env.DB, first.article.id, { favorite: true }, "2099-01-01T00:00:00.000Z");
+    expect(unchanged?.updatedAt).not.toBe("2099-01-01T00:00:00.000Z");
+    expect((await getArticle(env.DB, first.article.id))?.readAt).not.toBeNull();
   });
 
   it("applies simultaneous read and title changes atomically and accepts idempotent delete", async () => {

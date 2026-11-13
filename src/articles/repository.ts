@@ -4,7 +4,7 @@ import { isArticleId, newArticleId } from "./identity";
 import { hydrateTags, normalizeTags } from "./tags";
 import { estimateReadingTimeMinutes } from "./reading-time";
 
-export type ArticleStatus = "unread" | "read" | "all";
+export type ArticleStatus = "unread" | "read" | "all" | "favorites";
 
 export interface SaveArticleInput {
   url: string;
@@ -33,6 +33,8 @@ export interface UpdateArticleInput {
   author?: string | null;
   description?: string | null;
   tags?: string[];
+  rating?: "up" | "down" | null;
+  favorite?: boolean;
 }
 
 export interface SaveArticleCopyInput extends ArticleCopy {}
@@ -41,7 +43,7 @@ const readingTimeColumn = "(SELECT reading_time_minutes FROM article_copies WHER
 
 export async function suggestArticle(db: D1Database, exclude?: string): Promise<{ article: Article | null; hasAlternative: boolean }> {
   // Prefer a different article on shuffle, but keep the sole unread article available.
-  const { results } = await db.prepare(`SELECT id,url,title,author,description,description_origin,tags_manual,created_at,updated_at,read_at,${readingTimeColumn}
+  const { results } = await db.prepare(`SELECT id,url,title,author,description,description_origin,tags_manual,created_at,updated_at,read_at,rating,favorite,${readingTimeColumn}
     FROM articles WHERE read_at IS NULL
     ORDER BY (id = ?) ASC, RANDOM() LIMIT 2`).bind(exclude ?? "").all<Record<string, unknown>>();
   const articles = await hydrateTags(db, results.map(row => mapArticle(row)!));
@@ -77,7 +79,7 @@ export async function listArticlesForExport(
     values.push(decoded.createdAt, decoded.createdAt, decoded.id);
   }
   values.push(limit + 1);
-  const rows = await db.prepare(`SELECT a.id,a.url,a.title,a.author,a.description,a.description_origin,a.tags_manual,a.created_at,a.updated_at,a.read_at,
+  const rows = await db.prepare(`SELECT a.id,a.url,a.title,a.author,a.description,a.description_origin,a.tags_manual,a.created_at,a.updated_at,a.read_at,a.rating,a.favorite,
       c.markdown AS copy_markdown,c.captured_at AS copy_captured_at,c.source AS copy_source,c.revision AS copy_revision
     FROM articles a LEFT JOIN article_copies c ON c.article_id = a.id${where}
     ORDER BY a.created_at DESC,a.id DESC LIMIT ?`).bind(...values).all<Record<string, unknown>>();
@@ -147,6 +149,8 @@ function mapArticle(row: Record<string, unknown> | null): Article | null {
     updatedAt: String(row.updated_at),
     readAt: row.read_at === null ? null : String(row.read_at),
     readingTimeMinutes: row.reading_time_minutes == null ? null : Number(row.reading_time_minutes),
+    rating: row.rating === "up" || row.rating === "down" ? row.rating : null,
+    favorite: Number(row.favorite) === 1,
   };
 }
 
@@ -228,7 +232,7 @@ export async function saveArticle(
       SELECT id,?,?,? FROM articles WHERE id=? AND normalized_url=? AND enrichment_requested_at=? ON CONFLICT DO NOTHING`)
       .bind(now, now, now, id, input.normalizedUrl, now));
     const [result, metadataResult] = await db.batch(statements);
-    const existing = await db.prepare(`SELECT id,url,title,author,description,description_origin,tags_manual,created_at,updated_at,read_at,title_origin,${readingTimeColumn}
+    const existing = await db.prepare(`SELECT id,url,title,author,description,description_origin,tags_manual,created_at,updated_at,read_at,rating,favorite,title_origin,${readingTimeColumn}
       FROM articles WHERE normalized_url = ?`)
       .bind(input.normalizedUrl).first<Record<string, unknown>>();
     if (!existing) continue; // The ID was occupied; retry only that conflict.
@@ -240,7 +244,7 @@ export async function saveArticle(
 }
 
 export async function getArticle(db: D1Database, id: string): Promise<Article | null> {
-  const row = await db.prepare(`SELECT id,url,title,author,description,description_origin,tags_manual,created_at,updated_at,read_at,${readingTimeColumn}
+  const row = await db.prepare(`SELECT id,url,title,author,description,description_origin,tags_manual,created_at,updated_at,read_at,rating,favorite,${readingTimeColumn}
     FROM articles WHERE id = ?`)
     .bind(id).first<Record<string, unknown>>();
   return row ? (await hydrateTags(db, [mapArticle(row)!]))[0] : null;
@@ -252,11 +256,12 @@ export async function listArticles(
 ): Promise<{ items: Article[]; nextCursor: string | null }> {
   const limit = options.limit ?? 50;
   if (!Number.isInteger(limit) || limit < 1 || limit > 100) throw new ValidationError("limit must be an integer from 1 to 100");
-  if (!["unread", "read", "all"].includes(options.status)) throw new ValidationError("status must be unread, read, or all");
+  if (!["unread", "read", "all", "favorites"].includes(options.status)) throw new ValidationError("status must be unread, read, all, or favorites");
   const where: string[] = [];
   const values: unknown[] = [];
   if (options.status === "unread") where.push("read_at IS NULL");
   if (options.status === "read") where.push("read_at IS NOT NULL");
+  if (options.status === "favorites") where.push("favorite = 1");
   if (options.q) {
     where.push("(title LIKE ? ESCAPE '\\' COLLATE NOCASE OR url LIKE ? ESCAPE '\\' COLLATE NOCASE)");
     const query = `%${escapeLike(options.q)}%`;
@@ -271,7 +276,7 @@ export async function listArticles(
     where.push("(created_at < ? OR (created_at = ? AND id < ?))");
     values.push(cursor.createdAt, cursor.createdAt, cursor.id);
   }
-  const sql = `SELECT id,url,title,author,description,description_origin,tags_manual,created_at,updated_at,read_at,${readingTimeColumn}
+  const sql = `SELECT id,url,title,author,description,description_origin,tags_manual,created_at,updated_at,read_at,rating,favorite,${readingTimeColumn}
     FROM articles${where.length ? ` WHERE ${where.join(" AND ")}` : ""} ORDER BY created_at DESC,id DESC LIMIT ?`;
   values.push(limit + 1);
   const rows = await db.prepare(sql).bind(...values).all<Record<string, unknown>>();
@@ -297,6 +302,8 @@ export async function updateArticle(
   const read = patch.read === true;
   const hasAuthor = patch.author !== undefined;
   const hasDescription = patch.description !== undefined;
+  const hasRating = patch.rating !== undefined;
+  const hasFavorite = patch.favorite !== undefined;
   const update = db.prepare(`UPDATE articles SET
     title = CASE WHEN ? THEN ? ELSE title END,
     title_origin = CASE WHEN ? THEN 'protected' ELSE title_origin END,
@@ -305,16 +312,21 @@ export async function updateArticle(
     description = CASE WHEN ? THEN ? ELSE description END,
     description_origin = CASE WHEN ? THEN 'manual' ELSE description_origin END,
     tags_manual = CASE WHEN ? THEN 1 ELSE tags_manual END,
+    rating = CASE WHEN ? THEN ? ELSE rating END,
+    favorite = CASE WHEN ? THEN ? ELSE favorite END,
     updated_at = CASE WHEN
       (? AND (title != ? OR title_origin != 'protected')) OR
       (? AND ((? AND read_at IS NULL) OR (NOT ? AND read_at IS NOT NULL))) OR
-      (? AND author IS NOT ?) OR (? AND (description IS NOT ? OR description_origin IS NOT 'manual')) OR ?
+      (? AND author IS NOT ?) OR (? AND (description IS NOT ? OR description_origin IS NOT 'manual')) OR
+      (? AND rating IS NOT ?) OR (? AND favorite IS NOT ?) OR ?
       THEN ? ELSE updated_at END
     WHERE id = ?`)
     .bind(hasTitle ? 1 : 0, title, hasTitle ? 1 : 0, hasRead ? 1 : 0, read ? 1 : 0, now,
       hasAuthor ? 1 : 0, patch.author ?? null, hasDescription ? 1 : 0, patch.description ?? null, hasDescription ? 1 : 0, patch.tags !== undefined ? 1 : 0,
+      hasRating ? 1 : 0, patch.rating ?? null, hasFavorite ? 1 : 0, patch.favorite ? 1 : 0,
       hasTitle ? 1 : 0, title, hasRead ? 1 : 0, read ? 1 : 0, read ? 1 : 0,
-      hasAuthor ? 1 : 0, patch.author ?? null, hasDescription ? 1 : 0, patch.description ?? null, patch.tags !== undefined ? 1 : 0, now, id);
+      hasAuthor ? 1 : 0, patch.author ?? null, hasDescription ? 1 : 0, patch.description ?? null,
+      hasRating ? 1 : 0, patch.rating ?? null, hasFavorite ? 1 : 0, patch.favorite ? 1 : 0, patch.tags !== undefined ? 1 : 0, now, id);
   const statements = [update];
   if (patch.tags !== undefined) {
     const tags = normalizeTags(patch.tags);

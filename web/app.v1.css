@@ -1144,6 +1144,41 @@ button {
   align-items: center;
   gap: 10px;
 }
+.reader-feedback-controls {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-bottom: 12px;
+}
+.reader-feedback-button {
+  min-height: 44px;
+  min-width: 44px;
+  padding: 0 12px;
+  gap: 8px;
+  border: 1px solid transparent;
+  color: var(--ink);
+}
+.reader-feedback-button[aria-busy="true"] { cursor: wait; }
+.reader-feedback-button svg {
+  width: 18px;
+  height: 18px;
+  fill: none;
+  stroke: currentColor;
+  stroke-width: 1.8;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+  flex: none;
+}
+.reader-feedback-label {
+  font-size: .875rem;
+  font-weight: 600;
+}
+.reader-feedback-button[aria-pressed="true"] {
+  border-color: var(--accent);
+  color: var(--accent);
+}
+#reader-favorite-toggle[aria-pressed="true"] svg { fill: currentColor; }
+#reader-feedback-error { margin: 8px 0 12px; }
 .reader-completion .button {
   display: inline-flex;
   align-items: center;
@@ -1461,6 +1496,16 @@ body:has(#reader-dialog[open]) {
   }
   .tabs button {
     padding: 9px 12px;
+  }
+  .tabs {
+    flex-wrap: wrap;
+    overflow: visible;
+    touch-action: pan-y;
+  }
+  .list-controls {
+    align-items: flex-start;
+    flex-direction: column;
+    gap: 2px;
   }
   .article {
     display: block;

@@ -75,7 +75,8 @@ async function exportLibrary(base) {
   return validateBackupEnvelope(value);
 }
 function restoredDefaults(item) {
-  return { ...item, tags: item.tags ?? [], descriptionOrigin: item.descriptionOrigin ?? (item.description ? 'manual' : null), tagsManuallyEdited: item.tagsManuallyEdited ?? false };
+  return { ...item, tags: item.tags ?? [], descriptionOrigin: item.descriptionOrigin ?? (item.description ? 'manual' : null),
+    tagsManuallyEdited: item.tagsManuallyEdited ?? false, rating: item.rating ?? null, favorite: item.favorite ?? false };
 }
 function sorted(value) { return value.articles.slice().sort((a, b) => a.id.localeCompare(b.id)); }
 function markdown(record, body) {
@@ -113,7 +114,7 @@ async function main() {
     const preexisting = { version: 3, exportedAt: "2026-01-02T03:04:05.000Z", articles: [{
       id: "preex001", url: "https://example.invalid/keep?utm_source=prior", title: "Preserved existing title Ω",
       author: "Original author", description: "Original description", tags: ["preexisting"], descriptionOrigin: "manual", tagsManuallyEdited: true, createdAt: "2020-01-02T03:04:05.000Z",
-      updatedAt: "2021-02-03T04:05:06.000Z", readAt: "2022-03-04T05:06:07.000Z",
+      updatedAt: "2021-02-03T04:05:06.000Z", readAt: "2022-03-04T05:06:07.000Z", rating: "down", favorite: true,
       copy: { markdown: "Existing copy Ω\n", capturedAt: "2023-04-05T06:07:08.000Z", source: "paste", revision: "existing-copy" },
     }] };
     await importBatches(baseUrl, [preexisting]); const before = await exportLibrary(baseUrl);
