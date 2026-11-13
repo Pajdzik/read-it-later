@@ -1,5 +1,7 @@
 # Read Later: service design
 
+For visual design and interface wording, use the [Potem design language](design-language.md).
+
 Historical design record: the original plan preserved the Node.js Markdown-reader prototype during the Cloudflare transition. The prototype has since been retired; current implementation and deployment instructions are in the [README](../README.md) and [deployment guide](deployment.md). The decisions and statuses below are retained as historical context. See [tasks.md](tasks.md) for the current prototype-retirement note.
 
 ## Product decision
