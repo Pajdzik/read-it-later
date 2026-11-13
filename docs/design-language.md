@@ -8,7 +8,7 @@ Preserve the product direction below when changing the interface. Follow the cur
 
 The **reviewed baseline** describes the eleven design fixes reviewed together at commit `2d828b59d3f673d88bbf26891c452383e5393bc6`. It is a design reference, not a claim that every checkout or deployed version contains those changes. Check the working branch before implementation. The older [service design](design.md) is historical architecture context, not the current visual specification.
 
-The **follow-up proposals** at the end were discussed after that review. They must not be treated as already implemented or as blanket authorization to change the interface.
+The **follow-up proposals** at the end were discussed after that review. Treat them as unapproved unless they are listed under accepted additions.
 
 ## Product character
 
@@ -86,6 +86,10 @@ Use concise, calm, concrete language. Prefer sentence case and familiar verbs. N
 Keep saving a link, saving a Markdown copy, sending to an integration, and changing read state conceptually distinct. Their labels and feedback must describe the actual operation.
 
 Report success only after success is confirmed. Errors should say what failed and provide a useful next step when available; preserve the user's draft. For example: “Couldn’t update this article. … Try again.” Do not hide a failure merely because a loading state ended.
+
+## Accepted additions after review
+
+At the top of the mobile reading list, pulling down refreshes the current filter and search. Show “Pull to refresh” while the gesture is below the threshold, “Release to refresh” when it is ready, and “Refreshing your list…” while the request runs. Keep the current articles visible until the refreshed list arrives.
 
 ## Follow-up proposals: not part of the reviewed implementation
 
