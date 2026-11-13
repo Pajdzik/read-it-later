@@ -65,6 +65,10 @@
         <button id="feeds-tab" aria-pressed="false" aria-controls="feeds-view" type="button">Feeds</button>
       </nav>
       <section id="reading-list" class="library" aria-label="Your articles">
+        <div id="library-refresh" class="library-refresh" role="status" aria-live="polite" aria-busy="false" hidden>
+          <span id="library-refresh-icon" class="library-refresh-icon" aria-hidden="true">↓</span>
+          <span id="library-refresh-label">Pull to refresh</span>
+        </div>
         <div class="list-controls">
           <div id="status-tabs" class="tabs" role="group" aria-label="Filter articles">
             <button type="button" data-status="unread" aria-pressed="true">

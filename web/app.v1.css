@@ -341,6 +341,44 @@ button {
   padding: 20px 2px 0;
   touch-action: pan-y pinch-zoom;
 }
+.library-refresh {
+  --refresh-height: 0px;
+  display: flex;
+  height: var(--refresh-height);
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  overflow: hidden;
+  color: var(--muted);
+  font-size: 13px;
+  transition: height 180ms ease;
+}
+.library-refresh.is-dragging {
+  transition: none;
+}
+.library-refresh-icon {
+  width: 20px;
+  text-align: center;
+  color: var(--accent);
+  font-size: 18px;
+  line-height: 1;
+}
+.library-refresh.is-refreshing .library-refresh-icon {
+  width: 15px;
+  height: 15px;
+  border: 2px solid var(--line);
+  border-top-color: var(--accent);
+  border-radius: 50%;
+  font-size: 0;
+  animation: library-refresh-spin 800ms linear infinite;
+}
+@keyframes library-refresh-spin {
+  to { transform: rotate(360deg); }
+}
+@media (prefers-reduced-motion: reduce) {
+  .library-refresh { transition-duration: 0.01ms; }
+  .library-refresh.is-refreshing .library-refresh-icon { animation: none; }
+}
 .search {
   width: 0;
   min-width: 0;

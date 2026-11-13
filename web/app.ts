@@ -1252,16 +1252,19 @@ function render(items: Article[], append = false) {
   }
   $("#more").hidden = !state.cursor;
 }
-async function load(reset = true) {
+async function load(reset = true, preserveCurrent = false) {
   if (!state.session?.authenticated) return;
   const generation = ++loadGeneration;
   if (reset) {
-    state.cursor = null;
-    list.replaceChildren();
+    if (!preserveCurrent) {
+      state.cursor = null;
+      list.replaceChildren();
+    }
     empty.hidden = true;
     $("#clear-search").hidden = true;
   }
   setBusy(true);
+  if (preserveCurrent) loading.hidden = true;
   $<HTMLButtonElement>("#more").disabled = true;
   try {
     const p = new URLSearchParams({ status: state.status === "podcast" ? "all" : state.status, limit: "50" });
@@ -3877,7 +3880,97 @@ document
   .forEach((button) => button.addEventListener("click", () => setStatus(button.dataset.status || "unread")));
 
 const library = $<HTMLElement>(".library");
+const pullRefreshIndicator = $<HTMLElement>("#library-refresh");
+const pullRefreshIcon = $<HTMLElement>("#library-refresh-icon");
+const pullRefreshLabel = $<HTMLElement>("#library-refresh-label");
+const pullRefreshThreshold = 76;
+let pullRefreshStart: { id: number; x: number; y: number; distance: number; active: boolean } | null = null;
+let pullRefreshHideTimer = 0;
+function showPullRefresh(distance: number, refreshing = false) {
+  window.clearTimeout(pullRefreshHideTimer);
+  pullRefreshIndicator.hidden = false;
+  pullRefreshIndicator.classList.toggle("is-dragging", !refreshing);
+  pullRefreshIndicator.classList.toggle("is-refreshing", refreshing);
+  pullRefreshIndicator.setAttribute("aria-busy", String(refreshing));
+  pullRefreshIndicator.style.setProperty("--refresh-height", `${distance}px`);
+  pullRefreshIcon.textContent = refreshing ? "" : distance >= pullRefreshThreshold * 0.58 ? "↑" : "↓";
+  pullRefreshLabel.textContent = refreshing
+    ? "Refreshing your list…"
+    : distance >= pullRefreshThreshold * 0.58 ? "Release to refresh" : "Pull to refresh";
+}
+function hidePullRefresh() {
+  pullRefreshIndicator.classList.remove("is-dragging", "is-refreshing");
+  pullRefreshIndicator.setAttribute("aria-busy", "false");
+  pullRefreshIndicator.style.setProperty("--refresh-height", "0px");
+  window.clearTimeout(pullRefreshHideTimer);
+  pullRefreshHideTimer = window.setTimeout(() => {
+    if (!pullRefreshStart) pullRefreshIndicator.hidden = true;
+  }, 180);
+}
+async function refreshLibraryFromPull() {
+  showPullRefresh(48, true);
+  try {
+    await load(true, true);
+  } finally {
+    hidePullRefresh();
+  }
+}
 let statusSwipeStart: { id: number; x: number; y: number } | null = null;
+library.addEventListener("touchstart", (event) => {
+  const target = event.target;
+  const touch = event.touches.length === 1 ? event.touches[0] : null;
+  if (!touch || !window.matchMedia("(max-width: 620px)").matches || feedMode || state.loading ||
+      !state.session?.authenticated || window.scrollY > 1 ||
+      (target instanceof Element && target.closest("input, textarea, select, [contenteditable='true']"))) {
+    pullRefreshStart = null;
+    return;
+  }
+  window.clearTimeout(pullRefreshHideTimer);
+  pullRefreshIndicator.hidden = true;
+  pullRefreshIndicator.style.setProperty("--refresh-height", "0px");
+  pullRefreshStart = { id: touch.identifier, x: touch.clientX, y: touch.clientY, distance: 0, active: false };
+}, { passive: true });
+library.addEventListener("touchmove", (event) => {
+  if (!pullRefreshStart) return;
+  const touch = event.touches[0];
+  if (event.touches.length !== 1 || touch.identifier !== pullRefreshStart.id) {
+    const wasActive = pullRefreshStart.active;
+    pullRefreshStart = null;
+    if (wasActive) hidePullRefresh();
+    return;
+  }
+  const dx = touch.clientX - pullRefreshStart.x;
+  const dy = touch.clientY - pullRefreshStart.y;
+  if (!pullRefreshStart.active) {
+    if (Math.abs(dx) > 10 && Math.abs(dx) >= dy) {
+      pullRefreshStart = null;
+      return;
+    }
+    if (dy < 8) return;
+    if (window.scrollY > 1 || dy < Math.abs(dx) * 1.2) {
+      pullRefreshStart = null;
+      return;
+    }
+    pullRefreshStart.active = true;
+  }
+  if (event.cancelable) event.preventDefault();
+  pullRefreshStart.distance = Math.max(0, Math.min(60, dy * 0.58));
+  showPullRefresh(pullRefreshStart.distance);
+}, { passive: false });
+library.addEventListener("touchend", (event) => {
+  const start = pullRefreshStart;
+  if (!start) return;
+  pullRefreshStart = null;
+  const touch = Array.from(event.changedTouches).find((touch) => touch.identifier === start.id);
+  if (start.active && touch && start.distance >= pullRefreshThreshold * 0.58 && !state.loading) {
+    if (event.cancelable) event.preventDefault();
+    void refreshLibraryFromPull();
+  } else if (start.active) hidePullRefresh();
+}, { passive: false });
+library.addEventListener("touchcancel", () => {
+  if (pullRefreshStart?.active) hidePullRefresh();
+  pullRefreshStart = null;
+}, { passive: true });
 library.addEventListener("touchstart", (event) => {
   const touch = event.touches.length === 1 ? event.touches[0] : null;
   statusSwipeStart = touch ? { id: touch.identifier, x: touch.clientX, y: touch.clientY } : null;
