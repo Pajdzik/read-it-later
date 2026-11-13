@@ -254,7 +254,7 @@ async function listRoute(url: URL, env: Env): Promise<Response> {
   url.searchParams.forEach((_value, key) => { if (!allowed.has(key)) throw new ValidationError(`unknown query parameter: ${key}`); });
   for (const key of allowed) if (url.searchParams.getAll(key).length > 1) throw new ValidationError(`query parameter ${key} may only appear once`);
   const status = url.searchParams.get('status') || 'unread';
-  if (status !== 'unread' && status !== 'read' && status !== 'all') throw new ValidationError('status must be unread, read, or all');
+  if (status !== 'unread' && status !== 'read' && status !== 'all' && status !== 'favorites') throw new ValidationError('status must be unread, read, all, or favorites');
   const q = url.searchParams.get('q') || undefined;
   if (q !== undefined && q.length > 500) throw new ValidationError('search text must be at most 500 characters');
   const limitText = url.searchParams.get('limit');
@@ -280,11 +280,19 @@ async function listRoute(url: URL, env: Env): Promise<Response> {
 }
 
 async function patchArticle(request: Request, env: Env, id: string): Promise<Response> {
-  const input = parseObject(await readJson(request), ['read', 'title', 'author', 'description', 'tags']);
+  const input = parseObject(await readJson(request), ['read', 'title', 'author', 'description', 'tags', 'rating', 'favorite']);
   if (!Object.keys(input).length) throw new ValidationError('at least one field is required');
   if ('read' in input && typeof input.read !== 'boolean') throw new ValidationError('read must be a boolean');
-  const patch: { read?: boolean; title?: string; author?: string | null; description?: string | null; tags?: string[] } = {};
+  const patch: { read?: boolean; title?: string; author?: string | null; description?: string | null; tags?: string[]; rating?: 'up' | 'down' | null; favorite?: boolean } = {};
   if ('read' in input) patch.read = input.read as boolean;
+  if ('rating' in input) {
+    if (input.rating !== null && input.rating !== 'up' && input.rating !== 'down') throw new ValidationError('rating must be up, down, or null');
+    patch.rating = input.rating as 'up' | 'down' | null;
+  }
+  if ('favorite' in input) {
+    if (typeof input.favorite !== 'boolean') throw new ValidationError('favorite must be a boolean');
+    patch.favorite = input.favorite;
+  }
   if ('title' in input) {
     if (typeof input.title !== 'string') throw new ValidationError('title must be a string');
     const title = input.title.trim();
@@ -329,6 +337,7 @@ async function exportArticles(env: Env): Promise<Response> {
           const portable = { id: article.id, url: article.url, title: article.title, author: article.author, description: article.description,
             tags: article.tags, descriptionOrigin: article.descriptionOrigin, tagsManuallyEdited: article.tagsManuallyEdited,
             createdAt: article.createdAt, updatedAt: article.updatedAt, readAt: article.readAt,
+            rating: article.rating, favorite: article.favorite,
             ...(copy ? { copy: { markdown: copy.markdown, capturedAt: copy.capturedAt, source: copy.source, revision: copy.revision } } : {}) };
           controller.enqueue(encoder.encode(`${emitted++ ? ',' : ''}${JSON.stringify(portable)}`));
           return;

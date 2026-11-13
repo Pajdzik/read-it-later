@@ -73,6 +73,8 @@
               Read</button
             ><button type="button" data-status="all" aria-pressed="false">
               All
+            </button><button type="button" data-status="favorites" aria-pressed="false">
+              Favorites
             </button><button type="button" data-status="podcast" aria-pressed="false" hidden>
               Podcast picks
             </button>
@@ -286,6 +288,12 @@
         <button id="reader-new-copy" class="button secondary" type="button" hidden>New copy available</button>
         <article id="reader-body" class="reader-body"></article>
         <footer id="reader-completion" class="reader-completion" hidden>
+          <div class="reader-feedback-controls" role="group" aria-label="Article feedback">
+            <button id="reader-rating-up" class="button secondary reader-feedback-button" type="button" aria-label="Thumbs up" aria-pressed="false" title="Thumbs up"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M7 10v12H2V10h5zm0 0 4-7a3 3 0 0 1 3 3v4h5.84a2 2 0 0 1 1.94 2.49l-2.2 8A2 2 0 0 1 17.65 22H7z" /></svg></button>
+            <button id="reader-rating-down" class="button secondary reader-feedback-button" type="button" aria-label="Thumbs down" aria-pressed="false" title="Thumbs down"><svg viewBox="0 0 24 24" aria-hidden="true"><path transform="rotate(180 12 12)" d="M7 10v12H2V10h5zm0 0 4-7a3 3 0 0 1 3 3v4h5.84a2 2 0 0 1 1.94 2.49l-2.2 8A2 2 0 0 1 17.65 22H7z" /></svg></button>
+            <button id="reader-favorite-toggle" class="button secondary reader-feedback-button" type="button" aria-pressed="false"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="m12 3 2.8 5.7 6.2.9-4.5 4.4 1.1 6.2-5.6-3-5.6 3 1.1-6.2L3 9.6l6.2-.9L12 3z" /></svg><span class="reader-feedback-label">Favorite</span></button>
+          </div>
+          <p id="reader-feedback-error" class="notice error" role="alert" hidden></p>
           <div class="reader-completion-actions">
             <button id="reader-read-toggle" class="button primary" type="button">
               <svg viewBox="0 0 24 24" aria-hidden="true"><path d="m5 12 4.5 4.5L19 7" /></svg>

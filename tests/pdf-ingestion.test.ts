@@ -319,9 +319,9 @@ describe('PDF lifecycle', () => {
 });
 
 describe('complete portable archives', () => {
-  it('restores checksummed PDFs and complete article/copy/read state, then skips repeated imports', async () => {
+  it('restores checksummed PDFs and complete article/copy/read/feedback state, then skips repeated imports', async () => {
     await add(); await capture();
-    await env.DB.prepare('UPDATE articles SET read_at=?').bind(ago()).run();
+    await env.DB.prepare("UPDATE articles SET read_at=?,rating='down',favorite=1").bind(ago()).run();
     const originalArticle = (await api<{article:Article}>('/api/articles/pdf00001')).article;
     const oldCopy = await api('/api/articles/pdf00001/copy');
     const response = await route('/api/archive'); expect(response.status).toBe(200);
@@ -331,6 +331,7 @@ describe('complete portable archives', () => {
     expect(exportedArticle.id).toBe('pdf00001');
     expect(exportedArticle).not.toHaveProperty('readingTimeMinutes');
     expect(exportedArticle.copy).not.toHaveProperty('readingTimeMinutes');
+    expect(exportedArticle).toMatchObject({ rating: 'down', favorite: true });
     expect(portable[`pdf/${originalArticle.originalPdf!.id}.pdf`]).toEqual(pdfBytes);
     const archive = await inspectArchive(file,()=>undefined);
     await env.DB.prepare('DELETE FROM articles').run(); await env.DB.prepare('DELETE FROM pdf_assets').run();
@@ -339,6 +340,7 @@ describe('complete portable archives', () => {
     const restored = (await api<{article:Article}>('/api/articles/pdf00001')).article;
     expect({...restored,originalPdf:undefined,extraction:undefined,hasCopy:undefined}).toMatchObject({id:originalArticle.id,url:originalArticle.url,title:originalArticle.title,readAt:originalArticle.readAt});
     expect(restored.readingTimeMinutes).toBe(1);
+    expect({...restored,originalPdf:undefined,extraction:undefined,hasCopy:undefined}).toMatchObject({rating:'down',favorite:true});
     expect(restored.originalPdf!.checksum).toBe(originalArticle.originalPdf!.checksum);
     expect(await api('/api/articles/pdf00001/copy')).toEqual(oldCopy);
     expect(await restoreArchive(file,archive,api,()=>undefined)).toEqual({imported:0,skipped:1});

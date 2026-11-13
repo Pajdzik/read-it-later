@@ -60,7 +60,7 @@ Use serif typography for article titles and reading content, with a sans-serif i
 
 ## Reviewed baseline: reader, editor, and Settings
 
-**Reader:** Mark as read/unread is the primary completion action at the end of the article. It fills the reading column on narrow screens and uses its content width on desktop. Delete article lives under a quiet More actions popover. Keep the menu beside its trigger and within the viewport. Preserve confirmation, error reporting, request guards, dismissal, and focus restoration. Opening or scrolling an article never marks it read automatically.
+**Reader:** Mark as read/unread is the primary completion action at the end of the article. Article ratings and favorites are available only for persisted saved copies; ephemeral previews do not expose feedback controls. It fills the reading column on narrow screens and uses its content width on desktop. Delete article lives under a quiet More actions popover. Keep the menu beside its trigger and within the viewport. Preserve confirmation, error reporting, request guards, dismissal, and focus restoration. Opening or scrolling an article never marks it read automatically.
 
 **Editor:** Use an Edit article heading and one set of Title, Tags, and Description fields. Keep Clear actions small and inline, with field-specific accessible names. Keep generated-description provenance available, including to assistive technology. Put Markdown editing, capture/recovery, and integrations in labeled disclosures; retain discoverable reading and download actions. Reveal the relevant section when a missing-copy task or actionable error needs attention. Preserve drafts, focus, selection, and disclosure state through background updates. Failed recapture feedback must remain visible.
 

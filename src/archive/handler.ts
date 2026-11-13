@@ -42,7 +42,7 @@ async function remainingImportRecords(db: D1Database, id: string): Promise<{n:nu
 async function exportArchive(env: Env): Promise<Response> {
   if (!env.PDF_BUCKET) return errorResponse(503, 'archive_unavailable', 'PDF archive storage is not configured.');
   const id = crypto.randomUUID(), now = iso(), expiry = new Date(Date.now() + ASSET_TTL_MS).toISOString();
-  const article = `json_object('id',a.id,'url',a.url,'title',a.title,'author',a.author,'description',a.description,'descriptionOrigin',a.description_origin,'tagsManuallyEdited',json(CASE WHEN a.tags_manual=1 THEN 'true' ELSE 'false' END),'tags',json((SELECT json_group_array(tag) FROM (SELECT tag FROM article_tags WHERE article_id=a.id ORDER BY tag))),'createdAt',a.created_at,'updatedAt',a.updated_at,'readAt',a.read_at)`;
+  const article = `json_object('id',a.id,'url',a.url,'title',a.title,'author',a.author,'description',a.description,'descriptionOrigin',a.description_origin,'tagsManuallyEdited',json(CASE WHEN a.tags_manual=1 THEN 'true' ELSE 'false' END),'tags',json((SELECT json_group_array(tag) FROM (SELECT tag FROM article_tags WHERE article_id=a.id ORDER BY tag))),'createdAt',a.created_at,'updatedAt',a.updated_at,'readAt',a.read_at,'rating',a.rating,'favorite',json(CASE WHEN a.favorite=1 THEN 'true' ELSE 'false' END))`;
   const copy = `CASE WHEN c.article_id IS NULL THEN '{}' ELSE json_object('copy',json_object('markdown',c.markdown,'capturedAt',c.captured_at,'source',c.source,'revision',c.revision)) END`;
   const pdf = `CASE WHEN p.id IS NULL THEN NULL ELSE json_object('articleId',a.id,'id',p.id,'checksum',p.checksum,'bytes',p.bytes,'capturedAt',p.captured_at,'sourceUrl',p.source_url) END`;
   await env.DB.batch([

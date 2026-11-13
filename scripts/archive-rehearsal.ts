@@ -60,6 +60,8 @@ function fixture(): BackupEnvelope {
       createdAt: new Date(Date.parse(fixedTime) - i * 60000).toISOString(),
       updatedAt: new Date(Date.parse(fixedTime) - i * 30000).toISOString(),
       readAt: i % 3 === 0 ? fixedTime : null,
+      rating: i % 3 === 0 ? "up" : i % 3 === 1 ? "down" : null,
+      favorite: i % 2 === 0,
     };
     if (i < 28) {
       const source: BackupCopy["source"] = i % 2 === 0 ? "paste" : "upload";
@@ -415,6 +417,14 @@ async function run() {
     diagnosticStage = "source backup import";
     await importAll(sourceBase, input, sourceBatches);
     const canonical = await exportLibrary(sourceBase);
+    if (!options["--backup"]) {
+      const canonicalById = new Map(canonical.envelope.articles.map(article => [article.id, article]));
+      for (const expected of input.articles) {
+        const actual = canonicalById.get(expected.id);
+        assert.equal(actual?.rating, expected.rating, "Initial import and export should preserve an explicit rating.");
+        assert.equal(actual?.favorite, expected.favorite, "Initial import and export should preserve an explicit favorite state.");
+      }
+    }
     const canonicalBatches = splitImportBatches(canonical.envelope);
     await stopWorker(sourceWorker);
     sourceWorker = undefined;

@@ -8,7 +8,7 @@ import { getArticle, getArticleCopy, saveArticleCopy } from '../src/articles/rep
 const origin = 'http://localhost:8787';
 const baseEnv: Env = { ...testEnv, APP_ORIGIN: origin, DEV_AUTH_BYPASS: 'true', GITHUB_BACKUP_REPOSITORY: 'Pajdzik/Kamilpedia', GITHUB_BACKUP_BRANCH: 'main', GITHUB_BACKUP_PATH: 'Articles', GITHUB_BACKUP_TOKEN: 'server-only-backup-token' };
 const copy: ArticleCopy = { markdown: '# 日本語 📰\n\nQuoted “text” & café.\n', capturedAt: '2026-10-01T01:00:00.000Z', source: 'upload', revision: 'first-revision' };
-const article: Article = { id: 'k7m2q9x4', url: 'https://example.com/source?q=one%20two', title: 'Why we read', author: 'Author', description: 'Description', tags: ['research'], descriptionOrigin: 'manual', tagsManuallyEdited: false, createdAt: '2026-01-01T00:00:00.000Z', updatedAt: '2026-01-02T00:00:00.000Z', readAt: null, readingTimeMinutes: 1 };
+const article: Article = { id: 'k7m2q9x4', url: 'https://example.com/source?q=one%20two', title: 'Why we read', author: 'Author', description: 'Description', tags: ['research'], descriptionOrigin: 'manual', tagsManuallyEdited: false, createdAt: '2026-01-01T00:00:00.000Z', updatedAt: '2026-01-02T00:00:00.000Z', readAt: null, readingTimeMinutes: 1, rating: 'up', favorite: true };
 let env: Env;
 const api = (path: string, method = 'GET', body?: unknown) => new Request(`${origin}${path}`, { method, headers: { Origin: origin, 'X-CSRF-Token': 'dev-bypass', 'Content-Type': 'application/json' }, ...(body === undefined ? {} : { body: JSON.stringify(body) }) });
 const route = async (path: string, method = 'GET', body?: unknown, settings = env) => (await handleArticles(api(path, method, body), settings))!;
@@ -37,7 +37,8 @@ function remoteMock(initial: string | null = null) {
 beforeEach(async () => {
   env = { ...baseEnv };
   await env.DB.prepare('DELETE FROM articles').run();
-  await env.DB.prepare('INSERT INTO articles(id,url,normalized_url,title,author,description,description_origin,created_at,updated_at) VALUES(?,?,?,?,?,?,?,?,?)').bind(article.id, article.url, article.url, article.title, article.author, article.description, article.descriptionOrigin, article.createdAt, article.updatedAt).run();
+  await env.DB.prepare('INSERT INTO articles(id,url,normalized_url,title,author,description,description_origin,created_at,updated_at,rating,favorite) VALUES(?,?,?,?,?,?,?,?,?,?,?)')
+    .bind(article.id, article.url, article.url, article.title, article.author, article.description, article.descriptionOrigin, article.createdAt, article.updatedAt, article.rating, Number(article.favorite)).run();
   await env.DB.prepare('INSERT INTO article_tags(article_id,tag) VALUES(?,?)').bind(article.id, 'research').run();
   await saveArticleCopy(env.DB, article.id, copy, null);
 });
@@ -52,6 +53,7 @@ describe('GitHub integration', () => {
     expect(await response.json()).toMatchObject({ unchanged: false, integration: { id: 'github', state: 'saved', url: 'https://github.com/Pajdzik/Kamilpedia/blob/main/Articles/k7m2q9x4.md' } });
     expect(remote.paths).toEqual(['/repos/Pajdzik/Kamilpedia/contents/Articles/k7m2q9x4.md', '/repos/Pajdzik/Kamilpedia/contents/Articles/k7m2q9x4.md']);
     expect(remote.remote).toBe(articleMarkdown(article, copy));
+    expect(remote.remote).not.toMatch(/^(rating|favorite):/m);
     expect(remote.remote).toContain('tags: [\"research\"]\ndescriptionOrigin: \"manual\"\ntagsManuallyEdited: false');
     expect(await getArticle(env.DB, article.id)).toEqual(article);
     expect(await getArticleCopy(env.DB, article.id)).toEqual({ ...copy, readingTimeMinutes: 1 });

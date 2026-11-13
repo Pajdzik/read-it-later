@@ -24,6 +24,8 @@ export type BackupArticle = {
   createdAt: string;
   updatedAt: string;
   readAt: string | null;
+  rating?: "up" | "down" | null;
+  favorite?: boolean;
   copy?: BackupCopy;
 };
 
