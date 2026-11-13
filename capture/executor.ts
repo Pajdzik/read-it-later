@@ -71,13 +71,13 @@ export async function executeCapture(url: string, appOrigin: string, options: Ca
       appOrigin, signal: controller.signal,
       fetchHop:(input,init)=>pinnedFetch(input,init,appOrigin),
     });
-    const metadata=source.kind==='html' ? await extractInThread(source.html,source.url,undefined,controller.signal) : {};
+    const metadata=source.kind==='html' ? await extractInThread(source.html,source.url,undefined,controller.signal) : undefined;
     const path = preview && source.kind === 'pdf' ? 'preview-pdf' : source.kind;
     const article=await convert(path,{method:'POST',
       headers:{'Content-Type':source.kind==='html' ? 'text/html' : 'application/pdf','X-Source-Url':encodeURIComponent(source.url)},
       body:source.kind==='html' ? source.html : new Uint8Array(source.bytes),
     });
-    return {...article,metadata,...(preview ? { sourceUrl: source.url } : {})};
+    return {...article,...(metadata ? {metadata} : {}),...(preview ? { sourceUrl: source.url } : {})};
   };
   try { return await Promise.race([run(),cancelled]); }
   catch(error) {

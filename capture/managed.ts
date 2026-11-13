@@ -14,6 +14,20 @@ function hasPdfText(markdown: string): boolean {
   return lines.slice(2).some(line=>!/^### Page \d+$/.test(line));
 }
 
+function extractPdfMetadata(markdown: string): { markdown: string; title?: string } {
+  const lines = markdown.split(/\r?\n/);
+  const metadataStart = lines.findIndex((line, index) => index < 3 && line.trim() === "## Metadata");
+  if (metadataStart < 0) return { markdown };
+
+  const metadataEnd = lines.findIndex((line, index) => index > metadataStart && /^## (?!#)/.test(line.trim()));
+  const metadataLines = lines.slice(metadataStart + 1, metadataEnd < 0 ? lines.length : metadataEnd);
+  const title = metadataLines
+    .map(line => /^\s*[-*]\s*Title\s*[=:]\s*(.*?)\s*$/i.exec(line)?.[1]?.trim())
+    .find(value => value);
+  const content = [...lines.slice(0, metadataStart), ...lines.slice(metadataEnd < 0 ? lines.length : metadataEnd)].join("\n");
+  return { markdown: content, ...(title ? { title: title.slice(0, 500) } : {}) };
+}
+
 /** Only reachable through the Container's virtual outbound hostname, never the public fetch handler. */
 export async function managedConversion(request: Request, env: ManagedEnv): Promise<Response> {
   const send = (article: CapturedArticle) => Response.json({ version: 1, ok: true, article });
@@ -61,7 +75,7 @@ export async function managedConversion(request: Request, env: ManagedEnv): Prom
     try {
       const result = await Promise.race([
         env.AI.toMarkdown({ name: pdf ? 'document.pdf' : 'article.html', blob: new Blob([bytes], { type: pdf ? 'application/pdf' : 'text/html' }) }, {
-          conversionOptions: pdf ? { pdf: { metadata: false, images: { convert: false } } } : { html: { hostname: sourceUrl, images: { convert: false, convertOGImage: false } } },
+          conversionOptions: pdf ? { pdf: { metadata: true, images: { convert: false } } } : { html: { hostname: sourceUrl, images: { convert: false, convertOGImage: false } } },
         }),
         new Promise<never>((_, reject) => { timer = setTimeout(() => reject(new SourceFetchError('conversion_timeout', true)), CONVERSION_TIMEOUT_MS); }),
       ]);
@@ -71,9 +85,11 @@ export async function managedConversion(request: Request, env: ManagedEnv): Prom
       if (error instanceof SourceFetchError) throw error;
       throw new SourceFetchError('converter_unavailable', true);
     } finally { clearTimeout(timer!); }
+    const pdfMetadata = pdf ? extractPdfMetadata(markdown) : undefined;
+    if (pdfMetadata) markdown = pdfMetadata.markdown;
     if (pdf ? !hasPdfText(markdown) : !markdown.trim()) throw new SourceFetchError(pdf ? 'pdf_no_text' : 'conversion_failed', false);
     if (new TextEncoder().encode(markdown).length > MAX_MARKDOWN_BYTES) throw new SourceFetchError('markdown_too_large', false);
-    return send({ markdown, metadata: {}, ...(originalPdf ? { originalPdf } : {}) });
+    return send({ markdown, metadata: pdfMetadata?.title ? { title: pdfMetadata.title } : {}, ...(originalPdf ? { originalPdf } : {}) });
   } catch (error) {
     const failure = error instanceof SourceFetchError ? { code: error.code, retryable: error.retryable } : { code: 'conversion_failed', retryable: false };
     if (originalPdf) return send({ markdown: '', metadata: {}, originalPdf, conversionError: failure });
