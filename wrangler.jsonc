@@ -132,7 +132,7 @@
         "GITHUB_BACKUP_PATH": "Articles",
         "BACKGROUND_CAPTURE_ENABLED": "true",
         "MANAGED_CONVERSION_ENABLED": "true",
-        "ARTICLE_ENRICHMENT_ENABLED": "false",
+        "ARTICLE_ENRICHMENT_ENABLED": "true",
         "ARTICLE_ENRICHMENT_DAILY_LIMIT": "100",
         "ARTICLE_AUDIO_ENABLED": "true",
         "AUDIO_MONTHLY_BUDGET_USD": "10",
