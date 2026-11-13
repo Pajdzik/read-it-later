@@ -1,10 +1,13 @@
 # Potem browser extension: design and implementation tasks
 
-> **Current integration model:** The GitHub-only design below is historical. [Optional integrations](integrations.md) supersedes its destination and Simple-mode requirements: automatic private saving needs no integration; external delivery uses a discovered provider and destination-specific consent. The extension now supports GitHub and custom article hooks through the same API. Old GitHub-only preferences require setup again. Existing browser validation evidence below describes the earlier implementation unless otherwise stated.
+> **Current implementation:** The extension saves captures privately in Potem by default and can optionally send the persisted copy to a configured integration. [Optional integrations](integrations.md) documents the current behavior, including destination-specific consent for automatic external delivery. The GitHub-only design and acceptance plan below are historical and are superseded where they describe GitHub as the only destination.
 
-
-Status: implementation is complete locally; the Chromium capture matrix and Firefox Review/private-save integration pass. The complete Firefox acceptance matrix and release checks remain pending.
+**Status:** the local implementation includes private saving, optional integrations, destination consent, and integration retry. Recorded Chromium integration evidence covers private saves and a synthetic external destination. Firefox has passed a temporary-install private Review capture; its full acceptance matrix remains pending, along with signing and store distribution. A fresh `pnpm test:extension` run in this checkout was blocked on November 12, 2026 because pnpm could not resolve the package registry.
 Prepared: October 10, 2026.
+
+## Historical GitHub-only proposal
+
+The requirements and task ledger below preserve the original October 10 plan and its implementation record. Use the current [installation guide](browser-extension-install.md) and [optional integrations guide](integrations.md) for present-day setup and behavior.
 
 ## Goal and defaults
 
@@ -170,8 +173,8 @@ Tasks are checked only where their acceptance evidence is complete; partial impl
 
 ## Completion criteria
 
-Final local validation also covers Review-mode GitHub saving with the provider-confirmed result URL, opening the saved reader without changing read state, and an oversized extraction recovered by pasted Markdown. Pasted recovery requires explicit review and stays unsaved across reload until confirmation. The extension checks run in CI. Local production-origin Chrome/Firefox ZIPs have been built for `https://read.pajdzik.pl`, matching the current Worker configuration; this task has not deployed the website or published/signed an extension.
+Recorded local validation also covers Review-mode delivery with a provider-confirmed result URL, opening the saved reader without changing read state, and an oversized extraction recovered by pasted Markdown. Pasted recovery requires explicit review and stays unsaved across reload until confirmation. The extension checks run in CI. Production-origin Chrome/Firefox packages have previously been built for `https://read.pajdzik.pl`; generated packages are ignored and are not present in this checkout. This task has not deployed the website or published/signed an extension.
 
-The extension is ready when the same HTML page can be saved from Chrome and Firefox in Simple mode with one toolbar click after setup, and in Review mode with metadata/Markdown edits and an explicit save. Both paths must preserve the correct content in Potem and write that persisted revision with metadata to GitHub. Report failures accurately, preserve drafts and confirmed writes, and demonstrate that existing captures, backups, authentication, and revision protections still work.
+The extension is ready for release when equivalent workflows pass in Chrome and Firefox: private saving in automatic and Review modes, plus optional integration delivery after explicit destination consent. Review edits must save the intended content in Potem before any integration receives it. Report failures accurately, preserve drafts and confirmed writes, and demonstrate that existing captures, backups, authentication, and revision protections still work.
 
-Roll out the compatible website/API changes first, then distribute the extension. Observe only operation stage, safe error code, and timing; never log captured URLs, content, or credentials. Disabling or uninstalling the extension stops new captures without changing saved articles or GitHub files. Keep incomplete real-browser or live-provider checks marked pending.
+Roll out compatible website/API changes before distributing the extension. Observe only operation stage, safe error code, and timing; never log captured URLs, content, or credentials. Disabling or uninstalling the extension stops new captures without changing saved articles or external copies. Keep incomplete real-browser or live-provider checks marked pending.
