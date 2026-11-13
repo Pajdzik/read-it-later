@@ -4,6 +4,8 @@
 
 The service stores links, article metadata, read state, and Markdown copies captured from URLs or provided by the owner. The maintained application runs on Cloudflare Workers with D1 and Workers Static Assets; the former Node.js reader has been retired.
 
+For visual design, responsive interactions, and interface wording, see the [Potem design language](docs/design-language.md), including the distinction between the reviewed baseline and later proposals.
+
 ## Product decisions
 
 - **One owner, multiple devices.** GitHub login allows one configured numeric user ID. There is no public registration, collaboration, or separate library per account.
