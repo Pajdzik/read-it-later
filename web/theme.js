@@ -14,7 +14,7 @@
     preference = nextPreference === "light" || nextPreference === "dark" ? nextPreference : "system";
     const theme = preference === "dark" || (preference === "system" && systemTheme.matches) ? "dark" : "light";
     document.documentElement.dataset.theme = theme;
-    const color = theme === "dark" ? "#102d24" : "#f7f1e6";
+    const color = theme === "dark" ? "#eee2cf" : "#124138";
     const themeColor = document.querySelector('meta[name="theme-color"]');
     if (themeColor) themeColor.content = color;
     return theme;

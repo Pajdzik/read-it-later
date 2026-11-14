@@ -13,7 +13,7 @@ export async function themeContinuitySmoke(browser, base) {
   });
   const navigation = page.goto(base, { waitUntil: "domcontentloaded" });
   await page.waitForFunction(() => document.documentElement.dataset.theme === "dark");
-  assert.equal(await page.locator('meta[name="theme-color"]').getAttribute("content"), "#102d24");
+  assert.equal(await page.locator('meta[name="theme-color"]').getAttribute("content"), "#eee2cf");
   releaseSession();
   await navigation;
   await expect(page.locator("#library-sign-in")).toBeVisible();
@@ -23,7 +23,7 @@ export async function themeContinuitySmoke(browser, base) {
     select.dispatchEvent(new Event("change", { bubbles: true }));
   });
   assert.equal(await page.locator("html").getAttribute("data-theme"), "light");
-  assert.equal(await page.locator('meta[name="theme-color"]').getAttribute("content"), "#f7f1e6");
+  assert.equal(await page.locator('meta[name="theme-color"]').getAttribute("content"), "#124138");
   assert.equal(await page.evaluate(() => localStorage.getItem("later-theme")), "light");
   await context.close();
 
@@ -45,13 +45,13 @@ export async function themeContinuitySmoke(browser, base) {
   await capture.addInitScript(() => { if (!localStorage.getItem("later-theme")) localStorage.setItem("later-theme", "sepia"); });
   await capture.goto(`${base}/capture.html`, { waitUntil: "domcontentloaded" });
   await expect(capture.locator("html")).toHaveAttribute("data-theme", "dark");
-  assert.equal(await capture.locator('meta[name="theme-color"]').getAttribute("content"), "#102d24");
+  assert.equal(await capture.locator('meta[name="theme-color"]').getAttribute("content"), "#eee2cf");
   await capture.emulateMedia({ colorScheme: "light" });
   await expect(capture.locator("html")).toHaveAttribute("data-theme", "light");
-  assert.equal(await capture.locator('meta[name="theme-color"]').getAttribute("content"), "#f7f1e6");
+  assert.equal(await capture.locator('meta[name="theme-color"]').getAttribute("content"), "#124138");
   await capture.evaluate(() => localStorage.setItem("later-theme", "dark"));
   await capture.reload({ waitUntil: "domcontentloaded" });
   await expect(capture.locator("html")).toHaveAttribute("data-theme", "dark");
-  assert.equal(await capture.locator('meta[name="theme-color"]').getAttribute("content"), "#102d24");
+  assert.equal(await capture.locator('meta[name="theme-color"]').getAttribute("content"), "#eee2cf");
   await captureContext.close();
 }
