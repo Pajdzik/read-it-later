@@ -1176,17 +1176,20 @@ button {
   padding-top: 24px;
   border-top: 1px solid var(--line);
 }
+.reader-completion-toolbar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+}
 .reader-completion-actions {
   display: flex;
-  flex-wrap: wrap;
   align-items: center;
-  gap: 10px;
+  gap: 8px;
 }
 .reader-feedback-controls {
   display: flex;
-  flex-wrap: wrap;
   gap: 8px;
-  margin-bottom: 12px;
 }
 .reader-feedback-button {
   min-height: 44px;
@@ -1229,6 +1232,11 @@ button {
   color: var(--muted);
   background: transparent;
   border-color: var(--line);
+}
+.reader-completion-toolbar svg {
+  width: 20px;
+  height: 20px;
+  flex: none;
 }
 .reader-actions-menu {
   position: fixed;
@@ -1375,9 +1383,6 @@ body:has(#reader-dialog[open]) {
   .reader-content-column { padding-top: 12px; }
   .reader-header { margin-bottom: 14px; }
   .reader-header h2 { font-size: clamp(26px, 8vw, 32px); }
-  .reader-completion-actions { flex-direction: column; align-items: stretch; }
-  #reader-read-toggle { width: 100%; }
-  .reader-more-actions { align-self: flex-end; }
   .reader-body {
     font-size: 1.125rem;
     line-height: 1.6;
@@ -1385,6 +1390,31 @@ body:has(#reader-dialog[open]) {
   .reader-body pre,
   .reader-body table {
     max-width: 100%;
+  }
+}
+@media (max-width: 680px) {
+  .reader-completion-toolbar { gap: 8px; }
+  .reader-completion-actions,
+  .reader-feedback-controls { gap: 6px; }
+  .reader-feedback-button,
+  #reader-read-toggle,
+  .reader-more-actions > .button {
+    width: 44px;
+    min-width: 44px;
+    padding-inline: 0;
+  }
+  .reader-feedback-label,
+  .reader-completion-label,
+  #reader-read-label {
+    position: absolute;
+    width: 1px;
+    height: 1px;
+    padding: 0;
+    margin: -1px;
+    overflow: hidden;
+    clip: rect(0, 0, 0, 0);
+    white-space: nowrap;
+    border: 0;
   }
 }
 .settings-dialog > h2 {

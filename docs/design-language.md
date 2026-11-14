@@ -93,6 +93,8 @@ At the top of the mobile reading list, pulling down refreshes the current filter
 
 In Feeds view, use the top-bar plus button to add a feed. Give it the accessible name and title “Add feed”; it opens the feed URL form. In Reading list view, the same button remains “Add article.” Keep Manage feeds with the feed controls.
 
+At the end of a saved reader copy, keep article feedback, Mark as read/unread, and More actions together in one horizontal toolbar. At narrow widths, use icons with accessible names and preserve 44px touch targets.
+
 ## Follow-up proposals: not part of the reviewed implementation
 
 ### Vertical actions on mobile
