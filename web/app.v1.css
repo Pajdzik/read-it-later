@@ -1,5 +1,7 @@
 :root {
   color-scheme: light;
+  --deep-green: #0d1a10;
+  --rust: #934324;
   --paper: #f7f1e6;
   --white: #fffaf2;
   --ink: #2e2923;
@@ -7,7 +9,6 @@
   --muted: #6e6257;
   --line: #ddd2c3;
   --accent: #145a42;
-  --brand: #145a42;
   --highlight: #e4ede5;
   --emphasis: #a64f2d;
   --orange: var(--emphasis);
@@ -21,16 +22,15 @@
 }
 [data-theme="dark"] {
   color-scheme: dark;
-  --paper: #0b1f18;
-  --white: #183a2f;
+  --paper: var(--deep-green);
+  --white: #1a4c3f;
   --ink: #f3ebdd;
   --title: #f3ebdd;
   --muted: #bac8be;
-  --line: #355449;
-  --accent: #e9a17d;
-  --brand: #70a88a;
-  --highlight: #234638;
-  --emphasis: #e9a17d;
+  --line: #4b7062;
+  --accent: #f0ac89;
+  --highlight: #245143;
+  --emphasis: var(--accent);
   --orange: var(--emphasis);
   --primary-foreground: #102d24;
   --placeholder: #bac8be;
@@ -88,22 +88,42 @@ button {
   cursor: pointer;
 }
 .topbar {
+  color-scheme: dark;
+  --header-background: #124138;
+  --ink: #fff7e9;
+  --line: #719983;
+  --accent: var(--ink);
+  --highlight: #2c5847;
+  --emphasis: #f4b597;
+  --placeholder: #e0cdb7;
+  --focus: #a8cfb7;
   height: 76px;
   display: grid;
   grid-template-columns: auto minmax(0, 1fr) auto;
   gap: 24px;
   align-items: center;
   padding: 0 max(24px, calc((100vw - 1050px) / 2));
-  border-bottom: 1px solid var(--line);
-  background: var(--white);
+  border-bottom: 4px solid var(--rust);
+  background: var(--header-background);
+  color: var(--ink);
   position: relative;
+}
+[data-theme="dark"] .topbar {
+  color-scheme: light;
+  --header-background: #eee2cf;
+  --ink: #30261f;
+  --line: #907964;
+  --highlight: #ded0ba;
+  --emphasis: var(--rust);
+  --placeholder: #695343;
+  --focus: #795139;
 }
 .brand {
   display: flex;
   gap: 10px;
   align-items: center;
   text-decoration: none;
-  color: var(--ink);
+  color: var(--paper);
   font-size: 23px;
   font-weight: 760;
   letter-spacing: -1px;
@@ -113,10 +133,9 @@ button {
   height: 38px;
   flex-shrink: 0;
   display: block;
-  color: var(--brand);
 }
 .brand-dot {
-  color: var(--orange);
+  color: var(--emphasis);
 }
 .top-actions {
   grid-column: 3;
@@ -390,8 +409,8 @@ button {
   border: 1px solid transparent;
   border-radius: 9px;
   padding: 0;
-  color: var(--muted);
-  background: var(--white);
+  color: var(--ink);
+  background: var(--highlight);
   opacity: 0;
   pointer-events: none;
   transition: width 0.2s ease, opacity 0.15s ease, padding 0.2s ease, border-color 0.2s ease;
@@ -404,7 +423,8 @@ button {
   pointer-events: none;
 }
 .search:focus-within {
-  border-color: var(--focus);
+  outline: 3px solid var(--focus);
+  outline-offset: 3px;
 }
 .search input {
   width: 100%;
@@ -413,6 +433,9 @@ button {
   padding: 9px 4px;
   pointer-events: auto;
   font-size: 13px;
+}
+.search input:focus-visible {
+  outline: none;
 }
 .search-control.has-query #search-toggle {
   background: var(--highlight);
@@ -1617,16 +1640,19 @@ body:has(#reader-dialog[open]) {
     grid-row: 1;
     gap: 4px;
   }
+  .search-control {
+    position: static;
+  }
   .search-control .search {
     display: none;
     position: absolute;
-    top: calc(100% + 8px);
-    right: 0;
+    top: 64px;
+    inset-inline-end: 12px;
     z-index: 5;
   }
   .search-control.is-open .search {
     display: flex;
-    width: min(280px, calc(100vw - 30px));
+    width: min(280px, calc(100% - 24px));
     box-shadow: var(--shadow);
   }
 }

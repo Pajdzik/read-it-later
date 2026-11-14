@@ -40,7 +40,7 @@ Reference tokens from the reviewed palette:
 | Focus `--focus` | `#3F795F` | `#8CBEA2` |
 | Primary button text `--primary-foreground` | `#FFFAF2` | `#102D24` |
 
-The dark background was chosen to remain visibly green; lighter green surfaces distinguish dialogs and controls. A darker alternative was later discussed (see below).
+The dark background was chosen to remain visibly green; lighter green surfaces distinguish dialogs and controls. See the accepted additions below for the current background color.
 
 Use semantic CSS tokens rather than local color literals. Despite its legacy name, `--white` means a raised surface in both themes. Destructive actions and errors use the themed `--danger-surface`, `--danger-text`, and `--danger-outline` tokens. Native controls, placeholders, disabled states, focus indicators, and the capture page must belong to the same palette.
 
@@ -95,6 +95,12 @@ In Feeds view, use the top-bar plus button to add a feed. Give it the accessible
 
 At the end of a saved reader copy, keep article feedback, Mark as read/unread, and More actions together in one horizontal toolbar. At narrow widths, use icons with accessible names and preserve 44px touch targets.
 
+Use a darkened, warmer version (`#0D1A10`) of the reference green (`#114236`) for the dark-mode page background. The top bar uses `#124138` in light mode and warm cream (`#EEE2CF`) in dark mode. Raised surfaces (`#1A4C3F`) and highlights (`#245143`) are lighter greens, and peach (`#F0AC89`) accents keep their contrast on those surfaces. Match the browser theme color to the top bar.
+
+Use the page background color for the wordmark and paired bookmark symbol in both themes. Use the top bar’s accent color for the period.
+
+Use a full-width, 4 px rust divider (`#934324`) at the bottom of the top bar in both themes.
+
 ## Follow-up proposals: not part of the reviewed implementation
 
 ### Vertical actions on mobile
@@ -102,10 +108,6 @@ At the end of a saved reader copy, keep article feedback, Mark as read/unread, a
 Long titles exposed a weakness in keeping two buttons beside the title: the controls consume roughly 96px before the gap between text and controls. Moving actions below the content was discussed, followed by a preferred experiment: **stack Mark as read above More on the right on mobile**, retaining horizontal controls on desktop.
 
 A vertical stack uses about 44px of width and 96px of height. It leaves more room for titles but can create empty space beside short entries. If requested, compare long and short entries and align the stack to the top of the article. This discussion did not authorize or implement a new layout.
-
-### Darker background
-
-`#0B1F18` was suggested as a darker base that would retain the bottle-green identity and make the reading environment quieter. It is a candidate, not a replacement token approved by the user. If adopted, review the surfaces, text, borders, focus, and orange accents together.
 
 ### Title-only hover emphasis
 
