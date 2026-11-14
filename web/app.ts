@@ -1994,7 +1994,10 @@ function resetReaderCompletion(article?: Article) {
   const deleteButton = $<HTMLButtonElement>("#reader-delete-button");
   deleteButton.disabled = false;
   deleteButton.removeAttribute("aria-busy");
-  $("#reader-read-label").textContent = article?.readAt ? "Mark as unread" : "Mark as read";
+  const readLabel = article?.readAt ? "Mark as unread" : "Mark as read";
+  $("#reader-read-label").textContent = readLabel;
+  button.setAttribute("aria-label", readLabel);
+  button.title = readLabel;
   button.querySelector("svg")!.outerHTML = iconMarkup(article?.readAt ? "mark-unread" : "mark-read");
   renderReaderFeedback(article);
 }
@@ -2111,6 +2114,8 @@ $("#reader-read-toggle").addEventListener("click", async () => {
   renderReaderFeedback(article);
   button.setAttribute("aria-busy", "true");
   $("#reader-read-label").textContent = "Saving…";
+  button.setAttribute("aria-label", "Saving…");
+  button.title = "Saving…";
   $("#reader-read-error").hidden = true;
   try {
     const updated = await saveReadState(article, !article.readAt);
