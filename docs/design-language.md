@@ -91,6 +91,8 @@ Report success only after success is confirmed. Errors should say what failed an
 
 At the top of the mobile reading list, pulling down refreshes the current filter and search. Show “Pull to refresh” while the gesture is below the threshold, “Release to refresh” when it is ready, and “Refreshing your list…” while the request runs. Keep the current articles visible until the refreshed list arrives.
 
+In Feeds view, use the top-bar plus button to add a feed. Give it the accessible name and title “Add feed”; it opens the feed URL form. In Reading list view, the same button remains “Add article.” Keep Manage feeds with the feed controls.
+
 ## Follow-up proposals: not part of the reviewed implementation
 
 ### Vertical actions on mobile

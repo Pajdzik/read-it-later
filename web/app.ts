@@ -3253,6 +3253,13 @@ $('#capture-description').addEventListener('input', () => {
   if (browserCaptureDraft.requestId) sessionStorage.setItem('later-extension-capture', JSON.stringify(browserCaptureDraft));
 });
 $("#add-open").addEventListener("click", () => {
+  if (feedMode) {
+    const panel = $("#feed-add-panel");
+    panel.hidden = !panel.hidden;
+    $("#add-open").setAttribute("aria-expanded", String(!panel.hidden));
+    if (!panel.hidden) $<HTMLInputElement>("#feed-url").focus();
+    return;
+  }
   showDialog($<HTMLDialogElement>("#add-dialog"), $<HTMLInputElement>("#add-url"));
   $("#add-notice").hidden = true;
 });
@@ -3799,7 +3806,18 @@ function setFeedMode(on: boolean) {
   $(".library").hidden = on;
   $("#feeds-view").hidden = !on;
   $("#search-control").hidden = on;
-  $("#add-open").hidden = on;
+  const addButton = $<HTMLButtonElement>("#add-open");
+  addButton.hidden = false;
+  addButton.setAttribute("aria-label", on ? "Add feed" : "Add article");
+  addButton.title = on ? "Add feed" : "Add article";
+  if (on) {
+    addButton.setAttribute("aria-controls", "feed-add-panel");
+    addButton.setAttribute("aria-expanded", String(!$("#feed-add-panel").hidden));
+  } else {
+    $("#feed-add-panel").hidden = true;
+    addButton.removeAttribute("aria-controls");
+    addButton.removeAttribute("aria-expanded");
+  }
   $("#reading-tab").setAttribute("aria-pressed", String(!on));
   $("#feeds-tab").setAttribute("aria-pressed", String(on));
   if (on) {
@@ -3828,12 +3846,6 @@ $("#feed-manage-toggle").addEventListener("click", () => {
   panel.hidden = !panel.hidden;
   $("#feed-manage-toggle").setAttribute("aria-expanded", String(!panel.hidden));
 });
-$("#feed-add-toggle").addEventListener("click", () => {
-  const panel = $("#feed-add-panel");
-  panel.hidden = !panel.hidden;
-  $("#feed-add-toggle").setAttribute("aria-expanded", String(!panel.hidden));
-  if (!panel.hidden) $<HTMLInputElement>("#feed-url").focus();
-});
 $("#feed-add-form").addEventListener("submit", async event => {
   event.preventDefault();
   if (feedSubmitting) return;
@@ -3850,8 +3862,8 @@ $("#feed-add-form").addEventListener("submit", async event => {
       feedMessage("Feed added.");
       const returnFocus = form.contains(document.activeElement);
       $("#feed-add-panel").hidden = true;
-      $("#feed-add-toggle").setAttribute("aria-expanded", "false");
-      if (returnFocus) $("#feed-add-toggle").focus();
+      $("#add-open").setAttribute("aria-expanded", "false");
+      if (returnFocus) $("#add-open").focus();
     }
   } catch (error) {
     feedMessage(`Couldn’t add feed. ${(error as Error).message}`, true);
