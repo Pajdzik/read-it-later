@@ -1689,6 +1689,7 @@ body:has(#reader-dialog[open]) {
   max-width:68ch;
   font-size:.875rem;
   line-height:1.55;
+  white-space:pre-line;
   display:-webkit-box;
   -webkit-box-orient:vertical;
   -webkit-line-clamp:4;

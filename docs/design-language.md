@@ -93,7 +93,7 @@ At the top of the mobile reading list, pulling down refreshes the current filter
 
 In Feeds view, use the top-bar plus button to add a feed. Give it the accessible name and title “Add feed”; it opens the feed URL form. In Reading list view, the same button remains “Add article.” Keep Manage feeds with the feed controls.
 
-In the feed list, keep excerpts quieter and shorter than article titles, and align Save for later and seen-state actions together beneath the entry. Normalize spacing around punctuation in extracted feed text.
+In feed excerpts, preserve paragraph breaks while extracting readable text, omit a repeated title and trailing tag/category metadata, and keep previews quieter and shorter than article titles. Align Save for later and seen-state actions together beneath the entry.
 
 At the end of a saved reader copy, keep article feedback, Mark as read/unread, and More actions together in one horizontal toolbar. At narrow widths, use icons with accessible names and preserve 44px touch targets.
 
