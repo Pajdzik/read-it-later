@@ -206,7 +206,8 @@ function parseReaderPath(pathname: string): ReaderRoute {
     return { id, ...(slug === undefined ? {} : { slug }) };
   } catch { return { invalid: true }; }
 }
-function listHistoryState(): ReaderHistoryState { return { potem: { version: 1, kind: "list" } }; }
+function listHistoryState(view?: "feeds"): ReaderHistoryState { return { potem: { version: 1, kind: "list", ...(view ? { view } : {}) } }; }
+function isFeedsPath(pathname = location.pathname) { return pathname === "/feeds" || pathname === "/feeds/"; }
 function readerHistoryState(id: string, fromList: boolean): ReaderHistoryState { return { potem: { version: 1, kind: "reader", articleId: id, fromList } }; }
 function setListTitle() { document.title = "potem — your reading list"; }
 function setArticleTitle(article: Pick<Article, "title">) { document.title = `${article.title} · Potem`; }
@@ -464,7 +465,7 @@ let readerReturnFocus: HTMLElement | null = null;
 const lastOpenedStorageKey = "potem-last-opened-v1";
 const pendingReaderStorageKey = "potem-pending-reader-v1";
 type ReaderRoute = { id: string; slug?: string } | { invalid: true } | null;
-type ReaderHistoryState = { potem?: { version: 1; kind: "list" | "reader" | "preview"; articleId?: string; fromList?: boolean; previewId?: string } };
+type ReaderHistoryState = { potem?: { version: 1; kind: "list" | "reader" | "preview"; view?: "feeds"; articleId?: string; fromList?: boolean; previewId?: string } };
 let readerArticleId: string | null = null;
 let lastOpenedFetchGeneration = 0;
 let lastOpenedArticle: Article | null = null;
@@ -2790,9 +2791,12 @@ window.addEventListener("popstate", () => {
     return;
   }
   readerFromList = false;
+  const showingFeeds = isFeedsPath();
+  if (showingFeeds && location.pathname !== "/feeds") history.replaceState(listHistoryState("feeds"), "", "/feeds");
+  setFeedMode(showingFeeds, false);
   setListTitle();
   clearReader();
-  restoreListView();
+  if (!showingFeeds) restoreListView();
 });
 const lastOpenedRetry = document.querySelector<HTMLButtonElement>("#last-opened-retry");
 lastOpenedRetry?.addEventListener("click", () => {
@@ -2889,6 +2893,9 @@ async function initialize() {
       "Sign in to see saved articles across your devices.";
   } else {
     $("#logout").hidden = false;
+    const showingFeeds = isFeedsPath();
+    if (showingFeeds && location.pathname !== "/feeds") history.replaceState(listHistoryState("feeds"), "", "/feeds");
+    setFeedMode(showingFeeds, false);
     setListTitle();
     void load();
     void loadLastOpened();
@@ -3801,7 +3808,9 @@ async function deleteFeed(feed: Feed) {
     feedMessage(`Couldn’t remove feed. ${(error as Error).message}`, true);
   }
 }
-function setFeedMode(on: boolean) {
+function setFeedMode(on: boolean, updateUrl = true) {
+  const path = on ? "/feeds" : "/";
+  if (updateUrl && location.pathname !== path) history.pushState(listHistoryState(on ? "feeds" : undefined), "", path);
   if (feedMode === on) return;
   feedMode = on;
   if (!on) {
