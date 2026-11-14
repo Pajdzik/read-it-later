@@ -687,21 +687,31 @@ async function runProfile(name, browserType, device) {
   const completion = readyReader.locator("#reader-completion");
   const completionToggle = readyReader.locator("#reader-read-toggle");
   await expect(completionToggle).toHaveText("Mark as read");
+  await expect(completionToggle).toHaveAccessibleName("Mark as read");
+  await expect(readyReader.locator("#reader-more-button")).toHaveAccessibleName("More actions");
   await readyReader.evaluate((dialog) => { dialog.scrollTop = dialog.scrollHeight; });
   const completionMetrics = await completion.evaluate((footer) => ({
     left: footer.getBoundingClientRect().left,
     width: footer.getBoundingClientRect().width,
+    toolbar: footer.querySelector(".reader-completion-toolbar").getBoundingClientRect().toJSON(),
     button: footer.querySelector("#reader-read-toggle").getBoundingClientRect().toJSON(),
-    feedback: [...footer.querySelectorAll(".reader-feedback-button")].map((button) => button.getBoundingClientRect().toJSON()),
+    controls: [...footer.querySelectorAll(".reader-feedback-button, #reader-read-toggle, #reader-more-button")]
+      .map((button) => button.getBoundingClientRect().toJSON()),
+    labels: [...footer.querySelectorAll(".reader-feedback-label, .reader-completion-label, #reader-read-label")]
+      .map((label) => label.getBoundingClientRect().toJSON()),
     top: footer.getBoundingClientRect().top,
     bodyBottom: document.querySelector("#reader-body").getBoundingClientRect().bottom,
   }));
-  assert.ok(completionMetrics.button.height >= minimumMeasuredTouchSize && Math.abs(completionMetrics.width - completionMetrics.button.width) < 1 &&
-    completionMetrics.top >= completionMetrics.bodyBottom + 23,
-    `${name}: completion button must follow the article and fill the mobile column: ${JSON.stringify(completionMetrics)}`);
-  assert.ok(completionMetrics.feedback.length === 3 && completionMetrics.feedback.every(({ width, height, bottom }) =>
-    width >= 44 && height >= 44 && bottom <= completionMetrics.button.top),
-    `${name}: all feedback buttons must be touch-sized and above the read button.`);
+  assert.ok(completionMetrics.button.height >= minimumMeasuredTouchSize &&
+    completionMetrics.top >= completionMetrics.bodyBottom + 23 &&
+    completionMetrics.toolbar.top >= completionMetrics.bodyBottom + 23,
+    `${name}: completion toolbar must follow the article and retain a touch-sized read action: ${JSON.stringify(completionMetrics)}`);
+  assert.ok(completionMetrics.controls.length === 5 && completionMetrics.controls.every(({ width, height, top, left, right }) =>
+    width >= minimumMeasuredTouchSize && width <= 44.1 && height >= minimumMeasuredTouchSize &&
+    Math.abs(top - completionMetrics.controls[0].top) < 1 && left >= completionMetrics.toolbar.left && right <= completionMetrics.toolbar.right),
+    `${name}: all five completion controls must fit on one icon-only, touch-sized row: ${JSON.stringify(completionMetrics)}`);
+  assert.ok(completionMetrics.labels.length === 3 && completionMetrics.labels.every(({ width, height }) => width <= 1 && height <= 1),
+    `${name}: action labels should be visually hidden while accessible names remain available: ${JSON.stringify(completionMetrics.labels)}`);
   await readyReader.locator("#reader-more-button").tap();
   const readerDelete = readyReader.locator("#reader-delete-button");
   await readerDelete.waitFor({ state: "visible" });
