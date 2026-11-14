@@ -1683,9 +1683,19 @@ body:has(#reader-dialog[open]) {
 .feed-source-row { display:flex; align-items:center; gap:.8rem; padding:.55rem 0; border-bottom:1px solid var(--line); font-size:.9rem; }
 .feed-source-row span:first-child { flex:1; min-width:0; overflow-wrap:anywhere; }
 .feed-item { padding:1rem 0; }
-.feed-preview { color:var(--muted); margin:.4rem 0; max-width:70ch; }
-.feed-meta { font-size:.78rem; margin:.35rem 0; }
-.feed-item .article-actions { display: flex; flex-wrap: wrap; gap: 1rem; margin-top: .5rem; }
+.feed-preview {
+  color:var(--muted);
+  margin:.45rem 0 .55rem;
+  max-width:68ch;
+  font-size:.875rem;
+  line-height:1.55;
+  display:-webkit-box;
+  -webkit-box-orient:vertical;
+  -webkit-line-clamp:4;
+  overflow:hidden;
+}
+.feed-meta { font-size:.78rem; margin:.45rem 0 .2rem; }
+.feed-item .article-actions { display:flex; flex-wrap:wrap; justify-content:flex-start; gap:.5rem; margin-top:.25rem; }
 @media(max-width:520px) { .feed-source-row { flex-wrap:wrap; } #feed-add-form { align-items:stretch; } #feed-add-form .button { white-space:nowrap; } }
 
 /* Topic tags share the library's compact, keyboard-accessible controls. */

@@ -20,7 +20,9 @@ function plainText(raw: string): string {
     .replace(/<[^>]*>/g, " ")
     .replace(/&(?:nbsp|#160);/gi, " ").replace(/&amp;/gi, "&").replace(/&lt;/gi, "<").replace(/&gt;/gi, ">")
     .replace(/&quot;/gi, '"').replace(/&#39;|&apos;/gi, "'")
-    .replace(/[\u0000-\u001f\u007f]/g, " ").replace(/\s+/g, " ").trim().slice(0, MAX_TEXT);
+    .replace(/[\u0000-\u001f\u007f]/g, " ").replace(/\s+/g, " ")
+    .replace(/\s+([,.;:!?])/g, "$1").replace(/([([{])\s+/g, "$1").replace(/\s+([)\]}])/g, "$1")
+    .trim().slice(0, MAX_TEXT);
 }
 
 function safeLink(raw: string | null | undefined, base: URL): string | null {

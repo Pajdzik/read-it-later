@@ -3667,7 +3667,7 @@ function renderFeedItems() {
     save.disabled = item.saved || feedItemUpdates.has(item.id);
     save.addEventListener("click", () => void saveFeedItem(item));
     actions.append(save);
-    const seen = el("button", item.seen ? "Mark as new" : "Mark seen", "text-button");
+    const seen = el("button", item.seen ? "Mark as new" : "Mark as seen", "text-button");
     seen.type = "button";
     seen.dataset.feedSeen = "";
     seen.disabled = feedItemUpdates.has(item.id);
