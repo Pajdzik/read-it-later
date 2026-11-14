@@ -9,18 +9,40 @@ type XmlElement = { localName: string; textContent: string | null; children: Ite
 export type FeedItem = { key: string; url: string; title: string; preview: string; publishedAt: string | null };
 export type FeedDocument = { title: string; items: FeedItem[] };
 
+function comparableText(value: string): string {
+  return value.replace(/\s+/g, " ").replace(/[.:!?]+$/g, "").trim().toLowerCase();
+}
+
+function plainText(raw: string, title?: string): string {
+  const decoded = raw.replace(/&(?:nbsp|#160);/gi, " ").replace(/&amp;/gi, "&").replace(/&lt;/gi, "<").replace(/&gt;/gi, ">")
+    .replace(/&quot;/gi, '"').replace(/&#39;|&apos;/gi, "'");
+  const text = decoded.replace(/<\s*(script|style)\b[^>]*>[\s\S]*?<\s*\/\s*\1\s*>/gi, " ")
+    .replace(/<\s*br\b[^>]*\/?>/gi, "\n")
+    .replace(/<\s*\/?\s*(?:p|div|li|h[1-6]|blockquote|article|section|figure|figcaption|tr|ul|ol)\b[^>]*>/gi, "\n")
+    .replace(/<[^>]*>/g, " ")
+    .replace(/&(?:nbsp|#160);/gi, " ").replace(/&amp;/gi, "&").replace(/&lt;/gi, "<").replace(/&gt;/gi, ">")
+    .replace(/&quot;/gi, '"').replace(/&#39;|&apos;/gi, "'")
+    .replace(/[\u0000-\u0009\u000b\u000c\u000e-\u001f\u007f]/g, " ");
+  const blocks = text.split(/[\r\n]+/).map(block => block.replace(/\s+/g, " ")
+    .replace(/\s+([,.;:!?])/g, "$1").replace(/([([{])\s+/g, "$1").replace(/\s+([)\]}])/g, "$1").trim())
+    .filter(Boolean);
+  const normalizedTitle = title ? comparableText(title) : "";
+  return blocks.filter((block, index) => {
+    if (/^(?:tags?|categories|topics?)\s*:/i.test(block)) return false;
+    if (index === 0 && normalizedTitle) {
+      const withoutLabel = block.replace(/^(?:new\s+)?(?:release|announcement|update)\s*:\s*/i, "");
+      if (comparableText(block) === normalizedTitle || comparableText(withoutLabel) === normalizedTitle) return false;
+    }
+    return true;
+  }).join("\n").slice(0, MAX_TEXT);
+}
+
 function text(node: XmlElement | null | undefined): string {
   return plainText(node?.textContent ?? "");
 }
 
-function plainText(raw: string): string {
-  const decoded = raw.replace(/&(?:nbsp|#160);/gi, " ").replace(/&amp;/gi, "&").replace(/&lt;/gi, "<").replace(/&gt;/gi, ">")
-    .replace(/&quot;/gi, '"').replace(/&#39;|&apos;/gi, "'");
-  return decoded.replace(/<\s*(script|style)\b[^>]*>[\s\S]*?<\s*\/\s*\1\s*>/gi, " ")
-    .replace(/<[^>]*>/g, " ")
-    .replace(/&(?:nbsp|#160);/gi, " ").replace(/&amp;/gi, "&").replace(/&lt;/gi, "<").replace(/&gt;/gi, ">")
-    .replace(/&quot;/gi, '"').replace(/&#39;|&apos;/gi, "'")
-    .replace(/[\u0000-\u001f\u007f]/g, " ").replace(/\s+/g, " ").trim().slice(0, MAX_TEXT);
+function preview(node: XmlElement | null | undefined, title: string): string {
+  return plainText(node?.textContent ?? "", title);
 }
 
 function safeLink(raw: string | null | undefined, base: URL): string | null {
@@ -80,9 +102,9 @@ export function parseFeed(xml: string, sourceUrl: string): FeedDocument {
         ?? (guidNode?.getAttribute("isPermaLink") !== "false" && guid && /^https?:\/\//i.test(guid) ? safeLink(guid, base) : null);
       if (!link) return null;
       const title = text(child(entry, "title")) || link;
-      const preview = text(child(entry, "description")) || text(child(entry, "summary")) || text(child(entry, "encoded"));
+      const previewText = preview(child(entry, "description"), title) || preview(child(entry, "summary"), title) || preview(child(entry, "encoded"), title);
       const date = text(child(entry, "pubdate")) || text(child(entry, "date"));
-      return { key: guid && guid.length <= MAX_KEY ? guid : link, url: link, title, preview, publishedAt: parseDate(date) };
+      return { key: guid && guid.length <= MAX_KEY ? guid : link, url: link, title, preview: previewText, publishedAt: parseDate(date) };
     };
   } else if (rootName === "feed") {
     title = text(child(root, "title"));
@@ -91,10 +113,10 @@ export function parseFeed(xml: string, sourceUrl: string): FeedDocument {
       const link = atomLink(entry, base);
       if (!link) return null;
       const title = text(child(entry, "title")) || link;
-      const preview = text(child(entry, "summary")) || text(child(entry, "content"));
+      const previewText = preview(child(entry, "summary"), title) || preview(child(entry, "content"), title);
       const id = child(entry, "id")?.textContent?.trim();
       const date = text(child(entry, "published")) || text(child(entry, "updated"));
-      return { key: id && id.length <= MAX_KEY ? id : link, url: link, title, preview, publishedAt: parseDate(date) };
+      return { key: id && id.length <= MAX_KEY ? id : link, url: link, title, preview: previewText, publishedAt: parseDate(date) };
     };
   } else throw new Error("invalid_feed");
 

@@ -30,3 +30,10 @@ test("namespaced RSS metadata provides a readable fallback preview", () => {
   assert.equal(result.title, "RSS 1.0");
   assert.equal(result.items[0].preview, "Preview text.");
 });
+
+test("feed excerpts preserve paragraphs and omit repeated headings and tag metadata", () => {
+  const result = parseFeed(`<rss><channel><title>Example</title><item><guid>release-1</guid><title>Plugin 1.0</title><link>/plugin-1</link>
+    <description><![CDATA[<p><strong>Release:</strong> <a href="/plugin-1">Plugin 1.0</a></p><p>A useful first paragraph.</p><p>More detail about PG&amp;E.</p><p><strong>Tags:</strong> maps, plugins</p>]]></description>
+    </item></channel></rss>`, "https://news.example/feed");
+  assert.equal(result.items[0].preview, "A useful first paragraph.\nMore detail about PG&E.");
+});
