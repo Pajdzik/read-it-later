@@ -164,7 +164,7 @@ try {
   await feedsView.getByRole("button", { name: "Undo" }).click();
   await walk.waitFor();
   assert.equal(feedItems[0].seen, false, "Undo should restore the item on the server.");
-  await feedsView.locator("#feed-add-toggle").click();
+  await page.getByRole("button", { name: "Add feed" }).click();
   await feedsView.getByRole("textbox", { name: "RSS or Atom feed URL" }).fill("https://journal.example/new.xml");
   await feedsView.locator("#feed-add-form").getByRole("button", { name: "Add feed" }).click();
   await feedsView.getByText("Feed added.", { exact: true }).waitFor();
