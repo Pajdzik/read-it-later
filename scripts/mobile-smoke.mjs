@@ -696,7 +696,7 @@ async function runProfile(name, browserType, device) {
     button: footer.querySelector("#reader-read-toggle").getBoundingClientRect().toJSON(),
     controls: [...footer.querySelectorAll(".reader-feedback-button, #reader-read-toggle, #reader-more-button")]
       .map((button) => button.getBoundingClientRect().toJSON()),
-    labels: [...footer.querySelectorAll(".reader-feedback-label, .reader-completion-label, #reader-read-label")]
+    labels: [...footer.querySelectorAll(".reader-feedback-label, .article-toolbar-label")]
       .map((label) => label.getBoundingClientRect().toJSON()),
     top: footer.getBoundingClientRect().top,
     bodyBottom: document.querySelector("#reader-body").getBoundingClientRect().bottom,

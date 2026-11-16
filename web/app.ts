@@ -1032,9 +1032,13 @@ function el<K extends keyof HTMLElementTagNameMap>(
   if (className) node.className = className;
   return node;
 }
-type IconName = "capture-failed" | "mark-read" | "mark-unread" | "more" | "podcast";
+type IconName = "bookmark-add" | "bookmark-added" | "capture-failed" | "mark-read" | "mark-unread" | "more" | "podcast";
 function iconMarkup(name: IconName): string {
   switch (name) {
+    case "bookmark-add":
+      return '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M6 21V5a2 2 0 0 1 2-2h8a2 2 0 0 1 2 2v16l-6-4-6 4Z" /><path d="M9 10h6m-3-3v6" /></svg>';
+    case "bookmark-added":
+      return '<svg viewBox="0 0 24 24" aria-hidden="true"><path fill="currentColor" d="M6 21V5a2 2 0 0 1 2-2h8a2 2 0 0 1 2 2v16l-6-4-6 4Z" /></svg>';
     case "capture-failed":
       return '<svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="9" /><path d="M12 7v6m0 4h.01" /></svg>';
     case "mark-unread":
@@ -1053,6 +1057,14 @@ function iconButton(label: string, icon: IconName, className = "") {
   button.setAttribute("aria-label", label);
   button.title = label;
   button.innerHTML = iconMarkup(icon);
+  return button;
+}
+function articleToolbarButton(label: string, icon: IconName, variant: "primary" | "secondary") {
+  const button = el("button", undefined, `button ${variant} article-toolbar-button`);
+  button.type = "button";
+  button.title = label;
+  button.innerHTML = iconMarkup(icon);
+  button.append(el("span", label, "article-toolbar-label"));
   return button;
 }
 function enrichmentIsPending(article: Article): boolean {
@@ -3665,18 +3677,24 @@ function renderFeedItems() {
     const source = feeds.find(feed => feed.id === item.feedId);
     const meta = el("div", `${source?.title || "Feed"} · ${new Date(item.publishedAt).toLocaleDateString()}`, "muted feed-meta");
     main.append(meta);
-    const actions = el("div", "", "article-actions");
-    const save = el("button", item.saved ? "Saved" : "Save for later", "text-button");
-    save.type = "button";
-    save.disabled = item.saved || feedItemUpdates.has(item.id);
-    save.addEventListener("click", () => void saveFeedItem(item));
-    actions.append(save);
-    const seen = el("button", item.seen ? "Mark as new" : "Mark seen", "text-button");
-    seen.type = "button";
+    const actions = el("div", undefined, "feed-actions");
+    const seen = articleToolbarButton(
+      item.seen ? "Mark as unread" : "Mark as read",
+      item.seen ? "mark-unread" : "mark-read",
+      "primary",
+    );
     seen.dataset.feedSeen = "";
     seen.disabled = feedItemUpdates.has(item.id);
     seen.addEventListener("click", () => void setFeedSeen(item, !item.seen));
-    actions.append(seen);
+    const save = articleToolbarButton(
+      item.saved ? "Added to Potem" : "Add to Potem",
+      item.saved ? "bookmark-added" : "bookmark-add",
+      "secondary",
+    );
+    save.classList.toggle("feed-action-added", item.saved);
+    save.disabled = item.saved || feedItemUpdates.has(item.id);
+    save.addEventListener("click", () => void saveFeedItem(item));
+    actions.append(seen, save);
     main.append(actions);
     li.append(main);
     list.append(li);
@@ -3684,7 +3702,7 @@ function renderFeedItems() {
   $("#feed-empty").hidden = list.children.length > 0;
   if (!list.children.length && feedItems.length) {
     $("#feed-empty h3").textContent = "You’re all caught up";
-    $("#feed-empty p").textContent = "Seen articles remain available in All.";
+    $("#feed-empty p").textContent = "Read articles remain available in All.";
   } else {
     $("#feed-empty h3").textContent = feeds.length ? "No feed items yet" : "No feeds yet";
     $("#feed-empty p").textContent = feeds.length
@@ -3749,11 +3767,11 @@ async function setFeedSeen(item: FeedItem, seen: boolean) {
     item.seen = seen;
     const displayed = feedItems.find(candidate => candidate.id === item.id);
     if (displayed) displayed.seen = seen;
-    feedMessage(seen ? "Marked as seen." : "Marked as new.");
+    feedMessage(seen ? "Marked as read." : "Marked as unread.");
     if (seen) {
       undo = el("button", "Undo", "text-button");
       undo.type = "button";
-      undo.setAttribute("aria-label", `Undo marking ${item.title || "article"} as seen`);
+      undo.setAttribute("aria-label", `Undo marking ${item.title || "article"} as read`);
       undo.addEventListener("click", () => void setFeedSeen(item, false));
       $("#feed-notice").append(document.createTextNode(" "), undo);
     }
@@ -3784,7 +3802,7 @@ async function saveFeedItem(item: FeedItem) {
     for (const candidate of feedItems) {
       if (normalizeArticleUrl(candidate.url).normalizedUrl === savedUrl) candidate.saved = true;
     }
-    feedMessage("Saved for later.");
+    feedMessage("Added to Potem.");
     libraryNeedsRefresh = true;
     if (!feedMode) refreshLibraryAfterFeedSave();
   } catch (error) {

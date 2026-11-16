@@ -156,14 +156,39 @@ try {
   await feedsView.locator("#feed-source").selectOption("field");
   await site.waitFor({ state: "hidden" });
   const walkRow = feedsView.locator("li").filter({ has: page.getByRole("link", { name: feedItems[0].title, exact: true }) });
-  await walkRow.getByRole("button", { name: "Save for later" }).click();
-  await walkRow.getByText("Saved", { exact: true }).waitFor();
+  const markRead = walkRow.getByRole("button", { name: "Mark as read", exact: true });
+  const addToPotem = walkRow.getByRole("button", { name: "Add to Potem", exact: true });
+  for (const colorScheme of ["light", "dark"]) {
+    await page.emulateMedia({ colorScheme });
+    await page.locator(`html[data-theme="${colorScheme}"]`).waitFor();
+    for (const width of [320, 390, 620, 768, 1200]) {
+      await page.setViewportSize({ width, height: 844 });
+      for (const button of [markRead, addToPotem]) {
+        const bounds = await button.boundingBox();
+        assert.ok(bounds && bounds.width >= 44 && bounds.height >= 44, "Feed actions must have 44px touch targets.");
+        assert.equal(bounds.width === 44, width <= 680, "Feed actions should use icons on narrow screens and show labels on wider screens.");
+        assert.ok(bounds.x >= 0 && bounds.x + bounds.width <= width, "Feed actions must fit inside the viewport.");
+      }
+    }
+  }
+  await page.setViewportSize({ width: 390, height: 844 });
+  await addToPotem.click();
+  const added = walkRow.getByRole("button", { name: "Added to Potem", exact: true });
+  await added.waitFor();
+  assert.equal(await added.isDisabled(), true);
   assert.equal(apiCalls.find((call) => call.path === "/api/articles" && call.method === "POST").body.captureMarkdown, true);
-  await walkRow.getByRole("button", { name: "Mark seen" }).click();
+  await markRead.click();
   await walk.waitFor({ state: "hidden" });
   await feedsView.getByRole("button", { name: "Undo" }).click();
   await walk.waitFor();
   assert.equal(feedItems[0].seen, false, "Undo should restore the item on the server.");
+  await markRead.click();
+  await walk.waitFor({ state: "hidden" });
+  await feedsView.getByRole("button", { name: "All", exact: true }).click();
+  await walkRow.getByRole("button", { name: "Mark as unread", exact: true }).click();
+  await markRead.waitFor();
+  assert.equal(feedItems[0].seen, false, "Mark as unread should restore the item on the server.");
+  await feedsView.getByRole("button", { name: "New", exact: true }).click();
   await page.getByRole("button", { name: "Add feed" }).click();
   await feedsView.getByRole("textbox", { name: "RSS or Atom feed URL" }).fill("https://journal.example/new.xml");
   await feedsView.locator("#feed-add-form").getByRole("button", { name: "Add feed" }).click();
@@ -191,7 +216,7 @@ try {
   await openSettingsDisclosure(page, "#settings-private-podcast");
   await page.locator("#podcast-settings").getByText(/New audio generation is paused/).waitFor();
   await page.locator("#podcast-settings").getByRole("button", { name: "Revoke feed" }).waitFor();
-  console.log("Podcast and Feeds UI smoke passed: podcast options, feed navigation and saving, seen status, and private feed setup.");
+  console.log("Podcast and Feeds UI smoke passed: podcast options, responsive feed actions, feed navigation and saving, read status, and private feed setup.");
 } finally {
   await browser?.close();
   await new Promise((resolve) => server.close(resolve));
