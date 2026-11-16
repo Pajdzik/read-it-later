@@ -44,7 +44,7 @@ The dark background was chosen to remain visibly green; lighter green surfaces d
 
 Use semantic CSS tokens rather than local color literals. Despite its legacy name, `--white` means a raised surface in both themes. Destructive actions and errors use the themed `--danger-surface`, `--danger-text`, and `--danger-outline` tokens. Native controls, placeholders, disabled states, focus indicators, and the capture page must belong to the same palette.
 
-Apply the saved theme before the first paint. Support Light, Dark, and System; preserve an explicit choice when system appearance changes. Keep browser theme color consistent with the selected theme.
+Apply the saved palette and appearance before the first paint. See the accepted palette and appearance model below.
 
 Use serif typography for article titles and reading content, with a sans-serif interface for controls, metadata, and forms. Preserve a clear hierarchy: title first, description second, source/author and tags third. Long titles and unbroken strings must wrap without running under controls. Keep reading lines comfortable and avoid shrinking text to fit actions.
 
@@ -97,11 +97,23 @@ In feed excerpts, preserve paragraph breaks while extracting readable text, omit
 
 At the end of a saved reader copy, keep article feedback, Mark as read/unread, and More actions together in one horizontal toolbar. At narrow widths, use icons with accessible names and preserve 44px touch targets.
 
-Use a darkened, warmer version (`#0D1A10`) of the reference green (`#114236`) for the dark-mode page background. The top bar uses `#124138` in light mode and warm cream (`#EEE2CF`) in dark mode. Raised surfaces (`#1A4C3F`) and highlights (`#245143`) are lighter greens, and peach (`#F0AC89`) accents keep their contrast on those surfaces. Match the browser theme color to the top bar.
+### Palette and appearance
 
-Use the page background color for the wordmark and paired bookmark symbol in both themes. Use the top bar’s accent color for the period.
+Keep **Palette** (Green or Brown) and **Appearance** (System, Light, or Dark) independent in Settings. Default to Green and System. System follows the operating system’s light or dark mode and keeps the chosen palette. Apply both preferences on the reading list, reader, Settings, and capture page. Match the browser theme color to the top bar.
 
-Use a full-width, 4 px rust divider (`#934324`) at the bottom of the top bar in both themes.
+Mirror light and dark within each palette. In Light, use warm paper for the page and deep green or cocoa for the top bar. In Dark, use deep green or cocoa for the page and warm beige for the top bar. Carry the palette through raised surfaces and highlights. Shift green or rust action accents in Light to peach in Dark. Use the page color for the wordmark and paired bookmark symbol and the top bar’s emphasis color for the period. Keep the full-width, 4 px rust divider (`#934324`) in both modes.
+
+Green retains the reviewed light palette with a `#124138` top bar. Green Dark uses `#0D1A10` for the page, `#1A4C3F` for raised surfaces, `#245143` for highlights, `#4B7062` for separators, `#F0AC89` for accents, and `#EEE2CF` for the top bar.
+
+| Brown color role | Light | Dark |
+| --- | --- | --- |
+| Page / raised surface / highlight | `#F5EBDD` / `#FFF7EB` / `#EEDFD1` | `#1C1511` / `#2B201A` / `#3A2B22` |
+| Text / title / muted | `#35261E` / `#743C29` / `#695347` | `#F3EBDD` / `#F3EBDD` / `#CDB9A8` |
+| Accent / emphasis / primary button text | `#873F28` / `#9A492C` / `#FFF7EB` | `#F0AC89` / `#F0AC89` / `#1C1511` |
+| Separator / focus / placeholder | `#D7C1B0` / `#9A5638` / `#745E50` | `#594436` / `#D8A885` / `#CDB9A8` |
+| Destructive surface / text / outline | `#F9E5DE` / `#853B2D` / `#AC5949` | `#462824` / `#F4BFB1` / `#DB907B` |
+| Top bar background / text / highlight | `#513023` / `#F9EBDD` / `#694435` | `#EED9C4` / `#35261E` / `#E0C5AB` |
+| Top bar separator / focus / placeholder / period | `#B69884` / `#F0BE9E` / `#E8CBBB` / `#F0AC89` | `#816050` / `#8B4C33` / `#654739` / `#934324` |
 
 ## Follow-up proposals: not part of the reviewed implementation
 

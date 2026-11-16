@@ -451,7 +451,6 @@ const state = {
   tag: "",
   cursor: null as string | null,
   loading: false,
-  theme: (() => { try { const value = localStorage.getItem("later-theme"); return value === "light" || value === "dark" ? value : "system"; } catch { return "system"; } })(),
   selected: null as Article | null,
 };
 const copyDrafts = new Map<string, { markdown: string; source: "paste" | "upload" }>();
@@ -2869,7 +2868,6 @@ async function initialize() {
       });
       $("#empty").append(retry);
     }
-    applyTheme();
     return;
   }
   if (!state.session.authenticated) {
@@ -2930,7 +2928,6 @@ async function initialize() {
     loading.hidden = true;
     empty.hidden = false;
   }
-  applyTheme();
   void finishExtensionSetup();
 }
 async function completeExtensionConnection() {
@@ -4098,14 +4095,19 @@ $("#logout").addEventListener("click", async () => {
     showNotice((e as Error).message, true);
   }
 });
-function applyTheme() {
-  (window as Window & { potemTheme?: { apply(preference: string): void } }).potemTheme?.apply(state.theme);
-  $<HTMLSelectElement>("#theme-toggle").value = state.theme;
+function syncThemeControls() {
+  const preferences = window.potemTheme?.get();
+  if (!preferences) return;
+  $<HTMLSelectElement>("#palette-toggle").value = preferences.palette;
+  $<HTMLSelectElement>("#theme-toggle").value = preferences.appearance;
 }
+syncThemeControls();
+window.potemTheme?.subscribe(syncThemeControls);
+$("#palette-toggle").addEventListener("change", (e) => {
+  window.potemTheme?.set({ palette: (e.target as HTMLSelectElement).value });
+});
 $("#theme-toggle").addEventListener("change", (e) => {
-  state.theme = (e.target as HTMLSelectElement).value;
-  try { localStorage.setItem("later-theme", state.theme); } catch { /* Theme selection still applies in memory. */ }
-  applyTheme();
+  window.potemTheme?.set({ appearance: (e.target as HTMLSelectElement).value });
 });
 $("#settings-open").addEventListener("click", openSettings);
 $("#settings-dialog").addEventListener("close", () => {
@@ -4116,7 +4118,7 @@ $("#settings-dialog").addEventListener("close", () => {
   clearAudioPoll();
 });
 async function openSettings() {
-  showDialog($<HTMLDialogElement>("#settings-dialog"), $<HTMLSelectElement>("#theme-toggle"));
+  showDialog($<HTMLDialogElement>("#settings-dialog"), $<HTMLSelectElement>("#palette-toggle"));
   if (!state.session?.authenticated) {
     $("#settings-status").textContent =
       "Sign in to manage your library and device settings.";

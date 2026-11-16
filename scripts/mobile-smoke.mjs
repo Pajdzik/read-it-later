@@ -493,8 +493,7 @@ async function runProfile(name, browserType, device) {
   await page.locator("#add-form button").tap();
   await page.locator("#articles").getByRole("link", { name: retryTitle, exact: true }).waitFor();
   await page.locator("#settings-open").tap();
-  assert.equal(await page.evaluate(() => document.activeElement?.id), "theme-toggle",
-    `${name}: Settings dialog opened with its close button focused.`);
+  await expect(page.getByLabel("Palette")).toBeFocused();
   await page.locator("#theme-toggle").selectOption("dark");
   await page.locator("#settings-dialog .dialog-close button").tap();
 
