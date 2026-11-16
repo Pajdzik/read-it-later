@@ -7,12 +7,13 @@ const MAX_FEED_BYTES = 1024 * 1024;
 const MAX_REDIRECTS = 3;
 
 /** Fetch one feed through the same DNS-pinned native transport as article capture. */
-export async function fetchFeedXml(url: string, appOrigin: string, signal?: AbortSignal): Promise<{ xml: string; url: string }> {
+export async function fetchFeedXml(url: string, appOrigin: string, signal?: AbortSignal, articleOrigin?: string): Promise<{ xml: string; url: string }> {
   const deadline = Date.now() + SOURCE_TOTAL_TIMEOUT_MS;
   const visited = new Set<string>();
   let target = validateSourceTarget(url, { APP_ORIGIN: appOrigin });
   for (let redirects = 0; ; redirects++) {
     target = validateSourceTarget(target.href, { APP_ORIGIN: appOrigin });
+    if (articleOrigin && target.origin !== articleOrigin) throw new SourceFetchError("invalid_redirect", false);
     if (visited.has(target.href)) throw new SourceFetchError("redirect_loop", false);
     visited.add(target.href);
     const remaining = deadline - Date.now();

@@ -45,7 +45,10 @@ test("private targets and aborted resolution never open a source connection", as
 });
 
 test("built metadata parser runs in an isolated Node thread without executing scripts", async () => {
-  const metadata = await extractInThread('<html><head><title>Saved article</title><meta name="author" content="Jamie"></head><body><article><h1>Saved article</h1><p>Keep <strong>formatting</strong> and <a href="/next">links</a>.</p><script>throw new Error("must not execute")</script></article></body></html>', "https://source.example.com/article", new URL("../../dist/capture/extract-thread.mjs", import.meta.url));
+  const { metadata } = await extractInThread({
+    kind: "html", url: "https://source.example.com/article",
+    html: '<html><head><title>Saved article</title><meta name="author" content="Jamie"></head><body><article><h1>Saved article</h1><p>Keep <strong>formatting</strong> and <a href="/next">links</a>.</p><script>throw new Error("must not execute")</script></article></body></html>',
+  }, new URL("../../dist/capture/extract-thread.mjs", import.meta.url));
   assert.equal(metadata.title, "Saved article");
   assert.equal(metadata.author, "Jamie");
 
@@ -54,6 +57,6 @@ test("built metadata parser runs in an isolated Node thread without executing sc
 
 test("a stalled synchronous extraction thread is terminated by its deadline", async () => {
   const started = Date.now();
-  await assert.rejects(extractInThread("<html/>", "https://source.example.com/", new URL("./stalled-thread.mjs", import.meta.url)), { code: "conversion_failed" });
+  await assert.rejects(extractInThread({ kind: "html", html: "<html/>", url: "https://source.example.com/" }, new URL("./stalled-thread.mjs", import.meta.url)), { code: "conversion_failed" });
   assert.ok(Date.now() - started >= 4_500);
 });

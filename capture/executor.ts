@@ -1,18 +1,18 @@
-import { Worker } from "node:worker_threads";
-import { MAX_CAPTURE_RESPONSE_BYTES, SourceFetchError, type CapturedArticle } from "../src/articles/capture-protocol";
+import { Worker, type ResourceLimits } from "node:worker_threads";
+import { captureErrorCodes, MAX_CAPTURE_RESPONSE_BYTES, SourceFetchError, type CapturedArticle } from "../src/articles/capture-protocol";
 import { EXECUTOR_TIMEOUT_MS } from "../src/articles/capture-limits";
 import { readBytes } from "../src/articles/pdf";
 import { fetchSourceDocument } from "../src/articles/source-fetch";
-import type { ArticleMetadata } from "../src/articles/metadata";
 import { pinnedFetch } from "./pinned-fetch";
 import { fetchFeedXml } from "./feed-fetch";
 import type { FeedDocument } from "./feed-parser";
+import type { InspectedSource, TextSource } from "./extract-thread";
 
-/** A separate thread gives synchronous metadata parsing a hard wall-clock and heap limit. */
-export async function extractInThread(html: string, url: string, threadUrl = new URL("./extract-thread.mjs", import.meta.url), signal?: AbortSignal): Promise<ArticleMetadata> {
+/** Separate threads bound synchronous parsing by wall time and heap. */
+async function runParseThread<Result>(workerData: object, threadUrl: URL, resourceLimits: ResourceLimits, errorCode: string, signal?: AbortSignal): Promise<Result> {
   signal?.throwIfAborted();
   const worker = new Worker(threadUrl, {
-    workerData: { html, url }, resourceLimits: { maxOldGenerationSizeMb: 128, maxYoungGenerationSizeMb: 16 },
+    workerData, resourceLimits,
     stdout: true, stderr: true,
   });
   // Third-party parser diagnostics can contain URLs or page text. Drain without logging.
@@ -21,13 +21,13 @@ export async function extractInThread(html: string, url: string, threadUrl = new
   let timer: ReturnType<typeof setTimeout>;
   let abort: (() => void) | undefined;
   try {
-    return await new Promise<ArticleMetadata>((resolve, reject) => {
-      const failed = () => reject(new SourceFetchError("conversion_failed", false));
-      abort=()=>reject(new SourceFetchError('timeout',true));
-      signal?.addEventListener('abort',abort,{once:true});
+    return await new Promise<Result>((resolve, reject) => {
+      const failed = () => reject(new SourceFetchError(errorCode, false));
+      abort = () => reject(new SourceFetchError("timeout", true));
+      signal?.addEventListener("abort", abort, { once: true });
       timer = setTimeout(failed, 5_000);
       worker.once("message", message => {
-        if (message?.metadata) resolve(message.metadata);
+        if (message?.result !== undefined) resolve(message.result as Result);
         else failed();
       });
       worker.once("error", failed);
@@ -35,15 +35,25 @@ export async function extractInThread(html: string, url: string, threadUrl = new
     });
   } finally {
     clearTimeout(timer!);
-    if (abort) signal?.removeEventListener('abort',abort);
+    if (abort) signal?.removeEventListener("abort", abort);
     await worker.terminate();
   }
 }
+
+export function extractInThread(source: TextSource, threadUrl = new URL("./extract-thread.mjs", import.meta.url), signal?: AbortSignal): Promise<InspectedSource> {
+  return runParseThread(source, threadUrl, { maxOldGenerationSizeMb: 128, maxYoungGenerationSizeMb: 16 }, "conversion_failed", signal);
+}
+
+const feedThreadUrl = new URL("./feed-thread.mjs", import.meta.url);
+const feedThreadLimits = { maxOldGenerationSizeMb: 32, maxYoungGenerationSizeMb: 8 };
 
 type CaptureOptions = { originalPdfId?: string; signal?: AbortSignal; timeoutMs?: number; preview?: boolean };
 
 export async function executeCapture(url: string, appOrigin: string, options: CaptureOptions = {}): Promise<CapturedArticle> {
   const { originalPdfId, signal, timeoutMs = EXECUTOR_TIMEOUT_MS, preview } = options;
+  const started = Date.now();
+  let stage = 'source_fetch';
+  let sourceFormat: 'html' | 'markdown' | 'pdf' | 'rss' | undefined;
   const controller=new AbortController();
   let response: Response | undefined, rejectAbort: (error: SourceFetchError) => void;
   const cancelled=new Promise<never>((_,reject)=>{rejectAbort=reject;});
@@ -66,25 +76,72 @@ export async function executeCapture(url: string, appOrigin: string, options: Ca
     return result.article;
   };
   const run=async()=>{
-    if(originalPdfId && !preview)return convert('stored-pdf',{method:'POST',headers:{'X-Pdf-Id':originalPdfId,'X-Source-Url':encodeURIComponent(url)}});
+    if (originalPdfId && !preview) {
+      sourceFormat = 'pdf';
+      stage = 'stored_pdf_conversion';
+      return convert('stored-pdf',{method:'POST',headers:{'X-Pdf-Id':originalPdfId,'X-Source-Url':encodeURIComponent(url)}});
+    }
     const source=await fetchSourceDocument(url,{
       appOrigin, signal: controller.signal,
       fetchHop:(input,init)=>pinnedFetch(input,init,appOrigin),
     });
-    const metadata=source.kind==='html' ? await extractInThread(source.html,source.url,undefined,controller.signal) : undefined;
-    const path = preview && source.kind === 'pdf' ? 'preview-pdf' : source.kind;
-    const article=await convert(path,{method:'POST',
-      headers:{'Content-Type':source.kind==='html' ? 'text/html' : 'application/pdf','X-Source-Url':encodeURIComponent(source.url)},
-      body:source.kind==='html' ? source.html : new Uint8Array(source.bytes),
+    sourceFormat = source.kind;
+    const sourceHeaders = { 'X-Source-Url': encodeURIComponent(source.url) };
+    const previewSource = preview ? { sourceUrl: source.url } : {};
+    if (source.kind === 'pdf') {
+      stage = 'conversion';
+      const article = await convert(preview ? 'preview-pdf' : 'pdf', {
+        method: 'POST', headers: { ...sourceHeaders, 'Content-Type': 'application/pdf' }, body: new Uint8Array(source.bytes),
+      });
+      return { ...article, ...previewSource };
+    }
+
+    stage = 'source_parse';
+    const inspected = await extractInThread(source, undefined, controller.signal);
+    if (inspected.kind === 'markdown') {
+      if (!inspected.markdown.trim()) throw new SourceFetchError('empty_source', false);
+      return { markdown: inspected.markdown, metadata: inspected.metadata, ...previewSource };
+    }
+    if (source.kind !== 'html') throw new SourceFetchError('conversion_failed', false);
+    let html = source.html;
+    if (inspected.shell) {
+      if (!inspected.shell.feedUrl) throw new SourceFetchError('conversion_failed', false);
+      sourceFormat = 'rss';
+      stage = 'feed_fetch';
+      const feed = await fetchFeedXml(inspected.shell.feedUrl, appOrigin, controller.signal, new URL(source.url).origin);
+      stage = 'feed_parse';
+      const fullArticle = await runParseThread<string | null>(
+        { ...feed, articleUrl: source.url }, feedThreadUrl, feedThreadLimits, 'conversion_failed', controller.signal,
+      );
+      if (!fullArticle) throw new SourceFetchError('conversion_failed', false);
+      html = fullArticle;
+    }
+    stage = 'conversion';
+    const article = await convert('html', {
+      method: 'POST', headers: { ...sourceHeaders, 'Content-Type': 'text/html' }, body: html,
     });
-    return {...article,...(metadata ? {metadata} : {}),...(preview ? { sourceUrl: source.url } : {})};
+    return { ...article, metadata: inspected.metadata, ...previewSource };
   };
-  try { return await Promise.race([run(),cancelled]); }
-  catch(error) {
-    if(controller.signal.aborted)throw new SourceFetchError('timeout',true);
-    if(error instanceof SourceFetchError)throw error;
-    throw new SourceFetchError('converter_unavailable',true);
+  const logContext = () => ({ stage, sourceFormat, preview: !!preview, elapsedMs: Date.now() - started });
+  try {
+    const article = await Promise.race([run(), cancelled]);
+    if (!article.conversionError) {
+      console.info(JSON.stringify({ event: 'capture_executor_completed', ...logContext() }));
+      return article;
+    }
+    logFailure(article.conversionError);
+    return article;
+  } catch (error) {
+    const failure = controller.signal.aborted ? new SourceFetchError('timeout', true)
+      : error instanceof SourceFetchError ? error : new SourceFetchError('converter_unavailable', true);
+    logFailure(failure);
+    throw failure;
   } finally { clearTimeout(timer); signal?.removeEventListener('abort',abort); }
+
+  function logFailure(failure: { code: string; retryable: boolean }) {
+    const code = captureErrorCodes.find(known => known === failure.code) ?? 'invalid_capture_response';
+    console.warn(JSON.stringify({ event: 'capture_executor_failed', ...logContext(), code, retryable: failure.retryable }));
+  }
 }
 
 export async function executeFeed(url: string, appOrigin: string, signal?: AbortSignal): Promise<FeedDocument> {
@@ -96,7 +153,7 @@ export async function executeFeed(url: string, appOrigin: string, signal?: Abort
   try {
     const source = await fetchFeedXml(url, appOrigin, controller.signal);
     controller.signal.throwIfAborted();
-    return await parseFeedInThread(source.xml, source.url, undefined, controller.signal);
+    return await runParseThread<FeedDocument>(source, feedThreadUrl, feedThreadLimits, 'invalid_feed', controller.signal);
   } catch (error) {
     if (error instanceof SourceFetchError) throw error;
     if (controller.signal.aborted) throw new SourceFetchError("timeout", true);
@@ -105,22 +162,4 @@ export async function executeFeed(url: string, appOrigin: string, signal?: Abort
     clearTimeout(timer);
     signal?.removeEventListener("abort", abort);
   }
-}
-
-async function parseFeedInThread(xml: string, url: string, threadUrl = new URL("./feed-thread.mjs", import.meta.url), signal?: AbortSignal): Promise<FeedDocument> {
-  signal?.throwIfAborted();
-  const worker = new Worker(threadUrl, { workerData: { xml, url }, resourceLimits: { maxOldGenerationSizeMb: 32, maxYoungGenerationSizeMb: 8 } });
-  let timer: ReturnType<typeof setTimeout>;
-  let abort: (() => void) | undefined;
-  try {
-    return await new Promise<FeedDocument>((resolve, reject) => {
-      const fail = () => reject(new SourceFetchError("invalid_feed", false));
-      abort = () => reject(new SourceFetchError("timeout", true));
-      signal?.addEventListener("abort", abort, { once: true });
-      timer = setTimeout(fail, 5_000);
-      worker.once("message", message => message?.feed ? resolve(message.feed as FeedDocument) : fail());
-      worker.once("error", fail);
-      worker.once("exit", fail);
-    });
-  } finally { clearTimeout(timer!); if (abort) signal?.removeEventListener("abort", abort); await worker.terminate(); }
 }

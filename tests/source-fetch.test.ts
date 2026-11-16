@@ -2,6 +2,7 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import { fetchSourceDocument, type SourceFetchOptions } from "../src/articles/source-fetch";
 import { SourceFetchError } from "../src/articles/source-policy";
 import { SOURCE_HOP_TIMEOUT_MS, SOURCE_TOTAL_TIMEOUT_MS } from "../src/articles/capture-limits";
+import { MAX_MARKDOWN_BYTES } from "../src/articles/capture-protocol";
 
 type FetchCall = { input: RequestInfo | URL; init?: RequestInit };
 function envWith(fetchHop: (input: string, init: RequestInit) => Promise<Response>, overrides: { APP_ORIGIN?: string } = {}): SourceFetchOptions {
@@ -42,12 +43,25 @@ describe("bounded source fetching", () => {
       expect(call.init?.redirect).toBe("manual");
       expect(call.init?.method).toBe("GET");
       expect(call.init?.headers).toEqual({
-        Accept: "text/html,application/pdf,application/xhtml+xml;q=0.9",
+        Accept: "text/markdown,text/html,application/pdf,application/xhtml+xml;q=0.9",
         "User-Agent": "PotemReader/1.0",
       });
       expect(call.init?.headers).not.toHaveProperty("Cookie");
       expect(call.init?.headers).not.toHaveProperty("Authorization");
     }
+  });
+
+  it("accepts publisher Markdown after a validated redirect and applies the copy byte limit", async () => {
+    const target = "https://docs.example.com/new";
+    const headers = { "Content-Type": "text/markdown; charset=utf-8" };
+    const markdown = "# Publisher title\n\nMarkdown body.";
+    const options = envWith(async (url, init) => {
+      expect(new Headers(init.headers).get("accept")).toContain("text/markdown");
+      return url === target ? new Response(markdown, { headers }) : new Response(null, { status: 301, headers: { Location: target } });
+    });
+    expect(await fetchSourceDocument("https://docs.example.com/old", options)).toEqual({ kind: "markdown", markdown, url: target });
+    const overLimit = envWith(async () => new Response("é".repeat(MAX_MARKDOWN_BYTES / 2 + 1), { headers }));
+    await expectFetchError(fetchSourceDocument(target, overLimit), "markdown_too_large");
   });
 
   it("rejects credentials, private literals, restricted names, own origin, and unsafe ports before fetching", async () => {

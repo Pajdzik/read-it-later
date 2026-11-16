@@ -1,6 +1,20 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
-import { parseFeed } from "../feed-parser";
+import { findFeedArticleHtml, parseFeed } from "../feed-parser";
+
+test("article capture uses only full content from the feed item matching its URL", () => {
+  const feedUrl = "https://news.example.com/feed.xml";
+  const xml = `<rss xmlns:content="http://purl.org/rss/1.0/modules/content/"><channel>
+    <item><link>/other</link><content:encoded><![CDATA[<p>Other story</p>]]></content:encoded></item>
+    <item><link>/story</link><description>Excerpt</description><content:encoded><![CDATA[<p>Full <em>story</em>.</p>]]></content:encoded></item>
+    <item><link>/summary</link><description>Excerpt only</description></item>
+    </channel></rss>`;
+  assert.equal(findFeedArticleHtml(xml, feedUrl, "https://news.example.com/story?utm_medium=feed#heading"),
+    "<!doctype html><html><body><article><p>Full <em>story</em>.</p></article></body></html>");
+  for (const url of ["https://elsewhere.example.com/story", "https://news.example.com/story?id=2", "https://news.example.com/summary"]) {
+    assert.equal(findFeedArticleHtml(xml, feedUrl, url), null);
+  }
+});
 
 test("RSS 2 parses readable text, relative links and distinct GUIDs", () => {
   const result = parseFeed(`<?xml version="1.0"?><rss version="2.0"><channel><title>News &amp; Notes</title>

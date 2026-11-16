@@ -1,32 +1,16 @@
 import MarkdownIt from "markdown-it";
-import { isMap, parseDocument } from "yaml";
+import { splitMarkdownFrontMatter } from "./markdown-front-matter";
 
 const wordsPerMinute = 240;
 // Recognize raw HTML as tokens so markup can be skipped without rendering it.
 const parser = new MarkdownIt({ html: true });
 let segmenter: Intl.Segmenter | undefined;
 
-function markdownBody(markdown: string): string {
-  const opening = /^\uFEFF?---[ \t]*(?:\r\n?|\n)/u.exec(markdown);
-  if (!opening) return markdown;
-  const rest = markdown.slice(opening[0].length);
-  const closing = /^(?:---|\.\.\.)[ \t]*(?:\r\n?|\n|$)/mu.exec(rest);
-  if (!closing) return markdown;
-  const frontMatter = parseDocument(rest.slice(0, closing.index), {
-    prettyErrors: false,
-    uniqueKeys: false,
-  });
-  // A pair of horizontal rules around prose is valid Markdown.
-  return frontMatter.errors.length === 0 && isMap(frontMatter.contents)
-    ? rest.slice(closing.index + closing[0].length)
-    : markdown;
-}
-
 export function estimateReadingTimeMinutes(markdown: string): number | null {
   try {
     segmenter ??= new Intl.Segmenter("en", { granularity: "word" });
     let words = 0;
-    for (const token of parser.parse(markdownBody(markdown), {})) {
+    for (const token of parser.parse(splitMarkdownFrontMatter(markdown).body, {})) {
       if (token.type !== "inline" || !token.children) continue;
       const text: string[] = [];
       let autolink = false;

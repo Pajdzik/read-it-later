@@ -1,4 +1,5 @@
 import { DOMParser } from "linkedom";
+import { normalizeArticleUrl } from "../src/articles/validation";
 
 const MAX_ITEMS = 200;
 const MAX_TEXT = 600;
@@ -79,13 +80,35 @@ function parseDate(raw: string): string | null {
   return Number.isFinite(time) ? new Date(time).toISOString() : null;
 }
 
-export function parseFeed(xml: string, sourceUrl: string): FeedDocument {
-  const base = new URL(sourceUrl);
+function parseFeedRoot(xml: string): XmlElement {
   // DTDs and entity declarations are unnecessary for feeds and could enable expansion/entity attacks.
   if (/<!\s*(?:doctype|entity)\b/i.test(xml)) throw new Error("invalid_feed");
   const document = new DOMParser().parseFromString(xml, "text/xml") as unknown as { documentElement: XmlElement | null };
   const root = document.documentElement;
   if (!root || root.localName === "parsererror") throw new Error("invalid_feed");
+  return root;
+}
+
+/** Use only the matching RSS item's explicit full-content field. */
+export function findFeedArticleHtml(xml: string, feedUrl: string, articleUrl: string): string | null {
+  const root = parseFeedRoot(xml);
+  const channel = nameOf(root) === "rss" ? child(root, "channel") : null;
+  if (!channel) return null;
+  const base = new URL(feedUrl);
+  const { normalizedUrl } = normalizeArticleUrl(articleUrl);
+  const items = Array.from(channel.children).filter(node => nameOf(node) === "item").slice(0, MAX_ITEMS);
+  for (const item of items) {
+    const url = safeLink(child(item, "link")?.textContent, base);
+    if (!url || normalizeArticleUrl(url).normalizedUrl !== normalizedUrl) continue;
+    const content = Array.from(item.children).find(node => node.localName === "content:encoded")?.textContent?.trim();
+    if (content) return `<!doctype html><html><body><article>${content}</article></body></html>`;
+  }
+  return null;
+}
+
+export function parseFeed(xml: string, sourceUrl: string): FeedDocument {
+  const base = new URL(sourceUrl);
+  const root = parseFeedRoot(xml);
   const rootName = nameOf(root);
   let title = "";
   let entries: XmlElement[] = [];
