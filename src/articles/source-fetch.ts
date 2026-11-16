@@ -1,5 +1,6 @@
 import { failSourceFetch as fail, SourceFetchError, validateSourceTarget } from "./source-policy";
 import { MAX_SOURCE_HTML_BYTES, MAX_SOURCE_PDF_BYTES, SOURCE_HOP_TIMEOUT_MS, SOURCE_TOTAL_TIMEOUT_MS } from "./capture-limits";
+import { MAX_MARKDOWN_BYTES } from "./capture-protocol";
 
 export type SourceFetchOptions = {
   appOrigin?: string;
@@ -30,13 +31,16 @@ function contentCharset(contentType: string): string {
   return "utf-8";
 }
 
-export type SourceDocument = { kind: "html"; html: string; url: string } | { kind: "pdf"; bytes: Uint8Array; url: string };
+type SourceContent = { kind: "html"; html: string } | { kind: "markdown"; markdown: string } | { kind: "pdf"; bytes: Uint8Array };
+export type SourceDocument = SourceContent & { url: string };
 
-async function readDocument(response: Response, signal: AbortSignal): Promise<Omit<Extract<SourceDocument, {kind: "html"}>, "url"> | Omit<Extract<SourceDocument, {kind: "pdf"}>, "url">> {
+async function readDocument(response: Response, signal: AbortSignal): Promise<SourceContent> {
   const contentType = response.headers.get("content-type") || "";
   const pdf = /^\s*application\/(?:pdf|octet-stream)(?:\s*;|\s*$)/i.test(contentType);
-  const limit = pdf ? MAX_SOURCE_PDF_BYTES : MAX_SOURCE_HTML_BYTES;
-  if (!pdf && !/^\s*(?:text\/html|application\/xhtml\+xml)(?:\s*;|\s*$)/i.test(contentType)) {
+  const markdown = /^\s*text\/markdown(?:\s*;|\s*$)/i.test(contentType);
+  const limit = pdf ? MAX_SOURCE_PDF_BYTES : markdown ? MAX_MARKDOWN_BYTES : MAX_SOURCE_HTML_BYTES;
+  const sizeError = markdown ? "markdown_too_large" : "source_too_large";
+  if (!pdf && !markdown && !/^\s*(?:text\/html|application\/xhtml\+xml)(?:\s*;|\s*$)/i.test(contentType)) {
     await response.body?.cancel().catch(() => undefined);
     fail("unsupported_content");
   }
@@ -49,7 +53,7 @@ async function readDocument(response: Response, signal: AbortSignal): Promise<Om
   const length = response.headers.get("content-length");
   if (length && /^\d+$/.test(length) && Number(length) > limit) {
     await response.body?.cancel().catch(() => undefined);
-    fail("source_too_large");
+    fail(sizeError);
   }
   if (!response.body) fail("empty_source");
 
@@ -63,7 +67,7 @@ async function readDocument(response: Response, signal: AbortSignal): Promise<Om
       const { done, value } = await reader.read();
       if (done) break;
       size += value.byteLength;
-      if (size > limit) fail("source_too_large");
+      if (size > limit) fail(sizeError);
       chunks.push(value);
     }
   } catch (error) {
@@ -83,15 +87,16 @@ async function readDocument(response: Response, signal: AbortSignal): Promise<Om
     if (new TextDecoder().decode(bytes.subarray(0, 5)) !== "%PDF-") fail("invalid_pdf");
     return { kind: "pdf", bytes };
   }
-  let html: string;
+  let text: string;
   try {
-    html = new TextDecoder(charset, { fatal: true }).decode(bytes);
+    text = new TextDecoder(charset, { fatal: true }).decode(bytes);
   } catch {
     fail("invalid_encoding");
   }
-  if (!html.trim()) fail("empty_source");
-  if (!/<(?:!doctype\s+html|html\b|head\b|body\b|article\b|main\b)/i.test(html)) fail("malformed_html");
-  return { kind: "html", html };
+  if (!text.trim()) fail("empty_source");
+  if (markdown) return { kind: "markdown", markdown: text };
+  if (!/<(?:!doctype\s+html|html\b|head\b|body\b|article\b|main\b)/i.test(text)) fail("malformed_html");
+  return { kind: "html", html: text };
 }
 
 /**
@@ -132,7 +137,7 @@ export async function fetchSourceDocument(url: string, options: SourceFetchOptio
         redirect: "manual",
         signal: controller.signal,
         headers: {
-          Accept: "text/html,application/pdf,application/xhtml+xml;q=0.9",
+          Accept: "text/markdown,text/html,application/pdf,application/xhtml+xml;q=0.9",
           "User-Agent": "PotemReader/1.0",
         },
       });

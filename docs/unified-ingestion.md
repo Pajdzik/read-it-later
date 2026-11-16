@@ -1,6 +1,6 @@
 # Managed HTML/PDF capture and complete archives
 
-HTML and PDF URLs use the same durable background capture flow. Saving a link
+HTML, Markdown, and PDF URLs use the same durable background capture flow. Saving a link
 commits the article and initial job atomically, then publishes a Queue notification.
 The consumer calls the private Container for that article and generation; the
 phone/browser can close after acknowledgment. An hourly sweep repairs missed
@@ -13,6 +13,14 @@ Every redirect retains the existing destination, TLS, encoding and deadline
 checks. HTML is limited to 2 MiB; PDFs to 20 MiB. PDF and octet-stream responses
 must begin with `%PDF-`; filename extensions are not authoritative. HTML still
 requires a supported UTF-8 HTML content type and recognizable document markup.
+
+The source request accepts publisher-provided `text/markdown`. The Container
+enforces the 256 KiB copy limit while reading it, then separates recognized YAML
+front matter from the body and uses its title, author, and description as metadata.
+When the fetched HTML is an empty JavaScript shell that advertises a same-origin
+RSS feed, the Container can convert the matching item's full `content:encoded`
+body. The feed stays on the article's origin through redirects and uses the
+existing pinned feed transport and 1 MiB limit. A feed summary is insufficient.
 
 HTML metadata parsing stays in the inert, network-disabled thread with a
 five-second wall-clock and bounded heap. Its title/author/description rules remain
@@ -33,6 +41,11 @@ nonempty and at most 256 KiB UTF-8. Generated document/Contents/Page headings al
 are reduced to stable codes; dependency diagnostics and document content are not
 logged. Managed output quality requires live review; fixture adapters do
 not establish Cloudflare conversion fidelity.
+
+The app Worker logs extraction outcomes with the article ID and generation. The
+capture Container emits `capture_executor_completed` or `capture_executor_failed`
+with the stage, source format when known, elapsed time, and a stable failure code
+when applicable. The Container logs omit source URLs and document content.
 
 ## Capture status in the library
 

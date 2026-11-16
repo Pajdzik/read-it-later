@@ -1,5 +1,9 @@
 import { parentPort, workerData } from "node:worker_threads";
-import { parseFeed } from "./feed-parser";
+import { findFeedArticleHtml, parseFeed } from "./feed-parser";
 
-try { parentPort?.postMessage({ feed: parseFeed(workerData.xml as string, workerData.url as string) }); }
+try {
+  const { xml, url, articleUrl } = workerData as { xml: string; url: string; articleUrl?: string };
+  const result = articleUrl ? findFeedArticleHtml(xml, url, articleUrl) : parseFeed(xml, url);
+  parentPort?.postMessage({ result });
+}
 catch { parentPort?.postMessage({ error: "invalid_feed" }); }
