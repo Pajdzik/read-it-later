@@ -767,12 +767,17 @@ async function runProfile(name, browserType, device) {
   assert.equal(await readyReader.evaluate((dialog) => dialog.scrollWidth <= dialog.clientWidth + 1), true,
     `${name}: short landscape reader has horizontal overflow.`);
   await readyReader.evaluate((dialog) => { dialog.scrollTop = dialog.scrollHeight; });
-  const landscapeBackBounds = await readyReader.locator(".reader-close button").boundingBox();
-  assert.ok(landscapeBackBounds && landscapeBackBounds.width >= minimumMeasuredTouchSize && landscapeBackBounds.height >= minimumMeasuredTouchSize &&
-    landscapeBackBounds.y >= 0 && landscapeBackBounds.y + landscapeBackBounds.height <= 390,
-    `${name}: Back control must remain reachable in short landscape: ${JSON.stringify(landscapeBackBounds)}.`);
+  const landscapeBack = readyReader.locator(".reader-close button");
+  // Scrolling can move the toolbar before it settles. WebKit can also round a sticky edge slightly outside the viewport.
+  const edgeTolerance = 0.1;
+  await expect(async () => {
+    const bounds = await landscapeBack.boundingBox();
+    assert.ok(bounds && bounds.width >= minimumMeasuredTouchSize && bounds.height >= minimumMeasuredTouchSize &&
+      bounds.y >= -edgeTolerance && bounds.y + bounds.height <= page.viewportSize().height + edgeTolerance,
+      `${name}: Back control must remain reachable in short landscape: ${JSON.stringify(bounds)}.`);
+  }).toPass({ timeout: 2000 });
   await page.screenshot({ path: screenshot("landscape-reader-short") });
-  await page.locator("#reader-dialog .reader-close button").tap();
+  await landscapeBack.tap();
   await waitForList(titleButton);
   await page.locator("#add-open").tap();
   await page.locator("#add-dialog").waitFor({ state: "visible" });
