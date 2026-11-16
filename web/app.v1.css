@@ -1205,7 +1205,8 @@ button {
   justify-content: space-between;
   gap: 10px;
 }
-.reader-completion-actions {
+.reader-completion-actions,
+.feed-actions {
   display: flex;
   align-items: center;
   gap: 8px;
@@ -1223,16 +1224,6 @@ button {
   color: var(--ink);
 }
 .reader-feedback-button[aria-busy="true"] { cursor: wait; }
-.reader-feedback-button svg {
-  width: 18px;
-  height: 18px;
-  fill: none;
-  stroke: currentColor;
-  stroke-width: 1.8;
-  stroke-linecap: round;
-  stroke-linejoin: round;
-  flex: none;
-}
 .reader-feedback-label {
   font-size: .875rem;
   font-weight: 600;
@@ -1243,7 +1234,8 @@ button {
 }
 #reader-favorite-toggle[aria-pressed="true"] svg { fill: currentColor; }
 #reader-feedback-error { margin: 8px 0 12px; }
-.reader-completion .button {
+.article-toolbar-button,
+.reader-feedback-button {
   display: inline-flex;
   align-items: center;
   justify-content: center;
@@ -1255,11 +1247,6 @@ button {
   color: var(--muted);
   background: transparent;
   border-color: var(--line);
-}
-.reader-completion-toolbar svg {
-  width: 20px;
-  height: 20px;
-  flex: none;
 }
 .reader-actions-menu {
   position: fixed;
@@ -1287,7 +1274,8 @@ button {
   cursor: pointer;
 }
 .reader-menu-delete:hover, .reader-menu-delete:focus-visible { background: var(--highlight); }
-.reader-completion svg {
+.article-toolbar-button svg,
+.reader-feedback-button svg {
   width: 20px;
   height: 20px;
   fill: none;
@@ -1295,8 +1283,9 @@ button {
   stroke-width: 1.8;
   stroke-linecap: round;
   stroke-linejoin: round;
+  flex: none;
 }
-[data-theme="dark"] .reader-completion .primary { color: var(--paper); }
+[data-theme="dark"] .article-toolbar-button.primary { color: var(--paper); }
 .reader-completion .notice { margin-bottom: 0; }
 .reader-body h1,
 .reader-body h2,
@@ -1418,17 +1407,16 @@ body:has(#reader-dialog[open]) {
 @media (max-width: 680px) {
   .reader-completion-toolbar { gap: 8px; }
   .reader-completion-actions,
+  .feed-actions,
   .reader-feedback-controls { gap: 6px; }
   .reader-feedback-button,
-  #reader-read-toggle,
-  .reader-more-actions > .button {
+  .article-toolbar-button {
     width: 44px;
     min-width: 44px;
     padding-inline: 0;
   }
   .reader-feedback-label,
-  .reader-completion-label,
-  #reader-read-label {
+  .article-toolbar-label {
     position: absolute;
     width: 1px;
     height: 1px;
@@ -1722,7 +1710,8 @@ body:has(#reader-dialog[open]) {
   overflow:hidden;
 }
 .feed-meta { font-size:.78rem; margin:.45rem 0 .2rem; }
-.feed-item .article-actions { display:flex; flex-wrap:wrap; justify-content:flex-start; gap:.5rem; margin-top:.25rem; }
+.feed-actions { margin-top: .5rem; }
+.feed-action-added:disabled { cursor: default; }
 @media(max-width:520px) { .feed-source-row { flex-wrap:wrap; } #feed-add-form { align-items:stretch; } #feed-add-form .button { white-space:nowrap; } }
 
 /* Topic tags share the library's compact, keyboard-accessible controls. */

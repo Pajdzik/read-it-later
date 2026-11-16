@@ -45,7 +45,7 @@ Optional **Prepare audio** generates an English narration of a saved copy and pu
 
 ### RSS and Atom subscriptions
 
-Open **Feeds** and add an RSS or Atom URL. The combined timeline shows new posts first. Use the source picker to browse one subscription. **Save for later** adds a post to the reading list through the normal capture flow. **Mark seen** hides it from **New**, and you can find it again under **All**. Feed seen status is independent of the reading list’s read status.
+Open **Feeds** and add an RSS or Atom URL. The combined timeline shows new posts first. Use the source picker to browse one subscription. **Add to Potem** adds a post to the reading list through the normal capture flow. **Mark as read** hides it from **New**. Open **All** to find it again or mark it as unread. Feed read status is independent of the reading list’s read status.
 
 The Worker refreshes subscriptions through the private capture service on its hourly schedule. Feed previews and seen status live in D1. Apply the D1 migrations and deploy the capture service before deploying the app Worker, as the production workflow already does.
 
