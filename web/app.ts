@@ -1032,11 +1032,9 @@ function el<K extends keyof HTMLElementTagNameMap>(
   if (className) node.className = className;
   return node;
 }
-type IconName = "bookmark-add" | "bookmark-added" | "capture-failed" | "mark-read" | "mark-unread" | "more" | "podcast";
+type IconName = "bookmark-added" | "capture-failed" | "mark-read" | "mark-unread" | "more" | "plus" | "podcast" | "skip";
 function iconMarkup(name: IconName): string {
   switch (name) {
-    case "bookmark-add":
-      return '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M6 21V5a2 2 0 0 1 2-2h8a2 2 0 0 1 2 2v16l-6-4-6 4Z" /><path d="M9 10h6m-3-3v6" /></svg>';
     case "bookmark-added":
       return '<svg viewBox="0 0 24 24" aria-hidden="true"><path fill="currentColor" d="M6 21V5a2 2 0 0 1 2-2h8a2 2 0 0 1 2 2v16l-6-4-6 4Z" /></svg>';
     case "capture-failed":
@@ -1047,8 +1045,12 @@ function iconMarkup(name: IconName): string {
       return '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="m5 12 4.5 4.5L19 7" /></svg>';
     case "more":
       return '<svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="5" cy="12" r="1.5"/><circle cx="12" cy="12" r="1.5"/><circle cx="19" cy="12" r="1.5"/></svg>';
+    case "plus":
+      return '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 5v14M5 12h14" /></svg>';
     case "podcast":
       return '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 13v-1a8 8 0 0 1 16 0v1"/><path d="M4 13h3v7H6a2 2 0 0 1-2-2v-3a2 2 0 0 1 2-2m13 0h1a2 2 0 0 1 2 2v3a2 2 0 0 1-2 2h-1z"/></svg>';
+    case "skip":
+      return '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="m5 5 10 7-10 7V5Zm14 0v14" /></svg>';
   }
 }
 function iconButton(label: string, icon: IconName, className = "") {
@@ -1057,14 +1059,6 @@ function iconButton(label: string, icon: IconName, className = "") {
   button.setAttribute("aria-label", label);
   button.title = label;
   button.innerHTML = iconMarkup(icon);
-  return button;
-}
-function articleToolbarButton(label: string, icon: IconName, variant: "primary" | "secondary") {
-  const button = el("button", undefined, `button ${variant} article-toolbar-button`);
-  button.type = "button";
-  button.title = label;
-  button.innerHTML = iconMarkup(icon);
-  button.append(el("span", label, "article-toolbar-label"));
   return button;
 }
 function enrichmentIsPending(article: Article): boolean {
@@ -3678,23 +3672,23 @@ function renderFeedItems() {
     const meta = el("div", `${source?.title || "Feed"} · ${new Date(item.publishedAt).toLocaleDateString()}`, "muted feed-meta");
     main.append(meta);
     const actions = el("div", undefined, "feed-actions");
-    const seen = articleToolbarButton(
-      item.seen ? "Mark as unread" : "Mark as read",
-      item.seen ? "mark-unread" : "mark-read",
-      "primary",
-    );
-    seen.dataset.feedSeen = "";
-    seen.disabled = feedItemUpdates.has(item.id);
-    seen.addEventListener("click", () => void setFeedSeen(item, !item.seen));
-    const save = articleToolbarButton(
+    const save = iconButton(
       item.saved ? "Added to Potem" : "Add to Potem",
-      item.saved ? "bookmark-added" : "bookmark-add",
-      "secondary",
+      item.saved ? "bookmark-added" : "plus",
+      "feed-save-action",
     );
     save.classList.toggle("feed-action-added", item.saved);
     save.disabled = item.saved || feedItemUpdates.has(item.id);
     save.addEventListener("click", () => void saveFeedItem(item));
-    actions.append(seen, save);
+    const seen = iconButton(
+      item.seen ? "Mark as unread" : "Skip",
+      item.seen ? "mark-unread" : "skip",
+      "subtle",
+    );
+    seen.dataset.feedSeen = "";
+    seen.disabled = feedItemUpdates.has(item.id);
+    seen.addEventListener("click", () => void setFeedSeen(item, !item.seen));
+    actions.append(save, seen);
     main.append(actions);
     li.append(main);
     list.append(li);
@@ -3702,7 +3696,7 @@ function renderFeedItems() {
   $("#feed-empty").hidden = list.children.length > 0;
   if (!list.children.length && feedItems.length) {
     $("#feed-empty h3").textContent = "You’re all caught up";
-    $("#feed-empty p").textContent = "Read articles remain available in All.";
+    $("#feed-empty p").textContent = "Skipped articles remain available in All.";
   } else {
     $("#feed-empty h3").textContent = feeds.length ? "No feed items yet" : "No feeds yet";
     $("#feed-empty p").textContent = feeds.length
@@ -3767,11 +3761,11 @@ async function setFeedSeen(item: FeedItem, seen: boolean) {
     item.seen = seen;
     const displayed = feedItems.find(candidate => candidate.id === item.id);
     if (displayed) displayed.seen = seen;
-    feedMessage(seen ? "Marked as read." : "Marked as unread.");
+    feedMessage(seen ? "Skipped." : "Marked as unread.");
     if (seen) {
       undo = el("button", "Undo", "text-button");
       undo.type = "button";
-      undo.setAttribute("aria-label", `Undo marking ${item.title || "article"} as read`);
+      undo.setAttribute("aria-label", `Undo skipping ${item.title || "article"}`);
       undo.addEventListener("click", () => void setFeedSeen(item, false));
       $("#feed-notice").append(document.createTextNode(" "), undo);
     }

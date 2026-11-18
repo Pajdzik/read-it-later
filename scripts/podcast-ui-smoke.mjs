@@ -156,20 +156,27 @@ try {
   await feedsView.locator("#feed-source").selectOption("field");
   await site.waitFor({ state: "hidden" });
   const walkRow = feedsView.locator("li").filter({ has: page.getByRole("link", { name: feedItems[0].title, exact: true }) });
-  const markRead = walkRow.getByRole("button", { name: "Mark as read", exact: true });
   const addToPotem = walkRow.getByRole("button", { name: "Add to Potem", exact: true });
+  const skip = walkRow.getByRole("button", { name: "Skip", exact: true });
   for (const colorScheme of ["light", "dark"]) {
     await page.emulateMedia({ colorScheme });
     await page.locator(`html[data-theme="${colorScheme}"]`).waitFor();
     for (const width of [320, 390, 620, 768, 1200]) {
       await page.setViewportSize({ width, height: 844 });
-      for (const button of [markRead, addToPotem]) {
-        const bounds = await button.boundingBox();
-        assert.ok(bounds && bounds.width >= 44 && bounds.height >= 44, "Feed actions must have 44px touch targets.");
-        assert.equal(bounds.width === 44, width <= 680, "Feed actions should use icons on narrow screens and show labels on wider screens.");
+      const [addBounds, skipBounds] = await Promise.all([addToPotem.boundingBox(), skip.boundingBox()]);
+      assert.ok(addBounds && skipBounds);
+      for (const bounds of [addBounds, skipBounds]) {
+        assert.equal(bounds.width, 44, "Feed actions must be 44px wide.");
+        assert.equal(bounds.height, 44, "Feed actions must be 44px tall.");
         assert.ok(bounds.x >= 0 && bounds.x + bounds.width <= width, "Feed actions must fit inside the viewport.");
       }
+      assert.equal(addBounds.y, skipBounds.y, "Feed actions must share a row.");
+      assert.ok(skipBounds.x - (addBounds.x + addBounds.width) >= 8, "Add to Potem must sit to the left of Skip with at least 8px between them.");
     }
+  }
+  for (const button of [addToPotem, skip]) {
+    assert.equal(await button.evaluate(el => getComputedStyle(el).borderRadius), "50%", "Feed actions must be circular.");
+    assert.equal(await button.textContent(), "", "Feed actions must be icon-only.");
   }
   await page.setViewportSize({ width: 390, height: 844 });
   await addToPotem.click();
@@ -177,16 +184,16 @@ try {
   await added.waitFor();
   assert.equal(await added.isDisabled(), true);
   assert.equal(apiCalls.find((call) => call.path === "/api/articles" && call.method === "POST").body.captureMarkdown, true);
-  await markRead.click();
+  await skip.click();
   await walk.waitFor({ state: "hidden" });
-  await feedsView.getByRole("button", { name: "Undo" }).click();
+  await feedsView.getByRole("button", { name: `Undo skipping ${feedItems[0].title}` }).click();
   await walk.waitFor();
   assert.equal(feedItems[0].seen, false, "Undo should restore the item on the server.");
-  await markRead.click();
+  await skip.click();
   await walk.waitFor({ state: "hidden" });
   await feedsView.getByRole("button", { name: "All", exact: true }).click();
   await walkRow.getByRole("button", { name: "Mark as unread", exact: true }).click();
-  await markRead.waitFor();
+  await skip.waitFor();
   assert.equal(feedItems[0].seen, false, "Mark as unread should restore the item on the server.");
   await feedsView.getByRole("button", { name: "New", exact: true }).click();
   await page.getByRole("button", { name: "Add feed" }).click();

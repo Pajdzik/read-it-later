@@ -730,7 +730,8 @@ button {
 .original-link {
   text-decoration: none;
 }
-.article-actions {
+.article-actions,
+.feed-actions {
   display: flex;
   flex-direction: row;
   gap: 8px;
@@ -791,12 +792,14 @@ button {
   width: 17px;
   height: 17px;
 }
-.action-button.read-action {
+.action-button.read-action,
+.action-button.feed-save-action {
   color: var(--accent);
   border-color: color-mix(in srgb, var(--accent) 35%, var(--line));
   background: color-mix(in srgb, var(--accent) 8%, var(--white));
 }
-.article-actions .action-button.icon-action {
+.article-actions .action-button.icon-action,
+.feed-actions .action-button.icon-action {
   width: 44px;
   height: 44px;
   flex-basis: 44px;
@@ -1257,8 +1260,7 @@ button {
   justify-content: space-between;
   gap: 10px;
 }
-.reader-completion-actions,
-.feed-actions {
+.reader-completion-actions {
   display: flex;
   align-items: center;
   gap: 8px;
@@ -1459,7 +1461,6 @@ body:has(#reader-dialog[open]) {
 @media (max-width: 680px) {
   .reader-completion-toolbar { gap: 8px; }
   .reader-completion-actions,
-  .feed-actions,
   .reader-feedback-controls { gap: 6px; }
   .reader-feedback-button,
   .article-toolbar-button {
@@ -1766,8 +1767,9 @@ body:has(#reader-dialog[open]) {
   overflow:hidden;
 }
 .feed-meta { font-size:.78rem; margin:.45rem 0 .2rem; }
-.feed-actions { margin-top: .5rem; }
-.feed-action-added:disabled { cursor: default; }
+.feed-actions { justify-content: flex-start; margin-top: .5rem; }
+.feed-actions button:disabled { opacity: .6; cursor: wait; }
+.feed-actions .feed-action-added:disabled { cursor: default; }
 @media(max-width:520px) { .feed-source-row { flex-wrap:wrap; } #feed-add-form { align-items:stretch; } #feed-add-form .button { white-space:nowrap; } }
 
 /* Topic tags share the library's compact, keyboard-accessible controls. */
