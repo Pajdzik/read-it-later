@@ -144,6 +144,19 @@ try {
   await page.locator("#podcast-dialog").getByRole("button", { name: "Close podcast options" }).click();
   await page.locator("#reader-dialog").getByRole("button", { name: "Close saved copy" }).click();
   await page.getByRole("button", { name: "Unread", exact: true }).click();
+  const widths = [320, 390, 620, 768, 1200];
+  const libraryActionPositions = new Map();
+  for (const width of widths) {
+    await page.setViewportSize({ width, height: 844 });
+    const [rowBounds, readBounds, moreBounds] = await Promise.all([
+      row.boundingBox(), row.locator(".read-action").boundingBox(), moreButton.boundingBox(),
+    ]);
+    assert.ok(rowBounds && readBounds && moreBounds);
+    libraryActionPositions.set(width, {
+      top: readBounds.y - rowBounds.y,
+      right: rowBounds.x + rowBounds.width - moreBounds.x - moreBounds.width,
+    });
+  }
   assert.equal(apiCalls.some((call) => call.path.startsWith("/api/feeds")), false, "Feeds should load when opened.");
   await page.getByRole("button", { name: "Feeds", exact: true }).click();
   const feedsView = page.locator("#feeds-view");
@@ -155,30 +168,45 @@ try {
   assert.equal(await page.getByRole("button", { name: "Podcast picks" }).isVisible(), false, "Podcast picks belongs to the reading list.");
   await feedsView.locator("#feed-source").selectOption("field");
   await site.waitFor({ state: "hidden" });
-  const walkRow = feedsView.locator("li").filter({ has: page.getByRole("link", { name: feedItems[0].title, exact: true }) });
+  const walkRow = feedsView.locator('.feed-item[data-id="walk"]');
   const addToPotem = walkRow.getByRole("button", { name: "Add to Potem", exact: true });
   const skip = walkRow.getByRole("button", { name: "Skip", exact: true });
   for (const colorScheme of ["light", "dark"]) {
     await page.emulateMedia({ colorScheme });
     await page.locator(`html[data-theme="${colorScheme}"]`).waitFor();
-    for (const width of [320, 390, 620, 768, 1200]) {
+    for (const width of widths) {
       await page.setViewportSize({ width, height: 844 });
-      const [addBounds, skipBounds] = await Promise.all([addToPotem.boundingBox(), skip.boundingBox()]);
-      assert.ok(addBounds && skipBounds);
-      for (const bounds of [addBounds, skipBounds]) {
-        assert.equal(bounds.width, 44, "Feed actions must be 44px wide.");
-        assert.equal(bounds.height, 44, "Feed actions must be 44px tall.");
-        assert.ok(bounds.x >= 0 && bounds.x + bounds.width <= width, "Feed actions must fit inside the viewport.");
+      for (const title of [feedItems[0].title, "A longer feed title that wraps over several lines beside its actions", "Unbroken".repeat(30)]) {
+        await walkRow.locator(".article-title").evaluate((element, text) => { element.textContent = text; }, title);
+        const [rowBounds, titleBounds, addBounds, skipBounds] = await Promise.all([
+          walkRow.boundingBox(), walkRow.locator(".article-title").boundingBox(), addToPotem.boundingBox(), skip.boundingBox(),
+        ]);
+        assert.ok(rowBounds && titleBounds && addBounds && skipBounds);
+        for (const bounds of [addBounds, skipBounds]) {
+          assert.equal(bounds.width, 44, "Feed actions must be 44px wide.");
+          assert.equal(bounds.height, 44, "Feed actions must be 44px tall.");
+          assert.ok(bounds.x >= 0 && bounds.x + bounds.width <= width, "Feed actions must fit inside the viewport.");
+        }
+        assert.equal(addBounds.y, skipBounds.y, "Feed actions must share a row.");
+        assert.equal(addBounds.y, titleBounds.y, "Feed actions must align with the top of the title.");
+        assert.ok(titleBounds.x + titleBounds.width <= addBounds.x - 8, "Feed titles must wrap before the actions.");
+        assert.ok(skipBounds.x - (addBounds.x + addBounds.width) >= 8, "Add to Potem must sit to the left of Skip with at least 8px between them.");
+        assert.deepEqual({
+          top: addBounds.y - rowBounds.y,
+          right: rowBounds.x + rowBounds.width - skipBounds.x - skipBounds.width,
+        }, libraryActionPositions.get(width), "Feed actions must match the reading list's top and right insets.");
+        assert.equal(await page.evaluate(() => document.documentElement.scrollWidth > innerWidth), false, "Feed titles and actions must fit the viewport.");
       }
-      assert.equal(addBounds.y, skipBounds.y, "Feed actions must share a row.");
-      assert.ok(skipBounds.x - (addBounds.x + addBounds.width) >= 8, "Add to Potem must sit to the left of Skip with at least 8px between them.");
     }
   }
+  await walkRow.locator(".article-title").evaluate((element, title) => { element.textContent = title; }, feedItems[0].title);
+  await page.screenshot({ path: "/tmp/potem-feed-actions-desktop.png" });
   for (const button of [addToPotem, skip]) {
     assert.equal(await button.evaluate(el => getComputedStyle(el).borderRadius), "50%", "Feed actions must be circular.");
     assert.equal(await button.textContent(), "", "Feed actions must be icon-only.");
   }
   await page.setViewportSize({ width: 390, height: 844 });
+  await page.screenshot({ path: "/tmp/potem-feed-actions-mobile.png" });
   await addToPotem.click();
   const added = walkRow.getByRole("button", { name: "Added to Potem", exact: true });
   await added.waitFor();

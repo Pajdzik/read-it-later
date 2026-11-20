@@ -730,8 +730,7 @@ button {
 .original-link {
   text-decoration: none;
 }
-.article-actions,
-.feed-actions {
+.article-actions {
   display: flex;
   flex-direction: row;
   gap: 8px;
@@ -798,8 +797,7 @@ button {
   border-color: color-mix(in srgb, var(--accent) 35%, var(--line));
   background: color-mix(in srgb, var(--accent) 8%, var(--white));
 }
-.article-actions .action-button.icon-action,
-.feed-actions .action-button.icon-action {
+.article-actions .action-button.icon-action {
   width: 44px;
   height: 44px;
   flex-basis: 44px;
@@ -1753,7 +1751,6 @@ body:has(#reader-dialog[open]) {
 .feed-list { list-style:none; width:100%; padding:0; margin:.25rem 0; border-top:1px solid var(--line); }
 .feed-source-row { display:flex; align-items:center; gap:.8rem; padding:.55rem 0; border-bottom:1px solid var(--line); font-size:.9rem; }
 .feed-source-row span:first-child { flex:1; min-width:0; overflow-wrap:anywhere; }
-.feed-item { padding:1rem 0; }
 .feed-preview {
   color:var(--muted);
   margin:.45rem 0 .55rem;
@@ -1767,7 +1764,6 @@ body:has(#reader-dialog[open]) {
   overflow:hidden;
 }
 .feed-meta { font-size:.78rem; margin:.45rem 0 .2rem; }
-.feed-actions { justify-content: flex-start; margin-top: .5rem; }
 .feed-actions button:disabled { opacity: .6; cursor: wait; }
 .feed-actions .feed-action-added:disabled { cursor: default; }
 @media(max-width:520px) { .feed-source-row { flex-wrap:wrap; } #feed-add-form { align-items:stretch; } #feed-add-form .button { white-space:nowrap; } }
