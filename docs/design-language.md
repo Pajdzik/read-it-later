@@ -101,19 +101,21 @@ At the end of a saved reader copy, keep article feedback, Mark as read/unread, a
 
 Keep **Palette** (Green or Brown) and **Appearance** (System, Light, or Dark) independent in Settings. Default to Green and System. System follows the operating system’s light or dark mode and keeps the chosen palette. Apply both preferences on the reading list, reader, Settings, and capture page. Match the browser theme color to the top bar.
 
-Mirror light and dark within each palette. In Light, use warm paper for the page and deep green or cocoa for the top bar. In Dark, use deep green or cocoa for the page and warm beige for the top bar. Carry the palette through raised surfaces and highlights. Shift green or rust action accents in Light to peach in Dark. Use the page color for the wordmark and paired bookmark symbol and the top bar’s emphasis color for the period. Keep the full-width, 4 px rust divider (`#934324`) in both modes.
+Mirror light and dark within each palette. In Light, use warm paper for the page and deep green or cocoa for the top bar. In Dark, use deep green or cocoa for the page and warm beige for the top bar. Carry the palette through raised surfaces and highlights. Use deep green or cocoa for actions in Light and warm orange in Dark. Use burnt rust (`#934324`) for emphasis on light content surfaces and warm orange (`#F0AC89`) on dark content surfaces. Use the page color for the wordmark and paired bookmark symbol and the top bar’s emphasis color for the period. Keep the full-width, 4 px rust divider (`#934324`) in both modes.
 
-Green retains the reviewed light palette with a `#124138` top bar. Green Dark uses `#0D1A10` for the page, `#1A4C3F` for raised surfaces, `#245143` for highlights, `#4B7062` for separators, `#F0AC89` for accents, and `#EEE2CF` for the top bar.
+Green Light uses the reviewed paper, ink, and title colors with a `#124138` top bar and shared rust emphasis. Its placeholders use the muted text color. Green Dark uses `#0D1A10` for the page and primary button text, `#18362B` for raised surfaces, `#203F34` for highlights, `#4B7062` for separators, `#F0AC89` for accents, and `#EEE2CF` for the top bar. Green top bar outlines are `#8EAB98` in Light and `#806854` in Dark.
+
+Use `--control-outline` for form field boundaries and `--line` for quiet content separators. The Green control outline is `#8B7C6E` in Light and `#829B8B` in Dark. The Brown control outline is `#907665` in Light and `#A38B78` in Dark. Search uses the top bar outline.
 
 | Brown color role | Light | Dark |
 | --- | --- | --- |
 | Page / raised surface / highlight | `#F5EBDD` / `#FFF7EB` / `#EEDFD1` | `#1C1511` / `#2B201A` / `#3A2B22` |
 | Text / title / muted | `#35261E` / `#743C29` / `#695347` | `#F3EBDD` / `#F3EBDD` / `#CDB9A8` |
-| Accent / emphasis / primary button text | `#873F28` / `#9A492C` / `#FFF7EB` | `#F0AC89` / `#F0AC89` / `#1C1511` |
+| Accent / emphasis / primary button text | `#65402F` / `#934324` / `#FFF7EB` | `#F0AC89` / `#F0AC89` / `#1C1511` |
 | Separator / focus / placeholder | `#D7C1B0` / `#9A5638` / `#745E50` | `#594436` / `#D8A885` / `#CDB9A8` |
 | Destructive surface / text / outline | `#F9E5DE` / `#853B2D` / `#AC5949` | `#462824` / `#F4BFB1` / `#DB907B` |
 | Top bar background / text / highlight | `#513023` / `#F9EBDD` / `#694435` | `#EED9C4` / `#35261E` / `#E0C5AB` |
-| Top bar separator / focus / placeholder / period | `#B69884` / `#F0BE9E` / `#E8CBBB` / `#F0AC89` | `#816050` / `#8B4C33` / `#654739` / `#934324` |
+| Top bar separator / focus / placeholder / period | `#B69884` / `#F0BE9E` / `#E8CBBB` / `#F4B597` | `#816050` / `#8B4C33` / `#654739` / `#843A20` |
 
 ## Follow-up proposals: not part of the reviewed implementation
 

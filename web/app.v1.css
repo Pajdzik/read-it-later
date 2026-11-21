@@ -7,12 +7,13 @@
   --title: #145a42;
   --muted: #6e6257;
   --line: #ddd2c3;
+  --control-outline: #8b7c6e;
   --accent: #145a42;
   --highlight: #e4ede5;
-  --emphasis: #a64f2d;
+  --emphasis: var(--rust);
   --orange: var(--emphasis);
   --primary-foreground: #fffaf2;
-  --placeholder: #756b60;
+  --placeholder: var(--muted);
   --shadow: 0 16px 45px #4a332010;
   --focus: #3f795f;
   --danger-surface: #fae9e3;
@@ -24,7 +25,7 @@
   --topbar-scheme: dark;
   --topbar-background: #124138;
   --topbar-ink: #fff7e9;
-  --topbar-line: #719983;
+  --topbar-line: #8eab98;
   --topbar-highlight: #2c5847;
   --topbar-emphasis: #f4b597;
   --topbar-placeholder: #e0cdb7;
@@ -33,15 +34,16 @@
 :root[data-theme="dark"] {
   color-scheme: dark;
   --paper: #0d1a10;
-  --white: #1a4c3f;
+  --white: #18362b;
   --ink: #f3ebdd;
   --title: #f3ebdd;
   --muted: #bac8be;
   --line: #4b7062;
+  --control-outline: #829b8b;
   --accent: #f0ac89;
-  --highlight: #245143;
+  --highlight: #203f34;
   --emphasis: var(--accent);
-  --primary-foreground: #102d24;
+  --primary-foreground: var(--paper);
   --placeholder: #bac8be;
   --shadow: 0 16px 45px #0004;
   --focus: #8cbea2;
@@ -53,7 +55,7 @@
   --topbar-scheme: light;
   --topbar-background: #eee2cf;
   --topbar-ink: #30261f;
-  --topbar-line: #907964;
+  --topbar-line: #806854;
   --topbar-highlight: #ded0ba;
   --topbar-emphasis: var(--rust);
   --topbar-placeholder: #695343;
@@ -69,9 +71,9 @@
   --title: #743c29;
   --muted: #695347;
   --line: #d7c1b0;
-  --accent: #873f28;
+  --control-outline: #907665;
+  --accent: #65402f;
   --highlight: #eedfd1;
-  --emphasis: #9a492c;
   --primary-foreground: #fff7eb;
   --placeholder: #745e50;
   --focus: #9a5638;
@@ -82,7 +84,7 @@
   --topbar-ink: #f9ebdd;
   --topbar-line: #b69884;
   --topbar-highlight: #694435;
-  --topbar-emphasis: #f0ac89;
+  --topbar-emphasis: #f4b597;
   --topbar-placeholder: #e8cbbb;
   --topbar-focus: #f0be9e;
 }
@@ -93,6 +95,7 @@
   --title: var(--ink);
   --muted: #cdb9a8;
   --line: #594436;
+  --control-outline: #a38b78;
   --accent: #f0ac89;
   --highlight: #3a2b22;
   --primary-foreground: var(--paper);
@@ -105,6 +108,7 @@
   --topbar-ink: #35261e;
   --topbar-line: #816050;
   --topbar-highlight: #e0c5ab;
+  --topbar-emphasis: #843a20;
   --topbar-placeholder: #654739;
   --topbar-focus: #8b4c33;
 }
@@ -159,6 +163,7 @@ button {
   color-scheme: var(--topbar-scheme);
   --ink: var(--topbar-ink);
   --line: var(--topbar-line);
+  --control-outline: var(--topbar-line);
   --accent: var(--ink);
   --highlight: var(--topbar-highlight);
   --placeholder: var(--topbar-placeholder);
@@ -343,7 +348,7 @@ button {
 .edit-form input {
   width: 100%;
   min-width: 0;
-  border: 1px solid var(--line);
+  border: 1px solid var(--control-outline);
   border-radius: 10px;
   background: var(--paper);
   padding: 12px 14px;
@@ -385,9 +390,6 @@ button {
   font-size: 12px;
   color: var(--muted);
 }
-.title-option span {
-  opacity: 0.8;
-}
 .title-option input {
   flex-basis: 100%;
   padding: 9px 12px;
@@ -400,7 +402,7 @@ button {
   min-width: 0;
   margin-top: 3px;
   padding: 9px 12px;
-  border: 1px solid var(--line);
+  border: 1px solid var(--control-outline);
   border-radius: 10px;
   background: transparent;
   color: var(--ink);
@@ -474,7 +476,7 @@ button {
 .search-control.is-open .search {
   width: min(280px, 28vw);
   padding: 0 10px;
-  border-color: var(--line);
+  border-color: var(--control-outline);
   opacity: 1;
   pointer-events: none;
 }
@@ -1031,7 +1033,7 @@ button {
   min-height: 190px;
   margin: 6px 0 14px;
   padding: 11px;
-  border: 1px solid var(--line);
+  border: 1px solid var(--control-outline);
   border-radius: 9px;
   background: var(--white);
   color: var(--ink);
@@ -1044,7 +1046,7 @@ button {
   min-height: 190px;
   margin: 6px 0 14px;
   padding: 11px;
-  border: 1px solid var(--line);
+  border: 1px solid var(--control-outline);
   border-radius: 9px;
   background: var(--white);
   color: var(--ink);
@@ -1428,7 +1430,7 @@ body:has(#reader-dialog[open]) {
 .integration-select {
   width: 100%;
   min-width: 0;
-  border: 1px solid var(--line);
+  border: 1px solid var(--control-outline);
   border-radius: 9px;
   background: var(--paper);
   padding: 10px 12px;
@@ -1526,7 +1528,7 @@ body:has(#reader-dialog[open]) {
 }
 .settings-row select {
   min-width: 7rem;
-  border: 1px solid var(--line);
+  border: 1px solid var(--control-outline);
   border-radius: 9px;
   background: var(--paper);
   padding: 8px 12px;
@@ -1747,9 +1749,9 @@ body:has(#reader-dialog[open]) {
 .feed-manage { margin: .6rem 0 1rem; }
 .feed-manage-actions { display: flex; flex-wrap: wrap; align-items: center; gap: 1rem; }
 #feed-manage-panel, #feed-add-panel { padding: .6rem 0; }
-#feed-source { min-width: 0; max-width: 100%; background: var(--white); color: var(--ink); }
+#feed-source { min-width: 0; max-width: 100%; border: 1px solid var(--control-outline); background: var(--white); color: var(--ink); }
 #feed-add-form { display:flex; gap:.5rem; width:100%; }
-#feed-url { min-width:0; flex:1; padding:.55rem .7rem; border:1px solid var(--line); border-radius:.55rem; background:var(--white); }
+#feed-url { min-width:0; flex:1; padding:.55rem .7rem; border:1px solid var(--control-outline); border-radius:.55rem; background:var(--white); }
 .feed-list { list-style:none; width:100%; padding:0; margin:.25rem 0; border-top:1px solid var(--line); }
 .feed-source-row { display:flex; align-items:center; gap:.8rem; padding:.55rem 0; border-bottom:1px solid var(--line); font-size:.9rem; }
 .feed-source-row span:first-child { flex:1; min-width:0; overflow-wrap:anywhere; }
@@ -1784,5 +1786,5 @@ body:has(#reader-dialog[open]) {
 .edit-form .generated-label { margin-left: .45rem; vertical-align: middle; }
 .tag-controls { display: flex; flex-wrap: wrap; gap: .6rem; align-items: center; margin: .25rem 0 1rem; }
 .tag-controls[hidden] { display: none; }
-.tag-controls select { min-width: 0; max-width: 100%; border: 1px solid var(--line); border-radius: .5rem; padding: .4rem .6rem; background: var(--white); color: var(--ink); font: inherit; }
-.edit-form textarea { width: 100%; box-sizing: border-box; font: inherit; border: 1px solid var(--line); border-radius: .6rem; background: var(--white); color: var(--ink); padding: .65rem; }
+.tag-controls select { min-width: 0; max-width: 100%; border: 1px solid var(--control-outline); border-radius: .5rem; padding: .4rem .6rem; background: var(--white); color: var(--ink); font: inherit; }
+.edit-form textarea { width: 100%; box-sizing: border-box; font: inherit; border: 1px solid var(--control-outline); border-radius: .6rem; background: var(--white); color: var(--ink); padding: .65rem; }
