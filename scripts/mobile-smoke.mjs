@@ -766,7 +766,11 @@ async function runProfile(name, browserType, device) {
     `${name}: short landscape reader should cover the viewport: ${JSON.stringify(landscapeReaderBounds)}.`);
   assert.equal(await readyReader.evaluate((dialog) => dialog.scrollWidth <= dialog.clientWidth + 1), true,
     `${name}: short landscape reader has horizontal overflow.`);
+  // Reveal the auto-hiding toolbar with an upward scroll before checking Back.
   await readyReader.evaluate((dialog) => { dialog.scrollTop = dialog.scrollHeight; });
+  await expect(readyReader.locator(".reader-toolbar")).toHaveClass(/is-hidden/);
+  await readyReader.evaluate((dialog) => { dialog.scrollTop -= 24; });
+  await expect(readyReader.locator(".reader-toolbar")).not.toHaveClass(/is-hidden/);
   const landscapeBack = readyReader.locator(".reader-close button");
   // Scrolling can move the toolbar before it settles. WebKit can also round a sticky edge slightly outside the viewport.
   const edgeTolerance = 0.1;
