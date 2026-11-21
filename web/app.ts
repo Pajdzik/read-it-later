@@ -3662,16 +3662,12 @@ function renderFeedItems() {
     const li = el("li", "", "article feed-item");
     li.dataset.id = item.id;
     const main = el("div", "", "article-main");
+    const headingRow = el("div", undefined, "article-heading-row");
     const title = el("a", item.title || item.url, "article-title");
     title.href = item.url;
     title.target = "_blank";
     title.rel = "noopener noreferrer";
-    main.append(title);
-    if (item.preview) main.append(el("p", item.preview, "feed-preview"));
-    const source = feeds.find(feed => feed.id === item.feedId);
-    const meta = el("div", `${source?.title || "Feed"} · ${new Date(item.publishedAt).toLocaleDateString()}`, "muted feed-meta");
-    main.append(meta);
-    const actions = el("div", undefined, "feed-actions");
+    const actions = el("div", undefined, "article-actions feed-actions");
     const save = iconButton(
       item.saved ? "Added to Potem" : "Add to Potem",
       item.saved ? "bookmark-added" : "plus",
@@ -3689,7 +3685,12 @@ function renderFeedItems() {
     seen.disabled = feedItemUpdates.has(item.id);
     seen.addEventListener("click", () => void setFeedSeen(item, !item.seen));
     actions.append(save, seen);
-    main.append(actions);
+    headingRow.append(title, actions);
+    main.append(headingRow);
+    if (item.preview) main.append(el("p", item.preview, "feed-preview"));
+    const source = feeds.find(feed => feed.id === item.feedId);
+    const meta = el("div", `${source?.title || "Feed"} · ${new Date(item.publishedAt).toLocaleDateString()}`, "muted feed-meta");
+    main.append(meta);
     li.append(main);
     list.append(li);
   }
