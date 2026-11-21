@@ -3603,6 +3603,12 @@ let feedLoading = false;
 let feedSubmitting = false;
 let libraryNeedsRefresh = false;
 const feedItemUpdates = new Set<string>();
+const feedRemovals = new Set<string>();
+const feedManageButton = $<HTMLButtonElement>("#feed-manage-open");
+const feedManageDialog = $<HTMLDialogElement>("#feed-manage-dialog");
+const feedManageClose = $<HTMLButtonElement>("#feed-manage-close");
+const feedManageNotice = $("#feed-manage-notice");
+const feedList = $("#feed-list");
 async function refreshFeeds() {
   const generation = ++feedListGeneration;
   try {
@@ -3614,33 +3620,36 @@ async function refreshFeeds() {
     select.replaceChildren(new Option("All feeds", ""));
     for (const feed of feeds) select.add(new Option(feed.title || feed.url, feed.id));
     if (feeds.some(feed => feed.id === previous)) select.value = previous;
-    const list = $("#feed-list");
-    list.replaceChildren();
-    for (const feed of feeds) {
+    const previousButtons = Array.from(feedList.querySelectorAll("button"));
+    const focusedIndex = previousButtons.findIndex(button => button === document.activeElement);
+    const focusedFeed = previousButtons[focusedIndex]?.dataset.feedId;
+    const rows = feeds.map(feed => {
       const li = el("li", "", "feed-source-row");
+      const details = el("div", "", "feed-source-details");
       const label = el("span", feed.title || feed.url);
       label.title = feed.url;
-      li.append(label);
+      details.append(label);
       if (feed.lastError) {
         const error = el("span", "Couldn’t refresh", "muted");
         error.title = feed.lastError;
-        li.append(error);
+        details.append(error);
       }
       const remove = el("button", "Remove", "text-button");
       remove.type = "button";
+      remove.dataset.feedId = feed.id;
       remove.setAttribute("aria-label", `Remove ${feed.title || feed.url}`);
-      remove.addEventListener("click", async () => {
-        remove.disabled = true;
-        await deleteFeed(feed);
-        remove.disabled = false;
-      });
-      li.append(remove);
-      list.append(li);
-    }
-    $("#feed-manage-toggle").hidden = feeds.length === 0;
-    if (!feeds.length) {
-      $("#feed-manage-panel").hidden = true;
-      $("#feed-manage-toggle").setAttribute("aria-expanded", "false");
+      if (feedRemovals.has(feed.id)) remove.setAttribute("aria-disabled", "true");
+      remove.addEventListener("click", () => void deleteFeed(feed, remove));
+      li.append(details, remove);
+      return li;
+    });
+    feedList.replaceChildren(...rows);
+    feedManageButton.hidden = feeds.length === 0;
+    $("#feed-manage-empty").textContent = feeds.length ? "" : "No subscribed feeds.";
+    if (focusedIndex >= 0) {
+      const buttons = Array.from(feedList.querySelectorAll("button"));
+      const next = buttons.find(button => button.dataset.feedId === focusedFeed) ?? buttons[focusedIndex] ?? buttons.at(-1);
+      (next ?? feedManageClose).focus();
     }
     return true;
   } catch (error) {
@@ -3653,6 +3662,10 @@ function feedMessage(message: string, error = false) {
   node.replaceChildren(document.createTextNode(message));
   node.classList.toggle("error", error);
   node.hidden = false;
+  if (error && feedManageDialog.open) {
+    feedManageNotice.hidden = false;
+    feedManageNotice.textContent = message;
+  }
 }
 function renderFeedItems() {
   const list = $("#feed-items");
@@ -3810,12 +3823,19 @@ async function saveFeedItem(item: FeedItem) {
     }
   }
 }
-async function deleteFeed(feed: Feed) {
+async function deleteFeed(feed: Feed, button: HTMLButtonElement) {
+  if (feedRemovals.has(feed.id)) return;
+  feedRemovals.add(feed.id);
+  button.setAttribute("aria-disabled", "true");
+  feedManageNotice.hidden = true;
   try {
     await request(`/api/feeds/${encodeURIComponent(feed.id)}`, { method: "DELETE" });
     if (await refreshFeeds()) await loadFeeds();
   } catch (error) {
     feedMessage(`Couldn’t remove feed. ${(error as Error).message}`, true);
+  } finally {
+    feedRemovals.delete(feed.id);
+    feedList.querySelector(`button[data-feed-id="${CSS.escape(feed.id)}"]`)?.removeAttribute("aria-disabled");
   }
 }
 function setFeedMode(on: boolean, updateUrl = true) {
@@ -3844,6 +3864,10 @@ function setFeedMode(on: boolean, updateUrl = true) {
   }
   $("#reading-tab").setAttribute("aria-pressed", String(!on));
   $("#feeds-tab").setAttribute("aria-pressed", String(on));
+  if (!on && feedManageDialog.open) {
+    feedManageDialog.close();
+    $("#reading-tab").focus({ preventScroll: true });
+  }
   if (on) {
     setSearchOpen(false);
     void refreshFeeds().then(ok => { if (ok) return loadFeeds(); });
@@ -3865,10 +3889,13 @@ $("#feed-all").addEventListener("click", () => {
 });
 $("#feed-source").addEventListener("change", () => void loadFeeds());
 $("#feed-more").addEventListener("click", () => void loadFeeds(true));
-$("#feed-manage-toggle").addEventListener("click", () => {
-  const panel = $("#feed-manage-panel");
-  panel.hidden = !panel.hidden;
-  $("#feed-manage-toggle").setAttribute("aria-expanded", String(!panel.hidden));
+feedManageButton.addEventListener("click", () => {
+  feedManageNotice.hidden = true;
+  showDialog(feedManageDialog, feedManageClose);
+});
+feedManageDialog.addEventListener("close", () => {
+  if (!feedMode || feedManageDialog.open) return;
+  (feedManageButton.hidden ? $("#add-open") : feedManageButton).focus({ preventScroll: true });
 });
 $("#feed-add-form").addEventListener("submit", async event => {
   event.preventDefault();
@@ -4079,7 +4106,10 @@ $("#logout").addEventListener("click", async () => {
   $("#feeds-view").hidden = true;
   $("#articles").replaceChildren();
   $("#feed-items").replaceChildren();
-  $("#feed-list").replaceChildren();
+  feedManageDialog.close();
+  feedManageButton.hidden = true;
+  feedManageNotice.hidden = true;
+  feedList.replaceChildren();
   $<HTMLSelectElement>("#feed-source").replaceChildren(new Option("All feeds", ""));
   $("#feed-notice").replaceChildren();
   feedItems = [];

@@ -1412,7 +1412,7 @@ button {
 .reader-body a {
   overflow-wrap: anywhere;
 }
-body:has(#reader-dialog[open]) {
+body:has(#reader-dialog[open], #feed-manage-dialog[open]) {
   overflow: hidden;
 }
 .integration-option, .capture-refresh-option {
@@ -1744,15 +1744,25 @@ body:has(#reader-dialog[open]) {
 .primary-tabs { display:flex; gap:1.6rem; border-bottom:1px solid var(--line); margin:0 0 1.2rem; }
 .primary-tabs button { border:0; border-bottom:2px solid transparent; background:transparent; padding:.65rem .1rem; color:var(--muted); }
 .primary-tabs button[aria-pressed="true"] { color:var(--title); border-color:var(--accent); font-weight:650; }
-.feed-manage { margin: .6rem 0 1rem; }
-.feed-manage-actions { display: flex; flex-wrap: wrap; align-items: center; gap: 1rem; }
-#feed-manage-panel, #feed-add-panel { padding: .6rem 0; }
+.feed-tools { margin: .6rem 0 1rem; }
+#feed-manage-open { min-height: 44px; }
+#feed-add-panel { padding: .6rem 0; }
 #feed-source { min-width: 0; max-width: 100%; border: 1px solid var(--control-outline); background: var(--white); color: var(--ink); }
 #feed-add-form { display:flex; gap:.5rem; width:100%; }
 #feed-url { min-width:0; flex:1; padding:.55rem .7rem; border:1px solid var(--control-outline); border-radius:.55rem; background:var(--white); }
-.feed-list { list-style:none; width:100%; padding:0; margin:.25rem 0; border-top:1px solid var(--line); }
-.feed-source-row { display:flex; align-items:center; gap:.8rem; padding:.55rem 0; border-bottom:1px solid var(--line); font-size:.9rem; }
-.feed-source-row span:first-child { flex:1; min-width:0; overflow-wrap:anywhere; }
+.feed-manage-dialog[open] { display: flex; flex-direction: column; }
+.feed-manage-header { display: flex; align-items: center; justify-content: space-between; gap: .75rem; margin-bottom: .75rem; }
+.feed-manage-header h2, .feed-manage-header .dialog-close { margin: 0; }
+.feed-manage-header .icon-button { width: 44px; height: 44px; }
+#feed-manage-notice { margin: 0 0 .75rem; overflow-wrap: anywhere; }
+#feed-manage-empty { margin: 0; }
+.feed-list { list-style: none; min-height: 0; overflow: auto; overscroll-behavior: contain; margin: 0 -6px; padding: 0 6px; }
+.feed-source-row { display: flex; align-items: center; gap: .75rem; padding: .5rem 0; border-top: 1px solid var(--line); font-size: .9rem; }
+.feed-source-details { flex: 1; min-width: 0; overflow-wrap: anywhere; }
+.feed-source-details .muted { display: block; }
+.feed-source-row .text-button { min-height: 44px; border-radius: 8px; color: var(--danger-text); }
+.feed-source-row .text-button:hover:not([aria-disabled="true"]) { background: var(--danger-surface); }
+.feed-source-row .text-button[aria-disabled="true"] { opacity: .6; cursor: wait; }
 .feed-preview {
   color:var(--muted);
   margin:.45rem 0 .55rem;
@@ -1768,7 +1778,7 @@ body:has(#reader-dialog[open]) {
 .feed-meta { font-size:.78rem; margin:.45rem 0 .2rem; }
 .feed-actions button:disabled { opacity: .6; cursor: wait; }
 .feed-actions .feed-action-added:disabled { cursor: default; }
-@media(max-width:520px) { .feed-source-row { flex-wrap:wrap; } #feed-add-form { align-items:stretch; } #feed-add-form .button { white-space:nowrap; } }
+@media(max-width:520px) { #feed-add-form { align-items:stretch; } #feed-add-form .button { white-space:nowrap; } }
 
 /* Topic tags share the library's compact, keyboard-accessible controls. */
 .article-tags { display: flex; flex-wrap: wrap; gap: .4rem; margin: .55rem 0; }

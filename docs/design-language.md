@@ -91,7 +91,7 @@ Report success only after success is confirmed. Errors should say what failed an
 
 At the top of the mobile reading list, pulling down refreshes the current filter and search. Show “Pull to refresh” while the gesture is below the threshold, “Release to refresh” when it is ready, and “Refreshing your list…” while the request runs. Keep the current articles visible until the refreshed list arrives.
 
-In Feeds view, use the top-bar plus button to add a feed. Give it the accessible name and title “Add feed”; it opens the feed URL form. In Reading list view, the same button remains “Add article.” Keep Manage feeds with the feed controls.
+In Feeds view, use the top-bar plus button to add a feed. Give it the accessible name and title “Add feed”; it opens the feed URL form. In Reading list view, the same button remains “Add article.” Keep Manage feeds with the feed controls. Open subscriptions in a modal with a scrollable list, a Close button, and support for Escape. Show removal errors in the modal. Return focus to Manage feeds on dismissal, or to Add feed after the last subscription is removed.
 
 In feed excerpts, preserve paragraph breaks while extracting readable text, omit a repeated title and trailing tag/category metadata, and keep previews quieter and shorter than article titles. Use the reading list’s heading-row layout and row padding, with 44px circular icon buttons beside the title at the top right at every width. Put the accented Add to Potem plus on the left and Skip on the right, with accessible names and tooltips. After saving, show a disabled bookmark labeled Added to Potem. Skip removes the item from New and offers Undo. In All, skipped items offer Mark as unread in the same spot.
 
