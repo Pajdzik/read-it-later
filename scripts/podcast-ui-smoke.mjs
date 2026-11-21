@@ -29,7 +29,7 @@ const article = { id: "abc12345", url: "https://example.com/story", title: "Podc
 const codeArticle = { ...article, id: "bad23456", title: "Code-heavy article", podcastFit: { tier: "poor", reason: "Code makes up about 72% of the copy, and is skipped in narration.", spokenWords: 80, codeBlocks: 5, codeSharePercent: 72 } };
 const feedSources = [
   { id: "field", url: "https://field.example/rss.xml", title: "Field Notes", lastFetchedAt: article.createdAt, lastError: null },
-  { id: "journal", url: "https://journal.example/atom.xml", title: "Small Web Journal", lastFetchedAt: article.createdAt, lastError: null },
+  { id: "journal", url: "https://journal.example/atom.xml", title: `Small Web Journal ${"Journal".repeat(20)}`, lastFetchedAt: article.createdAt, lastError: "Feed unavailable" },
 ];
 const feedItems = [
   { id: "walk", feedId: "field", url: "https://field.example/walking", title: "Walking the same route", preview: "What changes when the streets stay the same.", publishedAt: article.createdAt, seen: false, saved: false },
@@ -41,6 +41,7 @@ let audio = { enabled: true, state: "none", episodeId: null, sourceRevision: nul
 let postedAudio = [];
 let tokenCreated = false;
 let audioEnabled = true;
+let failFeedRemoval = true;
 let browser;
 try {
   browser = await chromium.launch({ headless: true, ...(process.env.BROWSER_EXECUTABLE ? { executablePath: process.env.BROWSER_EXECUTABLE } : {}) });
@@ -67,8 +68,15 @@ try {
       feedSources.push(added);
       payload = { feed: added };
     }
-    else if (url.pathname === "/api/feeds/new-feed" && method === "DELETE") {
-      feedSources.splice(feedSources.findIndex((source) => source.id === "new-feed"), 1);
+    else if (url.pathname.startsWith("/api/feeds/") && method === "DELETE") {
+      if (failFeedRemoval) {
+        failFeedRemoval = false;
+        await route.fulfill({ status: 503, json: { error: { message: "Try again shortly." } } });
+        return;
+      }
+      const index = feedSources.findIndex((source) => source.id === url.pathname.split("/").at(-1));
+      assert.ok(index >= 0);
+      feedSources.splice(index, 1);
       payload = { ok: true };
     }
     else if (url.pathname === "/api/feeds/items") {
@@ -228,10 +236,64 @@ try {
   await feedsView.getByRole("textbox", { name: "RSS or Atom feed URL" }).fill("https://journal.example/new.xml");
   await feedsView.locator("#feed-add-form").getByRole("button", { name: "Add feed" }).click();
   await feedsView.getByText("Feed added.", { exact: true }).waitFor();
-  await feedsView.getByRole("button", { name: "Manage feeds" }).click();
-  const remove = feedsView.getByRole("button", { name: "Remove New journal" });
+  const manage = feedsView.getByRole("button", { name: "Manage feeds" });
+  const manageDialog = page.getByRole("dialog", { name: "Manage feeds" });
+  const closeManage = manageDialog.getByRole("button", { name: "Close", exact: true });
+  await manage.focus();
+  await page.keyboard.press("Enter");
+  await closeManage.waitFor();
+  assert.equal(await closeManage.evaluate((el) => el === document.activeElement), true);
+  assert.equal(await manageDialog.evaluate((el) => el.matches(":modal")), true);
+  await page.keyboard.press("Tab");
+  const removeField = manageDialog.getByRole("button", { name: "Remove Field Notes" });
+  await page.locator("#reading-tab").evaluate((el) => el.focus());
+  assert.equal(await removeField.evaluate((el) => el === document.activeElement), true, "Background controls must be inert while managing feeds.");
+  await page.keyboard.press("Escape");
+  await manageDialog.waitFor({ state: "hidden" });
+  await page.waitForFunction(() => document.activeElement?.id === "feed-manage-open");
+
+  await manage.click();
+  const subscriptions = manageDialog.getByRole("list", { name: "Subscribed feeds" });
+  await subscriptions.getByText("Couldn’t refresh", { exact: true }).waitFor();
+  for (const colorScheme of ["light", "dark"]) {
+    await page.emulateMedia({ colorScheme });
+    await page.locator(`html[data-theme="${colorScheme}"]`).waitFor();
+    for (const width of widths) {
+      await page.setViewportSize({ width, height: 844 });
+      const bounds = await manageDialog.boundingBox();
+      assert.ok(bounds && bounds.x > 0 && bounds.x + bounds.width < width);
+      assert.equal(await subscriptions.evaluate((el) => el.scrollWidth <= el.clientWidth), true, "Feed titles must wrap within the dialog.");
+    }
+  }
+  await page.setViewportSize({ width: 320, height: 230 });
+  assert.equal(await subscriptions.evaluate((el) => el.scrollHeight > el.clientHeight), true, "Long subscription lists must scroll within the dialog.");
+  await subscriptions.evaluate((el) => { el.scrollTop = el.scrollHeight; });
+  await closeManage.click();
+  await manageDialog.waitFor({ state: "hidden" });
+  await page.waitForFunction(() => document.activeElement?.id === "feed-manage-open");
+
+  await page.setViewportSize({ width: 390, height: 844 });
+  await feedsView.locator("#feed-source").selectOption("new-feed");
+  await manage.click();
+  const remove = manageDialog.getByRole("button", { name: "Remove New journal" });
+  await remove.click();
+  const removalError = manageDialog.getByRole("alert").getByText("Couldn’t remove feed. Try again shortly.");
+  await removalError.waitFor();
   await remove.click();
   await remove.waitFor({ state: "hidden" });
+  await removalError.waitFor({ state: "hidden" });
+  assert.equal(await feedsView.locator("#feed-source").inputValue(), "", "Removing the selected feed should reset the filter.");
+  await removeField.press("Enter");
+  await removeField.waitFor({ state: "hidden" });
+  const removeJournal = manageDialog.getByRole("button", { name: /^Remove Small Web Journal/ });
+  assert.equal(await removeJournal.evaluate((el) => el === document.activeElement), true, "Focus should move to a remaining subscription.");
+  await page.keyboard.press("Enter");
+  await manageDialog.getByText("No subscribed feeds.", { exact: true }).waitFor();
+  assert.equal(await closeManage.evaluate((el) => el === document.activeElement), true);
+  await closeManage.click();
+  await manageDialog.waitFor({ state: "hidden" });
+  await manage.waitFor({ state: "hidden" });
+  await page.waitForFunction(() => document.activeElement?.id === "add-open");
   await page.getByRole("button", { name: "Reading list", exact: true }).click();
   await page.getByRole("link", { name: feedItems[0].title, exact: true }).waitFor();
   await page.getByRole("button", { name: "Podcast picks" }).click();
@@ -251,7 +313,7 @@ try {
   await openSettingsDisclosure(page, "#settings-private-podcast");
   await page.locator("#podcast-settings").getByText(/New audio generation is paused/).waitFor();
   await page.locator("#podcast-settings").getByRole("button", { name: "Revoke feed" }).waitFor();
-  console.log("Podcast and Feeds UI smoke passed: podcast options, responsive feed actions, feed navigation and saving, read status, and private feed setup.");
+  console.log("Podcast and Feeds UI smoke passed: podcast options, responsive feed actions, subscription management, feed navigation and saving, read status, and private feed setup.");
 } finally {
   await browser?.close();
   await new Promise((resolve) => server.close(resolve));

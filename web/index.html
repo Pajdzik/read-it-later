@@ -133,19 +133,14 @@
             <option value="">All feeds</option>
           </select>
         </div>
-        <div class="feed-manage">
-          <div class="feed-manage-actions">
-            <button id="feed-manage-toggle" class="text-button" type="button" aria-expanded="false" aria-controls="feed-manage-panel" hidden>Manage feeds</button>
-          </div>
+        <div class="feed-tools">
+          <button id="feed-manage-open" class="text-button" type="button" aria-haspopup="dialog" aria-controls="feed-manage-dialog" hidden>Manage feeds</button>
           <div id="feed-add-panel" hidden>
             <form id="feed-add-form">
               <label class="sr-only" for="feed-url">RSS or Atom feed URL</label>
               <input id="feed-url" type="url" inputmode="url" maxlength="8192" placeholder="Paste a feed URL…" required>
               <button class="button secondary" type="submit">Add feed</button>
             </form>
-          </div>
-          <div id="feed-manage-panel" hidden>
-            <ul id="feed-list" class="feed-list" aria-label="Subscribed feeds"></ul>
           </div>
         </div>
         <div id="feed-notice" class="notice" role="status" aria-live="polite" hidden></div>
@@ -162,6 +157,17 @@
         <button id="build-info-open" class="build-info-button" type="button" aria-haspopup="dialog">Local build</button>
       </footer>
     </main>
+    <dialog id="feed-manage-dialog" class="dialog feed-manage-dialog" aria-labelledby="feed-manage-heading">
+      <div class="feed-manage-header">
+        <h2 id="feed-manage-heading">Manage feeds</h2>
+        <form method="dialog" class="dialog-close">
+          <button id="feed-manage-close" class="icon-button" aria-label="Close">×</button>
+        </form>
+      </div>
+      <p id="feed-manage-notice" class="notice error" role="alert" hidden></p>
+      <p id="feed-manage-empty" class="muted" role="status"></p>
+      <ul id="feed-list" class="feed-list" aria-label="Subscribed feeds"></ul>
+    </dialog>
     <dialog id="build-info-dialog" class="dialog build-info-dialog" aria-labelledby="build-info-heading">
       <form method="dialog" class="dialog-close">
         <button class="icon-button" aria-label="Close build details">×</button>
