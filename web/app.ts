@@ -2714,6 +2714,9 @@ function restoreReaderFocus(opener = readerReturnFocus) {
   opener.focus({ preventScroll: true });
 }
 function discardPrivateContent() {
+  savingFeedRetention = undefined;
+  closeFeedRetention();
+  if (feedManageDialog.open) feedManageDialog.close();
   readerFeedbackSessionGeneration++;
   readerFeedbackRetries.clear();
   invalidateLoads();
@@ -3687,7 +3690,15 @@ $("#add-form").addEventListener("submit", async (e) => {
   }
 });
 const statusOrder = ["unread", "read", "all", "favorites", "podcast"] as const;
-type Feed = { id: string; url: string; title: string; lastFetchedAt: string | null; lastError: string | null };
+type FeedRetentionLimits = { retentionDays: number | null; retentionCount: number | null };
+type Feed = { id: string; url: string; title: string; lastFetchedAt: string | null; lastError: string | null } & Partial<FeedRetentionLimits>;
+type FeedRetentionPreview = { total: number; removed: number };
+type FeedRetentionDraft = {
+  id: string;
+  timer?: number;
+  controller?: AbortController;
+  preview?: FeedRetentionLimits & FeedRetentionPreview;
+};
 type FeedItem = { id: string; feedId: string; url: string; title: string; preview: string; publishedAt: string; seen: boolean; saved: boolean };
 let feedItems: FeedItem[] = [];
 let feeds: Feed[] = [];
@@ -3705,7 +3716,181 @@ const feedManageButton = $<HTMLButtonElement>("#feed-manage-open");
 const feedManageDialog = $<HTMLDialogElement>("#feed-manage-dialog");
 const feedManageClose = $<HTMLButtonElement>("#feed-manage-close");
 const feedManageNotice = $("#feed-manage-notice");
+const feedManageStatus = $("#feed-manage-status");
 const feedList = $("#feed-list");
+const feedRetentionForm = $<HTMLFormElement>("#feed-retention-form");
+const feedRetentionDays = $<HTMLInputElement>("#feed-retention-days");
+const feedRetentionCount = $<HTMLInputElement>("#feed-retention-count");
+const feedRetentionStatus = $("#feed-retention-preview");
+const feedRetentionError = $("#feed-retention-error");
+const feedRetentionRetry = $<HTMLButtonElement>("#feed-retention-retry");
+const feedRetentionCancel = $<HTMLButtonElement>("#feed-retention-cancel");
+const feedRetentionSave = $<HTMLButtonElement>("#feed-retention-save");
+let feedRetentionDraft: FeedRetentionDraft | undefined;
+let savingFeedRetention: FeedRetentionDraft | undefined;
+
+function feedArticleCount(count: number) {
+  return `${count} ${count === 1 ? "article" : "articles"}`;
+}
+function feedRetentionLabel({ retentionDays, retentionCount }: Feed) {
+  const age = retentionDays == null ? null : `Last ${retentionDays} ${retentionDays === 1 ? "day" : "days"}`;
+  if (retentionCount == null) return age ?? "Default · up to 500 articles";
+  const count = feedArticleCount(retentionCount);
+  return age ? `${age} · up to ${count}` : `Latest ${count}`;
+}
+function syncFeedSourceActions() {
+  for (const button of feedList.querySelectorAll<HTMLButtonElement>("button[data-feed-action]")) {
+    const id = button.dataset.feedId!;
+    const saving = savingFeedRetention && (savingFeedRetention.id === id || button.dataset.feedAction === "retention");
+    if (saving || feedRemovals.has(id)) button.setAttribute("aria-disabled", "true");
+    else button.removeAttribute("aria-disabled");
+  }
+}
+function syncFeedRetentionForm(draft: FeedRetentionDraft) {
+  const saving = savingFeedRetention === draft;
+  feedRetentionDays.readOnly = saving;
+  feedRetentionCount.readOnly = saving;
+  feedRetentionCancel.setAttribute("aria-disabled", String(saving));
+  feedRetentionSave.setAttribute("aria-disabled", String(saving || !draft.preview));
+  feedRetentionSave.textContent = draft.preview?.removed ? `Save and remove ${feedArticleCount(draft.preview.removed)}` : "Save changes";
+}
+function readFeedRetentionLimits(): FeedRetentionLimits | null {
+  if (!feedRetentionDays.validity.valid || !feedRetentionCount.validity.valid) return null;
+  return {
+    retentionDays: feedRetentionDays.value === "" ? null : feedRetentionDays.valueAsNumber,
+    retentionCount: feedRetentionCount.value === "" ? null : feedRetentionCount.valueAsNumber,
+  };
+}
+function showFeedRetentionError(message = "", retryPreview = false) {
+  feedRetentionError.textContent = message;
+  feedRetentionError.hidden = !message;
+  feedRetentionRetry.hidden = !retryPreview;
+}
+function clearFeedRetentionPreview(draft: FeedRetentionDraft) {
+  window.clearTimeout(draft.timer);
+  draft.controller?.abort();
+  draft.controller = undefined;
+  draft.preview = undefined;
+}
+function previewFeedRetention(draft: FeedRetentionDraft, delay = 0, message = "") {
+  clearFeedRetentionPreview(draft);
+  showFeedRetentionError(message);
+  syncFeedRetentionForm(draft);
+  const limits = readFeedRetentionLimits();
+  if (!limits) {
+    feedRetentionStatus.textContent = "Enter whole numbers from 1 to 36,500 days and 1 to 500 articles.";
+    return;
+  }
+  feedRetentionStatus.textContent = "Checking which articles would be removed…";
+  draft.timer = window.setTimeout(async () => {
+    const controller = new AbortController();
+    draft.controller = controller;
+    try {
+      const preview = await request<FeedRetentionPreview>(`/api/feeds/${encodeURIComponent(draft.id)}/retention-preview`, {
+        method: "POST",
+        body: JSON.stringify(limits),
+        signal: controller.signal,
+      });
+      if (draft !== feedRetentionDraft || controller !== draft.controller) return;
+      draft.preview = { ...limits, ...preview };
+      feedRetentionStatus.textContent = preview.removed
+        ? `${preview.total - preview.removed} of ${preview.total} articles will remain in this feed.`
+        : "All current articles fit these limits.";
+      syncFeedRetentionForm(draft);
+    } catch (error) {
+      if (draft !== feedRetentionDraft || controller !== draft.controller) return;
+      feedRetentionStatus.textContent = "";
+      showFeedRetentionError(`Couldn’t preview feed retention. ${(error as Error).message}`, true);
+    }
+  }, delay);
+}
+function closeFeedRetention(restoreFocus = false) {
+  const draft = feedRetentionDraft;
+  if (!draft) return;
+  clearFeedRetentionPreview(draft);
+  feedRetentionDraft = undefined;
+  const row = feedRetentionForm.closest(".feed-source-row");
+  const trigger = row?.querySelector<HTMLButtonElement>(".feed-retention-toggle");
+  const summary = row?.querySelector<HTMLElement>(".feed-retention-summary");
+  if (summary) summary.hidden = false;
+  trigger?.setAttribute("aria-expanded", "false");
+  feedRetentionForm.hidden = true;
+  feedManageDialog.append(feedRetentionForm);
+  feedRetentionForm.reset();
+  showFeedRetentionError();
+  feedRetentionStatus.textContent = "";
+  if (restoreFocus) (trigger ?? feedManageClose).focus({ preventScroll: true });
+}
+function openFeedRetention(id: string, trigger: HTMLButtonElement) {
+  const feed = feeds.find(candidate => candidate.id === id);
+  if (!feed || savingFeedRetention || feedRemovals.has(id)) return;
+  const wasOpen = feedRetentionDraft?.id === id;
+  closeFeedRetention();
+  if (wasOpen) return;
+  const row = trigger.closest(".feed-source-row")!;
+  const summary = row.querySelector<HTMLElement>(".feed-retention-summary")!;
+  const draft = { id };
+  feedRetentionDraft = draft;
+  feedManageStatus.hidden = true;
+  summary.hidden = true;
+  trigger.setAttribute("aria-expanded", "true");
+  feedRetentionDays.value = feed.retentionDays?.toString() ?? "";
+  feedRetentionCount.value = feed.retentionCount?.toString() ?? "";
+  feedRetentionForm.setAttribute("aria-label", `Retention for ${feed.title || feed.url}`);
+  row.append(feedRetentionForm);
+  feedRetentionForm.hidden = false;
+  feedRetentionDays.focus();
+  previewFeedRetention(draft);
+}
+async function saveFeedRetention(event: SubmitEvent) {
+  event.preventDefault();
+  const draft = feedRetentionDraft;
+  if (!draft?.preview || savingFeedRetention || feedRemovals.has(draft.id)) return;
+  const limits = readFeedRetentionLimits();
+  if (!limits || draft.preview.retentionDays !== limits.retentionDays || draft.preview.retentionCount !== limits.retentionCount) return;
+
+  const maxRemovals = draft.preview.removed;
+  savingFeedRetention = draft;
+  syncFeedRetentionForm(draft);
+  syncFeedSourceActions();
+  showFeedRetentionError();
+  try {
+    const result = await request<{ feed: Feed; removed: number }>(`/api/feeds/${encodeURIComponent(draft.id)}`, {
+      method: "PATCH",
+      body: JSON.stringify({ ...limits, maxRemovals }),
+    });
+    if (savingFeedRetention !== draft) return;
+    const summary = feedList.querySelector<HTMLElement>(`.feed-source-row[data-feed-id="${CSS.escape(draft.id)}"] .feed-retention-summary`);
+    feeds = feeds.map(feed => feed.id === draft.id ? result.feed : feed);
+    if (summary) summary.textContent = feedRetentionLabel(result.feed);
+    if (feedRetentionDraft === draft) {
+      closeFeedRetention(feedManageDialog.open && feedRetentionForm.contains(document.activeElement));
+      if (feedManageDialog.open) {
+        const title = result.feed.title || result.feed.url;
+        feedManageStatus.textContent = result.removed
+          ? `Removed ${feedArticleCount(result.removed)} from ${title}.`
+          : `Retention saved for ${title}.`;
+        feedManageStatus.hidden = false;
+      }
+    }
+    if (feedMode) {
+      await refreshFeeds();
+      if (savingFeedRetention === draft) await loadFeeds();
+    }
+  } catch (error) {
+    if (feedRetentionDraft !== draft) return;
+    if ((error as Error & { status?: number }).status === 409) {
+      previewFeedRetention(draft, 0, "The feed changed. Review the updated removal count before saving.");
+    } else {
+      showFeedRetentionError(`Couldn’t save feed retention. ${(error as Error).message}`);
+    }
+  } finally {
+    if (savingFeedRetention === draft) savingFeedRetention = undefined;
+    if (feedRetentionDraft === draft) syncFeedRetentionForm(draft);
+    syncFeedSourceActions();
+  }
+}
+
 async function refreshFeeds() {
   const generation = ++feedListGeneration;
   try {
@@ -3717,36 +3902,57 @@ async function refreshFeeds() {
     select.replaceChildren(new Option("All feeds", ""));
     for (const feed of feeds) select.add(new Option(feed.title || feed.url, feed.id));
     if (feeds.some(feed => feed.id === previous)) select.value = previous;
-    const previousButtons = Array.from(feedList.querySelectorAll("button"));
-    const focusedIndex = previousButtons.findIndex(button => button === document.activeElement);
-    const focusedFeed = previousButtons[focusedIndex]?.dataset.feedId;
+    const focused = document.activeElement as HTMLElement | null;
+    const focusedRow = focused?.closest<HTMLElement>(".feed-source-row");
+    const focusedIndex = focusedRow ? Array.from(feedList.children).indexOf(focusedRow) : -1;
+    const focusedType = focused?.classList.contains("feed-source-remove") ? ".feed-source-remove" : ".feed-retention-toggle";
     const rows = feeds.map(feed => {
       const li = el("li", "", "feed-source-row");
+      li.dataset.feedId = feed.id;
+      const main = el("div", "", "feed-source-main");
       const details = el("div", "", "feed-source-details");
       const label = el("span", feed.title || feed.url);
       label.title = feed.url;
-      details.append(label);
+      const editing = feedRetentionDraft?.id === feed.id;
+      const summary = el("span", feedRetentionLabel(feed), "feed-retention-summary muted");
+      summary.hidden = editing;
+      details.append(label, summary);
       if (feed.lastError) {
         const error = el("span", "Couldn’t refresh", "muted");
         error.title = feed.lastError;
         details.append(error);
       }
-      const remove = el("button", "Remove", "text-button");
+      const actions = el("div", "", "feed-source-actions");
+      const retention = el("button", "Retention", "text-button feed-retention-toggle");
+      retention.type = "button";
+      retention.dataset.feedId = feed.id;
+      retention.dataset.feedAction = "retention";
+      retention.setAttribute("aria-label", `Set retention for ${feed.title || feed.url}`);
+      retention.setAttribute("aria-expanded", String(editing));
+      retention.setAttribute("aria-controls", feedRetentionForm.id);
+      retention.addEventListener("click", () => openFeedRetention(feed.id, retention));
+      const remove = el("button", "Remove", "text-button feed-source-remove");
       remove.type = "button";
       remove.dataset.feedId = feed.id;
+      remove.dataset.feedAction = "remove";
       remove.setAttribute("aria-label", `Remove ${feed.title || feed.url}`);
-      if (feedRemovals.has(feed.id)) remove.setAttribute("aria-disabled", "true");
-      remove.addEventListener("click", () => void deleteFeed(feed, remove));
-      li.append(details, remove);
+      remove.addEventListener("click", () => void deleteFeed(feed));
+      actions.append(retention, remove);
+      main.append(details, actions);
+      li.append(main);
       return li;
     });
+    const editingRow = rows.find(row => row.dataset.feedId === feedRetentionDraft?.id);
+    if (editingRow) editingRow.append(feedRetentionForm);
+    else closeFeedRetention();
     feedList.replaceChildren(...rows);
+    syncFeedSourceActions();
     feedManageButton.hidden = feeds.length === 0;
     $("#feed-manage-empty").textContent = feeds.length ? "" : "No subscribed feeds.";
-    if (focusedIndex >= 0) {
-      const buttons = Array.from(feedList.querySelectorAll("button"));
-      const next = buttons.find(button => button.dataset.feedId === focusedFeed) ?? buttons[focusedIndex] ?? buttons.at(-1);
-      (next ?? feedManageClose).focus();
+    if (focusedIndex >= 0 && feedManageDialog.open) {
+      const row = rows.find(candidate => candidate.dataset.feedId === focusedRow?.dataset.feedId) ?? rows[focusedIndex] ?? rows.at(-1);
+      const next = editingRow && feedRetentionForm.contains(focused) ? focused : row?.querySelector<HTMLElement>(focusedType);
+      (next ?? feedManageClose).focus({ preventScroll: true });
     }
     return true;
   } catch (error) {
@@ -3920,11 +4126,12 @@ async function saveFeedItem(item: FeedItem) {
     }
   }
 }
-async function deleteFeed(feed: Feed, button: HTMLButtonElement) {
-  if (feedRemovals.has(feed.id)) return;
+async function deleteFeed(feed: Feed) {
+  if (feedRemovals.has(feed.id) || savingFeedRetention?.id === feed.id) return;
   feedRemovals.add(feed.id);
-  button.setAttribute("aria-disabled", "true");
+  syncFeedSourceActions();
   feedManageNotice.hidden = true;
+  feedManageStatus.hidden = true;
   try {
     await request(`/api/feeds/${encodeURIComponent(feed.id)}`, { method: "DELETE" });
     if (await refreshFeeds()) await loadFeeds();
@@ -3932,7 +4139,7 @@ async function deleteFeed(feed: Feed, button: HTMLButtonElement) {
     feedMessage(`Couldn’t remove feed. ${(error as Error).message}`, true);
   } finally {
     feedRemovals.delete(feed.id);
-    feedList.querySelector(`button[data-feed-id="${CSS.escape(feed.id)}"]`)?.removeAttribute("aria-disabled");
+    syncFeedSourceActions();
   }
 }
 function setFeedMode(on: boolean, updateUrl = true) {
@@ -3987,12 +4194,33 @@ $("#feed-all").addEventListener("click", () => {
 $("#feed-source").addEventListener("change", () => void loadFeeds());
 $("#feed-more").addEventListener("click", () => void loadFeeds(true));
 feedManageButton.addEventListener("click", () => {
+  closeFeedRetention();
   feedManageNotice.hidden = true;
+  feedManageStatus.hidden = true;
   showDialog(feedManageDialog, feedManageClose);
 });
 feedManageDialog.addEventListener("close", () => {
-  if (!feedMode || feedManageDialog.open) return;
-  (feedManageButton.hidden ? $("#add-open") : feedManageButton).focus({ preventScroll: true });
+  if (feedManageDialog.open) return;
+  closeFeedRetention();
+  if (feedMode) (feedManageButton.hidden ? $("#add-open") : feedManageButton).focus({ preventScroll: true });
+});
+feedRetentionForm.addEventListener("input", () => {
+  if (feedRetentionDraft && !savingFeedRetention) previewFeedRetention(feedRetentionDraft, 200);
+});
+feedRetentionForm.addEventListener("keydown", event => {
+  if (event.key === "Enter" && event.target instanceof HTMLInputElement && feedRetentionDraft?.preview?.removed) {
+    // Removing articles requires activating the button that states the removal count.
+    event.preventDefault();
+  }
+});
+feedRetentionForm.addEventListener("submit", saveFeedRetention);
+feedRetentionCancel.addEventListener("click", () => {
+  if (!savingFeedRetention) closeFeedRetention(true);
+});
+feedRetentionRetry.addEventListener("click", () => {
+  if (!feedRetentionDraft || savingFeedRetention) return;
+  feedRetentionDays.focus({ preventScroll: true });
+  previewFeedRetention(feedRetentionDraft);
 });
 $("#feed-add-form").addEventListener("submit", async event => {
   event.preventDefault();
@@ -4206,6 +4434,7 @@ $("#logout").addEventListener("click", async () => {
   feedManageDialog.close();
   feedManageButton.hidden = true;
   feedManageNotice.hidden = true;
+  feedManageStatus.hidden = true;
   feedList.replaceChildren();
   $<HTMLSelectElement>("#feed-source").replaceChildren(new Option("All feeds", ""));
   $("#feed-notice").replaceChildren();

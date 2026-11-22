@@ -6,6 +6,8 @@ export type FeedDocument = {
   items: { key: string; url: string; title: string; preview: string; publishedAt: string | null }[];
 };
 
+export const MAX_FEED_DOCUMENT_ITEMS = 200;
+
 const SAFE_ERRORS = new Set([
   "capture_paused", "invalid_url", "unsafe_destination", "redirect_loop", "timeout", "network_error",
   "invalid_redirect", "too_many_redirects", "redirect_downgrade", "upstream_http", "unvalidated_redirect",
@@ -48,7 +50,7 @@ async function readBounded(response: Response, signal: AbortSignal): Promise<Uin
 function validFeed(value: unknown): value is FeedDocument {
   if (!value || typeof value !== "object") return false;
   const feed = value as Partial<FeedDocument>;
-  if (typeof feed.title !== "string" || feed.title.length > 600 || !Array.isArray(feed.items) || feed.items.length > 200) return false;
+  if (typeof feed.title !== "string" || feed.title.length > 600 || !Array.isArray(feed.items) || feed.items.length > MAX_FEED_DOCUMENT_ITEMS) return false;
   return feed.items.every(item => item && typeof item.key === "string" && item.key.length > 0 && item.key.length <= 2048 &&
     typeof item.url === "string" && item.url.length <= 2048 && /^https?:\/\//i.test(item.url) &&
     typeof item.title === "string" && item.title.length <= 600 && typeof item.preview === "string" && item.preview.length <= 600 &&

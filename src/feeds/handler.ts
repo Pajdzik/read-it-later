@@ -3,25 +3,35 @@ import { normalizeArticleUrl, parseObject, readJson, ValidationError } from '../
 import { isResponse, requireSession } from '../auth/core';
 import type { Env } from '../contracts';
 import { errorResponse, exceptionResponse, jsonResponse } from '../http';
+import {
+  expireFeedItems, FEED_HISTORY, MAX_RETENTION_DAYS, previewRetention, pruneFeedItems,
+  trimPrunedHistory, updateRetention,
+} from './retention';
 import { fetchFeedDocument, type FeedDocument } from './source';
 
 const MAX_FEEDS = 40;
-const FEED_HISTORY = 500;
 const PAGE_SIZE = 50;
 // Leave room in the hourly invocation for one more capture service timeout.
 const REFRESH_BUDGET_MS = 10 * 60 * 1000;
 const FEED_ID = /^[0-9a-f]{32}$/;
-const FEED_COLUMNS = 'id, url, title, last_fetched_at, last_error';
+const FEED_COLUMNS = 'id, url, title, last_fetched_at, last_error, retention_days, retention_count';
+const RETENTION_FIELDS = ['retentionDays', 'retentionCount'];
 const storageError = { status: 503, code: 'storage_unavailable', message: 'Feeds are temporarily unavailable. Please retry.' };
 const createId = () => crypto.randomUUID().replaceAll('-', '');
 
-type FeedRow = { id: string; url: string; title: string; last_fetched_at: string | null; last_error: string | null };
+type FeedRow = {
+  id: string; url: string; title: string; last_fetched_at: string | null; last_error: string | null;
+  retention_days: number | null; retention_count: number | null;
+};
 type TimelineRow = { id: string; feed_id: string; url: string; title: string; preview: string; published_at: string; seen: number; saved: number };
 type StoredItem = { id: string; key: string; url: string; normalizedUrl: string; title: string; preview: string; publishedAt: string | null };
 type Cursor = { publishedAt: string; id: string };
 
 function feedSummary(row: FeedRow) {
-  return { id: row.id, url: row.url, title: row.title, lastFetchedAt: row.last_fetched_at, lastError: row.last_error };
+  return {
+    id: row.id, url: row.url, title: row.title, lastFetchedAt: row.last_fetched_at, lastError: row.last_error,
+    retentionDays: row.retention_days, retentionCount: row.retention_count,
+  };
 }
 
 async function findFeed(db: D1Database, url: string) {
@@ -54,40 +64,42 @@ function storedItems(doc: FeedDocument): StoredItem[] {
   return items;
 }
 
-async function saveDocument(db: D1Database, feed: { id: string; url: string }, doc: FeedDocument, initial = false): Promise<FeedRow> {
+async function saveDocument(db: D1Database, feed: { id: string; url: string }, doc: FeedDocument, initial = false) {
   const now = new Date().toISOString();
   const title = doc.title.slice(0, 300) || new URL(feed.url).hostname;
   const statements = [initial
     ? db.prepare('INSERT INTO feeds(id, url, title, created_at, last_fetched_at, last_attempt_at) VALUES (?, ?, ?, ?, ?, ?)')
       .bind(feed.id, feed.url, title, now, now, now)
-    : db.prepare('UPDATE feeds SET title = ?, last_fetched_at = ?, last_error = NULL WHERE id = ?').bind(title, now, feed.id)];
+    : db.prepare(`UPDATE feeds SET title = ?, last_fetched_at = ?, last_error = NULL,
+        refresh_sequence = refresh_sequence + 1 WHERE id = ?`).bind(title, now, feed.id)];
   const items = storedItems(doc);
   // Batch rows through JSON so an hourly run stays within D1's query budget.
   for (let offset = 0; offset < items.length; offset += 20) {
     statements.push(db.prepare(`
-      INSERT INTO feed_items(id, feed_id, entry_key, url, normalized_url, title, preview, published_at)
-      SELECT json_extract(value, '$.id'), ?, json_extract(value, '$.key'),
-        json_extract(value, '$.url'), json_extract(value, '$.normalizedUrl'),
-        json_extract(value, '$.title'), json_extract(value, '$.preview'),
-        COALESCE(json_extract(value, '$.publishedAt'), (SELECT published_at FROM feed_items
-          WHERE feed_id = ? AND entry_key = json_extract(value, '$.key')), ?)
-      FROM json_each(?) WHERE EXISTS (SELECT 1 FROM feeds WHERE id = ?)
+      INSERT INTO feed_items(id, feed_id, entry_key, url, normalized_url, title, preview, published_at, seen)
+      SELECT COALESCE(i.id, h.id, json_extract(j.value, '$.id')), f.id, json_extract(j.value, '$.key'),
+        json_extract(j.value, '$.url'), json_extract(j.value, '$.normalizedUrl'),
+        json_extract(j.value, '$.title'), json_extract(j.value, '$.preview'),
+        COALESCE(json_extract(j.value, '$.publishedAt'), i.published_at, h.published_at, ?2),
+        COALESCE(i.seen, h.seen, 0)
+      FROM json_each(?3) j JOIN feeds f ON f.id = ?1
+      LEFT JOIN feed_items i ON i.feed_id = f.id AND i.entry_key = json_extract(j.value, '$.key')
+      LEFT JOIN feed_item_history h ON h.feed_id = f.id AND h.entry_key = json_extract(j.value, '$.key')
+      WHERE 1
       ON CONFLICT(feed_id, entry_key) DO UPDATE SET
         url = excluded.url, normalized_url = excluded.normalized_url, title = excluded.title,
         preview = excluded.preview, published_at = excluded.published_at
       WHERE (feed_items.url, feed_items.normalized_url, feed_items.title, feed_items.preview, feed_items.published_at)
         IS NOT (excluded.url, excluded.normalized_url, excluded.title, excluded.preview, excluded.published_at)
-    `).bind(feed.id, feed.id, now, JSON.stringify(items.slice(offset, offset + 20)), feed.id));
+    `).bind(feed.id, now, JSON.stringify(items.slice(offset, offset + 20))));
   }
-  statements.push(db.prepare(`
-    DELETE FROM feed_items WHERE feed_id = ? AND id NOT IN
-      (SELECT id FROM feed_items WHERE feed_id = ? ORDER BY published_at DESC, id DESC LIMIT ?)
-  `).bind(feed.id, feed.id, FEED_HISTORY));
+  statements.push(pruneFeedItems(db, feed.id, now), trimPrunedHistory(db, feed.id));
   await db.batch(statements);
   return { ...feed, title, last_fetched_at: now, last_error: null };
 }
 
 export async function refreshFeeds(env: Env): Promise<void> {
+  await expireFeedItems(env.DB, new Date().toISOString());
   if (!env.ARTICLE_EXTRACTOR) return;
   const startedAt = Date.now();
   const feeds = await env.DB.prepare('SELECT id, url FROM feeds ORDER BY COALESCE(last_attempt_at, created_at), id LIMIT ?')
@@ -127,13 +139,48 @@ async function subscribe(request: Request, env: Env): Promise<Response> {
   }
   try {
     const feed = await saveDocument(env.DB, { id: createId(), url: target.href }, doc, true);
-    return jsonResponse({ feed: feedSummary(feed) });
+    return jsonResponse({ feed: feedSummary({ ...feed, retention_days: null, retention_count: null }) });
   } catch (error) {
     const concurrent = await findFeed(env.DB, target.href);
     if (concurrent) return jsonResponse({ feed: feedSummary(concurrent) });
     if (await feedLimitReached(env.DB)) return feedLimitError();
     throw error;
   }
+}
+
+function retentionNumber(value: unknown, label: string, min: number, max: number): number {
+  if (typeof value !== 'number' || !Number.isInteger(value) || value < min || value > max) {
+    throw new ValidationError(`${label} must be a whole number from ${min} to ${max}.`);
+  }
+  return value;
+}
+
+async function handleRetention(request: Request, db: D1Database, feedId: string, preview: boolean): Promise<Response> {
+  const fields = preview ? RETENTION_FIELDS : [...RETENTION_FIELDS, 'maxRemovals'];
+  const input = parseObject(await readJson(request), fields, fields);
+  const limits = {
+    retentionDays: input.retentionDays === null ? null : retentionNumber(input.retentionDays, 'Days', 1, MAX_RETENTION_DAYS),
+    retentionCount: input.retentionCount === null ? null : retentionNumber(input.retentionCount, 'Articles', 1, FEED_HISTORY),
+  };
+  const now = new Date().toISOString();
+  const missingFeed = () => errorResponse(404, 'not_found', 'This feed is no longer available.');
+  if (preview) {
+    const plan = await previewRetention(db, feedId, now, limits);
+    return plan ? jsonResponse(plan) : missingFeed();
+  }
+  const maxRemovals = retentionNumber(input.maxRemovals, 'Removal limit', 0, FEED_HISTORY);
+  const [updated, removed, , selected] = await db.batch<FeedRow>([
+    updateRetention(db, feedId, now, limits, maxRemovals),
+    pruneFeedItems(db, feedId, now, true),
+    trimPrunedHistory(db, feedId),
+    db.prepare(`SELECT ${FEED_COLUMNS} FROM feeds WHERE id = ?`).bind(feedId),
+  ]);
+  const feed = selected.results[0];
+  if (!feed) return missingFeed();
+  if (!updated.meta.changes) {
+    return errorResponse(409, 'retention_preview_changed', 'More articles would be removed now. Review the updated preview and try again.');
+  }
+  return jsonResponse({ feed: feedSummary(feed), removed: removed.results.length });
 }
 
 function parseCursor(value: string | null): Cursor | null {
@@ -189,7 +236,8 @@ export async function handleFeeds(request: Request, env: Env): Promise<Response 
   const method = request.method;
   const feed = /^\/api\/feeds\/([0-9a-f]{32})$/.exec(pathname);
   const item = /^\/api\/feeds\/items\/([0-9a-f]{32})$/.exec(pathname);
-  if (pathname !== '/api/feeds' && pathname !== '/api/feeds/items' && !feed && !item) return null;
+  const retentionPreview = /^\/api\/feeds\/([0-9a-f]{32})\/retention-preview$/.exec(pathname);
+  if (pathname !== '/api/feeds' && pathname !== '/api/feeds/items' && !feed && !item && !retentionPreview) return null;
   try {
     const session = await requireSession(request, env, method !== 'GET');
     if (isResponse(session)) return session;
@@ -199,6 +247,8 @@ export async function handleFeeds(request: Request, env: Env): Promise<Response 
     }
     if (pathname === '/api/feeds' && method === 'POST') return await subscribe(request, env);
     if (pathname === '/api/feeds/items' && method === 'GET') return await listItems(env.DB, searchParams);
+    if (retentionPreview && method === 'POST') return await handleRetention(request, env.DB, retentionPreview[1], true);
+    if (feed && method === 'PATCH') return await handleRetention(request, env.DB, feed[1], false);
     if (feed && method === 'DELETE') {
       await env.DB.prepare('DELETE FROM feeds WHERE id = ?').bind(feed[1]).run();
       return jsonResponse({ ok: true });
