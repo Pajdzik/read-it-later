@@ -250,7 +250,7 @@
         Sign in to keep your saved links in sync. <a href="/auth/github">Continue with GitHub →</a>
       </p>
     </dialog>
-    <dialog id="detail-dialog" class="dialog">
+    <dialog id="detail-dialog" class="dialog" aria-labelledby="detail-heading">
       <form method="dialog" class="dialog-close">
         <button class="icon-button" aria-label="Close">×</button>
       </form>
@@ -291,6 +291,7 @@
           <p id="reader-pending-status" class="reader-pending-status"></p>
           <div class="reader-pending-actions">
             <button id="reader-manual-copy" class="button secondary" type="button">Paste or upload Markdown</button>
+            <button id="reader-recovery" class="button secondary" type="button" hidden>Capture and recovery</button>
             <button id="reader-retry" class="button secondary" type="button" hidden>Retry capture</button>
           </div>
         </section>
@@ -361,7 +362,7 @@
       </form>
       <p class="eyebrow">Your account</p>
       <h2 id="settings-heading">Settings</h2>
-      <p id="settings-status" class="muted"></p>
+      <p id="settings-status" class="settings-feedback muted" role="status"></p>
       <section class="settings-section">
         <div class="settings-row">
           <label for="palette-toggle">Palette</label>
@@ -387,6 +388,7 @@
             <button id="export" class="button secondary" type="button">Export JSON (without PDFs)</button>
             <a id="export-archive" class="button secondary" href="/api/archive">Export complete archive</a>
           </div>
+          <p id="backup-status" class="settings-feedback" role="status"></p>
         </details>
         <details id="settings-library-restore" class="settings-disclosure">
           <summary>Restore library</summary>
@@ -396,12 +398,14 @@
             <button id="import-open" class="button secondary" type="button">Import JSON</button>
             <input id="import-file" type="file" accept="application/json,.json" hidden />
           </div>
+          <p id="restore-status" class="settings-feedback" role="status"></p>
         </details>
       </section>
       <details id="settings-private-podcast" class="settings-section settings-disclosure" hidden>
         <summary>Private podcast</summary>
         <div class="settings-disclosure-content">
           <p>Prepare English audio for saved articles, then follow your private feed in a podcast app. Episodes stay in Potem. Keep the feed URL private; rotating it requires updating your podcast subscription.</p>
+          <p id="podcast-settings-status" class="settings-feedback" role="status"></p>
           <div id="podcast-settings" class="podcast-settings"><p class="muted">Loading podcast settings…</p></div>
         </div>
       </details>
@@ -424,6 +428,7 @@
               /><button class="button primary" type="submit">Create token</button>
             </div>
           </form>
+          <p id="device-status" class="settings-feedback" role="status"></p>
           <div id="new-token" class="new-token" hidden></div>
           <ul id="tokens" class="token-list"></ul>
           <div class="settings-device-help">
@@ -440,10 +445,13 @@
         <div class="settings-disclosure-content">
           <p>Optionally send saved copies to another destination. Choose an integration when saving a copy or send it later from article details.</p>
           <div id="settings-integrations"></div>
+          <p id="integration-settings-status" class="settings-feedback" role="status"></p>
         </div>
       </details>
       <section class="settings-section">
         <h3>Account</h3>
+        <a id="settings-sign-in" href="/auth/github" hidden>Continue with GitHub</a>
+        <p id="account-status" class="settings-feedback" role="status"></p>
         <button id="logout" class="button secondary" type="button" hidden>
           Sign out
         </button>

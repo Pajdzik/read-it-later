@@ -386,7 +386,9 @@ try {
       data.nextCursor = null;
     } else {
       data.items = [entry, ...Array.from({ length: 49 }, (_, index) => ({
-        ...entry, id: `smoke${String(index + 1).padStart(3, "0")}`, title: `Synthetic row ${index + 1}`, description: null,
+        ...entry, id: `smoke${String(index + 1).padStart(3, "0")}`, title: `Synthetic row ${index + 1}`,
+        description: index === 0 ? "description".repeat(40) : null,
+        author: index === 0 ? "author".repeat(32) : entry.author,
       }))];
       data.nextCursor = "synthetic-next-page";
     }
@@ -401,6 +403,9 @@ try {
   const tagSummary = tagDisclosure.locator("summary");
   await expect(tagSummary).toHaveAccessibleName("Show 2 more tags");
   await page.setViewportSize({ width: 320, height: 740 });
+  const longFields = page.locator('.article[data-id="smoke001"] :is(.article-description, .article-meta)');
+  assert.deepEqual(await longFields.evaluateAll(fields => fields.map(field => field.scrollWidth <= field.clientWidth + 1)),
+    [true, true], "An unbroken description and author must each wrap inside their library row.");
   await tagSummary.focus();
   await page.keyboard.press("Space");
   await expect(tagDisclosure).toHaveJSProperty("open", true);
@@ -463,6 +468,20 @@ try {
   const entryMore = entryActions.getByRole("button", { name: "More actions", exact: true });
   const entryMenu = entryActions.locator(".article-action-menu");
   const entryEdit = entryMenu.getByRole("button", { name: "Edit", exact: true });
+  const descriptionLink = entryArticle.locator(".article-description");
+  await page.emulateMedia({ reducedMotion: "reduce" });
+  await entryMore.hover();
+  const titleColor = await entryTitle.evaluate((node) => getComputedStyle(node).color);
+  const descriptionColor = await descriptionLink.evaluate((node) => getComputedStyle(node).color);
+  await descriptionLink.hover();
+  await expect(entryTitle).not.toHaveCSS("color", titleColor);
+  await expect(descriptionLink).toHaveCSS("color", descriptionColor);
+  const highlightedColor = await entryTitle.evaluate((node) => getComputedStyle(node).color);
+  await entryTitle.hover();
+  await expect(entryTitle).toHaveCSS("color", highlightedColor);
+  await entryRead.hover();
+  await expect(entryTitle).toHaveCSS("color", titleColor);
+  await page.emulateMedia({ reducedMotion: null });
   const assertControlLayout = async () => {
     assert.equal(await entryActions.locator(":scope > button, :scope > .article-more").count(), 2, "Mark as read and More must share the action container.");
     assert.equal(await entryMenu.locator("button, a").count(), 2, "Edit and Open original must be grouped in More.");
@@ -554,6 +573,16 @@ try {
   await page.keyboard.press("Escape");
   await reader.waitFor({ state: "hidden" });
   await page.waitForFunction(() => !location.pathname.startsWith("/read/"));
+  await page.route("**/api/articles/smoke051", route => route.fulfill({ json: {
+    article: { ...paginationEntry, id: "smoke051", readAt: new Date().toISOString() },
+  } }));
+  await noDescriptionArticle.getByRole("button", { name: "Mark as read" }).focus();
+  await page.keyboard.press("Enter");
+  await expect(noDescriptionArticle).toHaveCount(0);
+  await expect(page.locator('.article[data-id="smoke049"] .read-action')).toBeFocused();
+  await expect(page.locator("#more")).toBeHidden();
+  await expect(page.locator("#result-count")).toHaveText("50 shown");
+  await page.unroute("**/api/articles/smoke051");
   await page.unroute("**/api/articles?*");
   await page.reload();
   const directPage = await context.newPage();
@@ -1003,10 +1032,9 @@ try {
   assert.equal(await page.evaluate(() => document.documentElement.scrollWidth > innerWidth), false, "Markdown editor must fit a narrow viewport.");
   await page.setViewportSize({ width: 1440, height: 1000 });
   await page.getByRole("button", { name: "All", exact: true }).click();
-  await article.getByRole("button", { name: "Mark as read", exact: true }).click();
-  await article
-    .getByRole("button", { name: "Mark as unread", exact: true })
-    .waitFor();
+  await article.getByRole("button", { name: "Mark as read", exact: true }).focus();
+  await page.keyboard.press("Enter");
+  await expect(article.getByRole("button", { name: "Mark as unread", exact: true })).toBeFocused();
   await page.reload();
   await page.getByRole("button", { name: "Read", exact: true }).click();
   await title.waitFor();

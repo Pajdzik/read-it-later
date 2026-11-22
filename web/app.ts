@@ -563,8 +563,6 @@ function showNotice(message: string, bad = false) {
   notice.textContent = message;
   notice.hidden = !message;
   notice.classList.toggle("error", bad);
-  if ($<HTMLDialogElement>("#settings-dialog").open)
-    $("#settings-status").textContent = message;
 }
 function showExtensionResult(article: Article, sourceUrl: string, integrationUrl?: string) {
   notice.replaceChildren(document.createTextNode('Saved. '));
@@ -927,18 +925,18 @@ function scheduleExtractionPoll(article: Article) {
         if ($<HTMLDialogElement>("#reader-dialog").open) {
           if (!$("#reader-body").hidden && result.extraction.recovery) {
             if (result.extraction.recovery.state === 'succeeded') $("#reader-new-copy").hidden = false;
-            else showNotice(extractionLabel(result.extraction), true);
+            else updateReaderRecovery(updated);
           } else if ($("#reader-body").hidden) {
             const copy = await request<{ copy: ArticleCopy | null }>(`/api/articles/${encodeURIComponent(article.id)}/copy`);
             if (copy.copy && generation === extractionPollGeneration && state.selected?.id === article.id && $<HTMLDialogElement>("#reader-dialog").open && !$<HTMLDialogElement>("#detail-dialog").open) openReader(updated, copy.copy);
           }
-        } else if ($<HTMLDialogElement>("#detail-dialog").open) refreshDetailAfterExtraction(updated);
+        } else if ($<HTMLDialogElement>("#detail-dialog").open) refreshOpenDetail?.(updated);
         stopExtractionPolling();
         if (enrichmentIsPending(updated)) scheduleExtractionPoll(updated);
         return;
       }
       if (result.extraction.state === "failed") {
-        if ($<HTMLDialogElement>("#detail-dialog").open) refreshDetailAfterExtraction(updated);
+        if ($<HTMLDialogElement>("#detail-dialog").open) refreshOpenDetail?.(updated);
         else if ($("#reader-body").hidden) renderPendingReader(updated);
         stopExtractionPolling();
         if (enrichmentIsPending(updated)) scheduleExtractionPoll(updated);
@@ -950,7 +948,7 @@ function scheduleExtractionPoll(article: Article) {
         const detailStatus = $("#detail-extraction-status");
         if (detailStatus) detailStatus.textContent = extractionLabel(result.extraction);
       }
-      if (!extractionIsPending(updated.extraction) && $<HTMLDialogElement>('#detail-dialog').open) refreshDetailAfterExtraction(updated);
+      if (!extractionIsPending(updated.extraction) && $<HTMLDialogElement>('#detail-dialog').open) refreshOpenDetail?.(updated);
       scheduleExtractionPoll(updated);
     } catch {
       if (generation === extractionPollGeneration) scheduleExtractionPoll(article);
@@ -966,54 +964,22 @@ function detailContentKey(article: Article): string {
   return JSON.stringify([article.id, article.url, article.title, article.author, article.description, article.descriptionOrigin,
     article.tags, article.createdAt, article.readAt, article.originalPdf, article.extraction]);
 }
-function refreshDetailAfterExtraction(article: Article) {
-  const root = $("#detail-content");
-  const status = root.querySelector<HTMLElement>('.enrichment-status');
-  if (status) { status.textContent = enrichmentLabel(article); status.hidden = !status.textContent; }
-  // Status-only polls must leave the editor, its focus, and its copy request intact.
-  if (root.dataset.contentKey === detailContentKey(article)) return;
-  if (root.querySelector<HTMLElement>('.copy-editor')?.dataset.saving === 'true') return;
-  if (root.querySelector<HTMLElement>('.edit-form')?.dataset.saving === 'true') return;
-  const active = document.activeElement;
-  const focused = active instanceof HTMLInputElement || active instanceof HTMLTextAreaElement ? active : null;
-  const fieldSelector = focused
-    ? focused.dataset.field ? `.edit-form [data-field="${CSS.escape(focused.dataset.field)}"]`
-      : focused.matches('.copy-editor textarea') ? '.copy-editor textarea' : null : null;
-  const selection = fieldSelector && focused && root.contains(focused) ? {
-    selector: fieldSelector, start: focused.selectionStart, end: focused.selectionEnd,
-    direction: focused.selectionDirection, top: focused.scrollTop, left: focused.scrollLeft,
-  } : null;
-  const fields = [...root.querySelectorAll<HTMLInputElement | HTMLTextAreaElement>('.edit-form [data-field]')];
-  const drafts = fields.filter(field => field.value !== field.defaultValue || field.dataset.cleared === 'true')
-    .map(field => ({ key: field.dataset.field!, value: field.value, cleared: field.dataset.cleared }));
-  const editorLoaded = renderDetail(article, false);
-  for (const draft of drafts) {
-    const field = root.querySelector<HTMLInputElement | HTMLTextAreaElement>(`.edit-form [data-field="${draft.key}"]`);
-    if (field) { field.value = draft.value; if (draft.cleared) field.dataset.cleared = draft.cleared; field.dispatchEvent(new Event('input')); }
-  }
-  if (selection) {
-    const field = root.querySelector<HTMLInputElement | HTMLTextAreaElement>(selection.selector);
-    if (field) {
-      field.focus({ preventScroll: true });
-      const restoreSelection = () => {
-        if (selection.start !== null && selection.end !== null) field.setSelectionRange(selection.start, selection.end, selection.direction ?? 'none');
-        field.scrollTop = selection.top; field.scrollLeft = selection.left;
-      };
-      if (selection.selector === '.copy-editor textarea') {
-        // The saved body loads asynchronously. Do not clamp the selection on an
-        // empty textarea, or restore it after the owner has interacted again.
-        let moved = false;
-        const cancel = () => { moved = true; };
-        const events = ['input', 'keydown', 'pointerdown', 'blur'];
-        events.forEach(event => field.addEventListener(event, cancel));
-        const cleanup = () => events.forEach(event => field.removeEventListener(event, cancel));
-        void editorLoaded.then(() => {
-          cleanup();
-          if (!moved && field.isConnected && document.activeElement === field) restoreSelection();
-        }, cleanup);
-      } else restoreSelection();
+type MetadataField = HTMLInputElement | HTMLTextAreaElement;
+let refreshOpenDetail: ((article: Article, submitted?: Map<MetadataField, string>) => void) | null = null;
+
+function updateDetailField(field: MetadataField, value: string, submitted?: Map<MetadataField, string>) {
+  const accepted = submitted?.get(field) === field.value;
+  const pristine = field.value === field.defaultValue && field.dataset.cleared !== 'true';
+  if (accepted || (!submitted && pristine)) {
+    if (field.value !== value) {
+      const { selectionStart, selectionEnd, selectionDirection } = field;
+      field.value = value;
+      if (document.activeElement === field && selectionStart !== null && selectionEnd !== null)
+        field.setSelectionRange(selectionStart, selectionEnd, selectionDirection ?? 'none');
     }
+    delete field.dataset.cleared;
   }
+  field.defaultValue = value;
 }
 document.addEventListener("visibilitychange", () => {
   if (document.visibilityState === "hidden") {
@@ -1056,10 +1022,13 @@ function iconMarkup(name: IconName): string {
 function iconButton(label: string, icon: IconName, className = "") {
   const button = el("button", undefined, `action-button icon-action${className ? ` ${className}` : ""}`);
   button.type = "button";
+  setButtonIcon(button, label, icon);
+  return button;
+}
+function setButtonIcon(button: HTMLButtonElement, label: string, icon: IconName) {
   button.setAttribute("aria-label", label);
   button.title = label;
   button.innerHTML = iconMarkup(icon);
-  return button;
 }
 function enrichmentIsPending(article: Article): boolean {
   return !!article.enrichment && !article.enrichment.paused && ['queued', 'running', 'retry_wait'].includes(article.enrichment.state);
@@ -1134,8 +1103,10 @@ function renderTags(article: Article, compact = false): HTMLElement {
   }
   return tags;
 }
+const rowArticles = new WeakMap<HTMLElement, Article>();
 function renderArticle(article: Article) {
   const li = el("li", undefined, `article${article.readAt ? " is-read" : ""}`);
+  rowArticles.set(li, article);
   li.dataset.id = article.id;
   const main = el("div", undefined, "article-main");
   const headingRow = el("div", undefined, "article-heading-row");
@@ -1168,7 +1139,12 @@ function renderArticle(article: Article) {
     article.readAt ? "mark-unread" : "mark-read",
     "read-action",
   );
-  read.addEventListener("click", () => mutateRead(article, !article.readAt));
+  read.addEventListener("click", async () => {
+    if (read.getAttribute("aria-disabled") === "true") return;
+    read.setAttribute("aria-disabled", "true");
+    try { await mutateRead(article, !article.readAt); }
+    finally { read.removeAttribute("aria-disabled"); }
+  });
   metaRow.append(meta, extractionBadge);
   if (state.session?.audioEnabled === true && article.podcastFit?.tier === "good") {
     const fitIcon = iconButton(`Good podcast candidate. ${article.podcastFit.reason}`, "podcast", "podcast-fit-icon-button podcast-fit-good");
@@ -1224,6 +1200,9 @@ function render(items: Article[], append = false) {
   if (!append) list.replaceChildren();
   const visibleItems = state.status === "podcast" ? items.filter(item => item.podcastFit?.tier === "good") : items;
   for (const item of visibleItems) list.append(renderArticle(item));
+  updateListSummary();
+}
+function updateListSummary() {
   const count = list.children.length;
   $("#result-count").textContent = count ? `${count} shown` : "";
   empty.hidden = count !== 0;
@@ -1258,7 +1237,12 @@ function render(items: Article[], append = false) {
   }
   $("#more").hidden = !state.cursor;
 }
-async function load(reset = true, preserveCurrent = false) {
+let latestListLoad: Promise<boolean | undefined> | undefined;
+function load(reset = true, preserveCurrent = false) {
+  latestListLoad = loadListPage(reset, preserveCurrent);
+  return latestListLoad;
+}
+async function loadListPage(reset: boolean, preserveCurrent: boolean) {
   if (!state.session?.authenticated) return;
   const generation = ++loadGeneration;
   if (reset) {
@@ -1339,7 +1323,6 @@ async function refreshFavoritesAfterFeedback() {
   (rowTarget ?? document.querySelector<HTMLElement>('[data-status="favorites"]'))?.focus({ preventScroll: true });
 }
 async function saveReadState(article: Article, read: boolean): Promise<Article> {
-  invalidateLoads();
   const result = await request<{ article: Article }>(
     `/api/articles/${encodeURIComponent(article.id)}`,
     { method: "PATCH", body: JSON.stringify({ read }) },
@@ -1358,12 +1341,49 @@ function applyReadState(article: Article) {
   renderLastOpened();
   void loadSuggestion();
 }
+async function updateLibraryReadState(updated: Article) {
+  // Let an already requested page finish. A later navigation loads fresh data.
+  const generation = loadGeneration;
+  if (state.loading) await latestListLoad;
+  if (generation !== loadGeneration || !state.session?.authenticated) return;
+  const row = list.querySelector<HTMLElement>(`.article[data-id="${CSS.escape(updated.id)}"]`);
+  const read = Boolean(updated.readAt);
+  if (!row) {
+    // A filter opened during the save can now include a previously absent row.
+    if (state.status !== (read ? "read" : "unread")) return;
+    const pageCount = Math.max(1, Math.ceil(list.children.length / 50));
+    for (let index = 0; index < pageCount; index++) {
+      const refresh = load(index === 0, index === 0);
+      const refreshGeneration = loadGeneration;
+      if (!await refresh || refreshGeneration !== loadGeneration || !state.cursor) break;
+    }
+    return;
+  }
+  if ((state.status === "unread" && read) || (state.status === "read" && !read)) {
+    const neighbor = row.nextElementSibling ?? row.previousElementSibling;
+    const nextFocus = neighbor?.querySelector<HTMLElement>(".read-action") ?? $<HTMLElement>('[data-status][aria-pressed="true"]');
+    const hadFocus = row.contains(document.activeElement);
+    if (row.contains(detailReturnFocus)) detailReturnFocus = nextFocus;
+    row.remove();
+    updateListSummary();
+    renderLastOpened();
+    if (hadFocus) nextFocus.focus();
+    if (!list.children.length && state.cursor) await load(false);
+    return;
+  }
+  // Keep the row, its disclosed tags, its opener, and the current page cursor.
+  const model = rowArticles.get(row)!;
+  model.readAt = updated.readAt;
+  model.updatedAt = updated.updatedAt;
+  row.classList.toggle("is-read", read);
+  setButtonIcon(row.querySelector<HTMLButtonElement>(".read-action")!, read ? "Mark as unread" : "Mark as read", read ? "mark-unread" : "mark-read");
+}
 async function mutateRead(article: Article, read: boolean) {
   try {
     const updated = await saveReadState(article, read);
     applyReadState(updated);
-    await load();
-    if (state.selected?.id === article.id) renderDetail(state.selected);
+    if (state.selected?.id === article.id) refreshOpenDetail?.(state.selected);
+    await updateLibraryReadState(updated);
   } catch (e) {
     if ($<HTMLDialogElement>("#detail-dialog").open)
       showDetailError((e as Error).message);
@@ -1388,12 +1408,11 @@ function showDetailStatus(message: string, bad = false) {
   status.hidden = !message;
   status.classList.toggle("error", bad);
 }
-function renderDetail(article: Article, restartPolling = true) {
+function renderDetail(article: Article) {
   state.selected = article;
   const root = $("#detail-content");
   const disclosures = detailDisclosureState.get(article.id);
   root.replaceChildren();
-  root.dataset.contentKey = detailContentKey(article);
   const eyebrow = el("p", sourceHost(article.url), "eyebrow");
   const status = el("p", undefined, "notice");
   status.id = "detail-status";
@@ -1404,27 +1423,26 @@ function renderDetail(article: Article, restartPolling = true) {
   form.addEventListener("submit", async (e) => {
     e.preventDefault();
     const title = input.value.trim();
-    if (!title) return;
+    if (!title || form.dataset.saving === "true") return;
     const patch = {
       ...(title !== input.defaultValue ? { title } : {}),
       ...(tagInput.value !== tagInput.defaultValue || tagInput.dataset.cleared === 'true' ? { tags: tagInput.value.split(',').map(tag => tag.trim()).filter(Boolean) } : {}),
       ...(descriptionInput.value !== descriptionInput.defaultValue || descriptionInput.dataset.cleared === 'true' ? { description: descriptionInput.value.trim() || null } : {}),
     };
     if (!Object.keys(patch).length) return;
-    const active = document.activeElement;
-    const focusedField = active instanceof HTMLInputElement || active instanceof HTMLTextAreaElement
-      ? active.dataset.field : undefined;
-    const selection = active instanceof HTMLInputElement || active instanceof HTMLTextAreaElement
-      ? { start: active.selectionStart, end: active.selectionEnd, direction: active.selectionDirection }
-      : null;
+    const submitted = new Map<MetadataField, string>([input, tagInput, descriptionInput].map(field => [field, field.value]));
     form.dataset.saving = "true";
+    save.setAttribute("aria-disabled", "true");
     try {
       invalidateLoads();
       const result = await request<{ article: Article }>(
         `/api/articles/${encodeURIComponent(article.id)}`,
         { method: "PATCH", body: JSON.stringify(patch) },
       );
-      state.selected = result.article;
+      if (state.selected?.id === article.id && form.isConnected) {
+        state.selected = result.article;
+        refreshOpenDetail?.(result.article, submitted);
+      }
       if (lastOpenedArticle?.id === result.article.id || readLastOpenedId() === result.article.id) {
         lastOpenedArticle = result.article;
         renderLastOpened();
@@ -1438,25 +1456,20 @@ function renderDetail(article: Article, restartPolling = true) {
         history.replaceState(readerHistoryState(result.article.id, readerFromList), "", articlePath(result.article));
       }
       const listRefreshed = await load();
+      if (state.selected?.id !== article.id || !form.isConnected) return;
       showNotice("");
-      renderDetail(result.article);
       showDetailStatus(
         listRefreshed === false ? "Article details updated. Couldn’t refresh the list." : "Article details updated.",
         listRefreshed === false,
       );
-      if (focusedField) {
-        const field = $("#detail-content").querySelector<HTMLInputElement | HTMLTextAreaElement>(
-          `.edit-form [data-field="${CSS.escape(focusedField)}"]`,
-        );
-        if (field) {
-          field.focus({ preventScroll: true });
-          if (selection && selection.start !== null && selection.end !== null)
-            field.setSelectionRange(selection.start, selection.end, selection.direction ?? "none");
-        }
-      }
+      root.querySelector('#detail-error')?.remove();
     } catch (err) {
-      showDetailError((err as Error).message);
-    } finally { form.dataset.saving = 'false'; }
+      if (state.selected?.id === article.id && form.isConnected)
+        showDetailError(`Couldn’t save article details. ${(err as Error).message} Try again.`);
+    } finally {
+      form.dataset.saving = 'false';
+      save.removeAttribute('aria-disabled');
+    }
   });
   const label = el("label", "Title", "field-label");
   const input = el("input");
@@ -1478,13 +1491,9 @@ function renderDetail(article: Article, restartPolling = true) {
   descriptionInput.setAttribute('aria-label', 'Description');
   descriptionInput.rows = 3; descriptionInput.maxLength = 500;
   descriptionInput.value = article.description ?? ''; descriptionInput.defaultValue = descriptionInput.value;
-  if (article.descriptionOrigin === 'generated') {
-    const generated = el('span', 'Generated', 'generated-label');
-    generated.id = 'detail-description-origin';
-    descriptionInput.setAttribute('aria-describedby', generated.id);
-    descriptionLabel.append(generated);
-  }
-  descriptionLabel.append(descriptionInput);
+  const generated = el('span', 'Generated', 'generated-label');
+  generated.id = 'detail-description-origin';
+  descriptionLabel.append(generated, descriptionInput);
   const descriptionField = el('div', undefined, 'edit-field');
   descriptionField.append(descriptionLabel);
   const clearTags = el('button', 'Clear', 'inline-action'); clearTags.type = 'button';
@@ -1501,17 +1510,13 @@ function renderDetail(article: Article, restartPolling = true) {
   url.target = "_blank";
   url.rel = "noopener noreferrer";
   const actions = el("div", undefined, "detail-actions");
-  const readLabel = article.readAt ? "Mark as unread" : "Mark as read";
-  const toggle = el(
-    "button",
-    readLabel,
-    "button secondary",
-  );
+  const toggle = el("button", undefined, "button secondary");
   toggle.type = "button";
-  toggle.setAttribute("aria-label", readLabel);
-  toggle.title = readLabel;
   toggle.addEventListener("click", async () => {
-    await mutateRead(article, !article.readAt);
+    if (toggle.getAttribute("aria-disabled") === "true") return;
+    toggle.setAttribute("aria-disabled", "true");
+    try { await mutateRead(article, !article.readAt); }
+    finally { toggle.removeAttribute("aria-disabled"); }
   });
   const del = el("button", "Delete article", "button danger");
   del.type = "button";
@@ -1531,12 +1536,12 @@ function renderDetail(article: Article, restartPolling = true) {
     }
   });
   actions.append(toggle, del);
-  if (article.originalPdf) {
-    const saved = el('a', 'Open saved PDF', 'button secondary');
-    saved.href = `/api/articles/${article.id}/pdf?asset=${article.originalPdf.id}`; saved.target = '_blank'; saved.rel = 'noopener noreferrer';
-    const download = el('a', 'Download PDF', 'button secondary');
-    download.href = `/api/articles/${article.id}/pdf?asset=${article.originalPdf.id}&download=1`; download.target = '_blank'; download.rel = 'noopener noreferrer';
-    actions.append(saved, download);
+  const pdfOpen = el('a', 'Open saved PDF', 'button secondary');
+  const pdfDownload = el('a', 'Download PDF', 'button secondary');
+  for (const link of [pdfOpen, pdfDownload]) {
+    link.target = '_blank';
+    link.rel = 'noopener noreferrer';
+    actions.append(link);
   }
   const extractionPanel = el("section", undefined, "extraction-panel");
   extractionPanel.setAttribute("aria-live", "polite");
@@ -1544,7 +1549,6 @@ function renderDetail(article: Article, restartPolling = true) {
   extractionStatus.id = "detail-extraction-status";
   const retryCapture = el("button", "Retry capture", "button secondary");
   retryCapture.type = "button";
-  retryCapture.hidden = article.extraction?.state !== "failed";
   retryCapture.addEventListener("click", async () => {
     retryCapture.disabled = true;
     extractionStatus.textContent = "Queueing a new capture attempt…";
@@ -1553,7 +1557,7 @@ function renderDetail(article: Article, restartPolling = true) {
       if (state.selected?.id !== article.id || !extractionPanel.isConnected || !$<HTMLDialogElement>("#detail-dialog").open) return;
       const updated = { ...article, extraction: result.extraction };
       state.selected = updated;
-      refreshDetailAfterExtraction(updated);
+      refreshOpenDetail?.(updated);
       startExtractionPolling(updated);
     } catch (error) {
       if (state.selected?.id !== article.id || !extractionPanel.isConnected || !$<HTMLDialogElement>("#detail-dialog").open) return;
@@ -1562,10 +1566,7 @@ function renderDetail(article: Article, restartPolling = true) {
       retryCapture.disabled = false;
     }
   });
-  if (article.extraction) {
-    if (article.extraction.state === "failed") extractionStatus.textContent = `${extractionFailureMessage(article.extraction.errorCode)} Paste or upload a browser copy below, or retry.`;
-    extractionPanel.append(extractionStatus, retryCapture);
-  }
+  extractionPanel.append(extractionStatus, retryCapture);
   const captureDisclosure = el('details', undefined, 'detail-disclosure');
   captureDisclosure.dataset.disclosure = 'capture';
   captureDisclosure.dataset.articleId = article.id;
@@ -1574,11 +1575,14 @@ function renderDetail(article: Article, restartPolling = true) {
     ? true : disclosures?.get('capture') ?? false;
   const enrichmentStatus = el('p', enrichmentLabel(article), 'muted enrichment-status');
   enrichmentStatus.hidden = !enrichmentStatus.textContent;
+  const heading = el("h2", "Edit article");
+  heading.id = 'detail-heading';
+  const author = el('p', undefined, 'muted');
   root.append(
     eyebrow,
-    el("h2", "Edit article"),
+    heading,
     status,
-    ...(article.author ? [el("p", `By ${article.author}`, "muted")] : []),
+    author,
     el("p", `Saved ${dateLabel(article.createdAt)}`, "muted"),
     enrichmentStatus,
 
@@ -1588,15 +1592,54 @@ function renderDetail(article: Article, restartPolling = true) {
     actions,
     captureDisclosure,
   );
-  const editorLoaded = renderCopyEditor(article, captureDisclosure);
+  const refreshCopy = renderCopyEditor(article, captureDisclosure);
+  let contentKey: string | undefined;
+  refreshOpenDetail = (updated, submitted) => {
+    if (!form.isConnected || updated.id !== article.id) return;
+    const previous = article;
+    article = updated;
+    enrichmentStatus.textContent = enrichmentLabel(article);
+    enrichmentStatus.hidden = !enrichmentStatus.textContent;
+    const nextKey = detailContentKey(article);
+    if (nextKey === contentKey && !submitted) return;
+    contentKey = nextKey;
+
+    updateDetailField(input, article.title, submitted);
+    updateDetailField(tagInput, (article.tags ?? []).join(', '), submitted);
+    updateDetailField(descriptionInput, article.description ?? '', submitted);
+    generated.hidden = article.descriptionOrigin !== 'generated';
+    if (generated.hidden) descriptionInput.removeAttribute('aria-describedby');
+    else descriptionInput.setAttribute('aria-describedby', generated.id);
+    author.textContent = article.author ? `By ${article.author}` : '';
+    author.hidden = !article.author;
+    eyebrow.textContent = sourceHost(article.url);
+    url.textContent = article.url;
+    url.href = safeHttpUrl(article.url) || '#';
+    const readLabel = article.readAt ? "Mark as unread" : "Mark as read";
+    toggle.textContent = toggle.title = readLabel;
+    pdfOpen.hidden = pdfDownload.hidden = !article.originalPdf;
+    if (article.originalPdf) {
+      pdfOpen.href = `/api/articles/${article.id}/pdf?asset=${article.originalPdf.id}`;
+      pdfDownload.href = pdfOpen.href + '&download=1';
+    }
+    extractionPanel.hidden = !article.extraction;
+    retryCapture.hidden = article.extraction?.state !== 'failed';
+    retryCapture.disabled = false;
+    extractionStatus.textContent = article.extraction?.state === 'failed'
+      ? `${extractionFailureMessage(article.extraction.errorCode)} Paste or upload a browser copy below, or retry.`
+      : `${article.originalPdf ? "PDF saved · " : ""}${extractionLabel(article.extraction)}`;
+    if (article.extraction?.state === 'failed' && previous.extraction?.state !== 'failed' ||
+        article.extraction?.recovery?.state === 'failed' && previous.extraction?.recovery?.state !== 'failed')
+      revealDetailDisclosure(captureDisclosure);
+    refreshCopy(article);
+  };
   for (const disclosure of root.querySelectorAll<HTMLDetailsElement>('details[data-disclosure]')) {
     disclosure.addEventListener('toggle', () => rememberDetailDisclosure(article.id, disclosure));
   }
-  if (restartPolling && (extractionIsPending(article.extraction) || enrichmentIsPending(article))) startExtractionPolling(article);
-  return editorLoaded;
+  refreshOpenDetail(article);
 }
 
-async function renderCopyEditor(article: Article, captureDisclosure: HTMLDetailsElement) {
+function renderCopyEditor(article: Article, captureDisclosure: HTMLDetailsElement) {
   const root = $("#detail-content");
   const section = el("details", undefined, "copy-editor detail-disclosure");
   section.dataset.disclosure = 'markdown';
@@ -1712,7 +1755,7 @@ async function renderCopyEditor(article: Article, captureDisclosure: HTMLDetails
       if (state.selected?.id !== article.id || !root.contains(section) || !$<HTMLDialogElement>('#detail-dialog').open) return;
       const updated = { ...detail.article, extraction: result.extraction };
       state.selected = updated;
-      refreshDetailAfterExtraction(updated);
+      refreshOpenDetail?.(updated);
       if (extractionIsPending(result.extraction)) startExtractionPolling(updated);
       showNotice(action === 'undo' ? 'Previous copy restored.' : extractionLabel(result.extraction));
       void load();
@@ -1722,7 +1765,7 @@ async function renderCopyEditor(article: Article, captureDisclosure: HTMLDetails
         recoveryError.hidden = false;
         revealDetailDisclosure(captureDisclosure);
       }
-    } finally { saving = false; updateRecoveryControls(); }
+    } finally { saving = false; updateRecoveryControls(); if (refreshAfterSave) void refreshCopy(article); }
   };
   recapture.addEventListener('click', () => { void recover('recapture'); });
   undo.addEventListener('click', () => { void recover('undo'); });
@@ -1840,7 +1883,7 @@ async function renderCopyEditor(article: Article, captureDisclosure: HTMLDetails
     if (!integration) return;
     saving = true; save.disabled = true; renderIntegrationStatus(); message.hidden = true;
     try { await sendSavedCopy(integrationConsent(integration)); }
-    finally { saving = false; save.disabled = false; renderIntegrationStatus(); }
+    finally { saving = false; save.disabled = false; renderIntegrationStatus(); if (refreshAfterSave) void refreshCopy(article); }
   });
   file.addEventListener("change", async () => {
     const selected = file.files?.[0];
@@ -1929,52 +1972,69 @@ async function renderCopyEditor(article: Article, captureDisclosure: HTMLDetails
       save.disabled = false;
       textarea.disabled = false;
       file.disabled = false;
+      if (refreshAfterSave) void refreshCopy(article);
     }
   });
   savedActions.append(readCopy, downloadCopy);
   section.append(label, fileLabel, save, message);
   integrationDisclosure.append(integrationLabel, integrationSelect, integrationDescription, integrationStatus, integrationRetry);
   root.append(status, savedActions, section, integrationDisclosure);
+  let copyLoadGeneration = 0;
   const pendingDraft = copyDrafts.get(article.id);
   if (pendingDraft) {
     textarea.value = pendingDraft.markdown;
     source = pendingDraft.source;
     showStatus(`${new TextEncoder().encode(pendingDraft.markdown).byteLength.toLocaleString()} UTF-8 bytes · Unsaved draft`);
   }
-  try {
-    const result = await request<{ copy: ArticleCopy | null }>(`/api/articles/${encodeURIComponent(article.id)}/copy`);
-    if (state.selected?.id !== article.id || !root.contains(section)) return;
-    saved = result.copy;
-    loaded = true;
+  let refreshAfterSave = false;
+  async function refreshCopy(updated: Article) {
+    article = updated;
     updateRecoveryControls();
-    showCopyActions();
-    if (!saved) revealDetailDisclosure(section);
-    const pending = copyDrafts.get(article.id);
-    if (pending) {
-      textarea.value = pending.markdown;
-      source = pending.source;
-      showStatus(`${new TextEncoder().encode(pending.markdown).byteLength.toLocaleString()} UTF-8 bytes · Unsaved draft`);
-    } else if (saved) {
-      textarea.value = saved.markdown;
-      source = saved.source;
-      const bytes = new TextEncoder().encode(saved.markdown).byteLength;
-      showStatus(`Saved ${dateLabel(saved.capturedAt)} · ${saved.source === "upload" ? "uploaded file" : "captured or pasted Markdown"} · ${bytes.toLocaleString()} UTF-8 bytes`);
-    } else {
-      showStatus(extractionIsPending(article.extraction)
-        ? `${extractionLabel(article.extraction)} · You can paste or upload a copy while capture runs.`
-        : article.extraction?.state === "failed"
-          ? "No Markdown copy saved. Paste or upload a browser copy, or retry capture above."
-          : "No Markdown copy saved yet.");
+    if (saving) { refreshAfterSave = true; return; }
+    refreshAfterSave = false;
+    const generation = ++copyLoadGeneration;
+    try {
+      const result = await request<{ copy: ArticleCopy | null }>(`/api/articles/${encodeURIComponent(article.id)}/copy`);
+      if (generation !== copyLoadGeneration || state.selected?.id !== article.id || !root.contains(section) || saving) return;
+      const wasMissing = loaded && !saved;
+      saved = result.copy;
+      loaded = true;
+      updateRecoveryControls();
+      showCopyActions();
+      if (!saved && !wasMissing) revealDetailDisclosure(section);
+      const pending = copyDrafts.get(article.id);
+      if (pending) {
+        if (textarea.value !== pending.markdown) textarea.value = pending.markdown;
+        source = pending.source;
+        showStatus(`${new TextEncoder().encode(pending.markdown).byteLength.toLocaleString()} UTF-8 bytes · Unsaved draft`);
+      } else if (saved) {
+        if (textarea.value !== saved.markdown) {
+          const { selectionStart, selectionEnd, selectionDirection } = textarea;
+          textarea.value = saved.markdown;
+          if (document.activeElement === textarea) textarea.setSelectionRange(selectionStart, selectionEnd, selectionDirection);
+        }
+        source = saved.source;
+        const bytes = new TextEncoder().encode(saved.markdown).byteLength;
+        showStatus(`Saved ${dateLabel(saved.capturedAt)} · ${saved.source === "upload" ? "uploaded file" : "captured or pasted Markdown"} · ${bytes.toLocaleString()} UTF-8 bytes`);
+      } else {
+        showStatus(extractionIsPending(article.extraction)
+          ? `${extractionLabel(article.extraction)} · You can paste or upload a copy while capture runs.`
+          : article.extraction?.state === "failed"
+            ? "No Markdown copy saved. Paste or upload a browser copy, or retry capture above."
+            : "No Markdown copy saved yet.");
+      }
+      save.disabled = false;
+      await refreshIntegrationStatus();
+    } catch (error) {
+      if (generation !== copyLoadGeneration || !root.contains(section) || saving) return;
+      revealDetailDisclosure(section);
+      showStatus("Couldn’t load Markdown copy status.");
+      showCopyActions();
+      showError(`Couldn’t load this copy. ${(error as Error).message} Retry by closing and reopening this article.`);
+      save.disabled = true;
     }
-    save.disabled = false;
-    await refreshIntegrationStatus();
-  } catch (error) {
-    revealDetailDisclosure(section);
-    showStatus("Couldn’t load Markdown copy status.");
-    showCopyActions();
-    showError(`Couldn’t load this copy. ${(error as Error).message} Retry by closing and reopening this article.`);
-    save.disabled = true;
   }
+  return refreshCopy;
 }
 function rememberReaderOpener(opener?: HTMLElement) {
   if ($<HTMLDialogElement>("#reader-dialog").open) return;
@@ -2124,6 +2184,7 @@ $("#reader-read-toggle").addEventListener("click", async () => {
   button.title = "Saving…";
   $("#reader-read-error").hidden = true;
   try {
+    invalidateLoads();
     const updated = await saveReadState(article, !article.readAt);
     if (!isCurrent()) return;
     applyReadState(updated);
@@ -2480,6 +2541,30 @@ readerLinkSave.addEventListener("click", () => {
   void showReaderLinkSaveResult(link, pending);
 });
 
+function updateReaderRecovery(article: Article) {
+  const failed = article.extraction?.recovery?.state === 'failed';
+  $('#reader-pending').hidden = !failed;
+  $('#reader-recovery').hidden = !failed;
+  $('#reader-manual-copy').hidden = true;
+  $('#reader-retry').hidden = true;
+  if (failed) $('#reader-pending-status').textContent = extractionLabel(article.extraction);
+}
+$("#reader-recovery").addEventListener("click", () => {
+  const article = state.selected;
+  if (!article) return;
+  const detail = $<HTMLDialogElement>('#detail-dialog');
+  if (detail.open) {
+    readerReturnFocus = null;
+    clearReader();
+    refreshOpenDetail?.(article);
+  } else {
+    openDetail(article, readerReturnFocus);
+  }
+  const capture = detail.querySelector<HTMLDetailsElement>('[data-disclosure="capture"]')!;
+  revealDetailDisclosure(capture);
+  capture.querySelector('summary')?.focus();
+});
+
 function openReader(article: Article, copy: ArticleCopy, opener?: HTMLElement) {
   if (state.selected?.id !== article.id) return;
   if (readerPositionContext && (readerPositionContext.id !== article.id || readerPositionContext.revision !== copy.revision)) saveReadingPosition();
@@ -2500,7 +2585,7 @@ function openReader(article: Article, copy: ArticleCopy, opener?: HTMLElement) {
     readingTimeLabel(copy.readingTimeMinutes),
     capturedOn ? `Captured ${capturedOn}` : "",
   ].filter(Boolean).join(" · ");
-  $("#reader-pending").hidden = true;
+  updateReaderRecovery(article);
   $("#reader-new-copy").hidden = true;
   body.hidden = false;
   original.href = safeHttpUrl(article.url) || "#";
@@ -2550,6 +2635,8 @@ function renderPendingReader(article: Article) {
     : article.extraction?.paused ? "Your link is saved and its Markdown copy is queued. You can add Markdown manually in article details."
       : "Markdown is being prepared in the background. You can close this view; the link is already saved.";
   $("#reader-pending").hidden = false;
+  $("#reader-recovery").hidden = true;
+  $("#reader-manual-copy").hidden = false;
   const retry = $<HTMLButtonElement>("#reader-retry");
   retry.hidden = article.extraction?.state !== "failed";
   retry.disabled = false;
@@ -2619,6 +2706,9 @@ function clearReader() {
 function restoreReaderFocus(opener = readerReturnFocus) {
   readerReturnFocus = null;
   if (!opener?.isConnected) return;
+  // A queued close can arrive after the user has focused another list control.
+  const focused = document.activeElement;
+  if (focused && list.contains(focused) && focused !== opener) return;
   const detailDialog = $<HTMLDialogElement>("#detail-dialog");
   if (detailDialog.open && !detailDialog.contains(opener)) return;
   opener.focus({ preventScroll: true });
@@ -2839,6 +2929,7 @@ async function openSavedCopy(article: Article, opener?: HTMLElement) {
   }
 }
 $("#detail-dialog").addEventListener("close", () => {
+  refreshOpenDetail = null;
   if (parseReaderPath(location.pathname)) navigateReaderAway();
   stopExtractionPolling();
   clearReader();
@@ -2851,11 +2942,17 @@ $("#detail-dialog").addEventListener("close", () => {
 async function initialize() {
   try {
     state.session = await request<Session>("/api/session");
+    settingsSessionError = "";
+    if (settingsDialog.open) syncSettingsSession();
     $("#primary-tabs").hidden = !state.session.authenticated;
     $<HTMLButtonElement>('[data-status="podcast"]').hidden = state.session.audioEnabled !== true;
     if (state.session.authenticated) await completeExtensionConnection();
     if (state.session.authenticated && browserCaptureDraft) void loadCaptureIntegrationConfiguration();
   } catch (error) {
+    if (!state.session) {
+      settingsSessionError = "Couldn’t check your session. Close Settings and choose Try again on your list.";
+      if (settingsDialog.open) syncSettingsSession();
+    }
     showNotice(
       `Couldn’t check your session. ${(error as Error).message}`,
       true,
@@ -4135,7 +4232,8 @@ $("#logout").addEventListener("click", async () => {
     if (feedMode) setFeedMode(false);
     $(".library").hidden = false;
     void load();
-    showNotice((e as Error).message, true);
+    if (settingsDialog.open) settingsFeedback("#account-status", `Couldn’t sign out. ${(e as Error).message}`, true);
+    else showNotice((e as Error).message, true);
   }
 });
 function syncThemeControls() {
@@ -4152,42 +4250,73 @@ $("#palette-toggle").addEventListener("change", (e) => {
 $("#theme-toggle").addEventListener("change", (e) => {
   window.potemTheme?.set({ appearance: (e.target as HTMLSelectElement).value });
 });
+const settingsDialog = $<HTMLDialogElement>("#settings-dialog");
+const deviceSettings = $<HTMLDetailsElement>("#settings-saving-devices");
+let tokenListGeneration = 0;
+let settingsSessionError = "";
+
+function settingsFeedback(selector: string, message: string, error = false) {
+  const status = $(selector);
+  status.classList.toggle("error", error);
+  status.textContent = message;
+}
+function openSettings() {
+  if (!settingsDialog.open) showDialog(settingsDialog, $("#palette-toggle"));
+  syncSettingsSession();
+}
+function isSettingsLink() {
+  return location.pathname === "/" && ["#settings", "#settings-saving-devices"].includes(location.hash);
+}
+function openLinkedSettings() {
+  if (!isSettingsLink()) return;
+  if (!settingsDialog.open) $("#settings-open").focus({ preventScroll: true });
+  openSettings();
+}
 $("#settings-open").addEventListener("click", openSettings);
-$("#settings-dialog").addEventListener("close", () => {
+window.addEventListener("hashchange", openLinkedSettings);
+settingsDialog.addEventListener("close", () => {
+  tokenListGeneration++;
   const box = $("#new-token");
   box.replaceChildren();
   box.hidden = true;
+  settingsFeedback("#device-status", "");
+  if (isSettingsLink()) history.replaceState(history.state, "", location.pathname + location.search);
   privateFeedUrl = null;
   clearAudioPoll();
 });
-async function openSettings() {
-  showDialog($<HTMLDialogElement>("#settings-dialog"), $<HTMLSelectElement>("#palette-toggle"));
-  if (!state.session?.authenticated) {
-    $("#settings-status").textContent =
-      "Sign in to manage your library and device settings.";
-    $("#settings-library").hidden = true;
-    $("#settings-private-podcast").hidden = true;
-    $("#settings-saving-devices").hidden = true;
-    $("#settings-integrations-disclosure").hidden = true;
-    $("#token-form").hidden = true;
+function syncSettingsSession() {
+  const signedIn = state.session?.authenticated === true;
+  $("#settings-library").hidden = !signedIn;
+  $("#settings-private-podcast").hidden = !signedIn;
+  deviceSettings.hidden = !signedIn;
+  $("#settings-integrations-disclosure").hidden = !signedIn;
+  $("#logout").hidden = !signedIn;
+  $("#settings-sign-in").hidden = state.session?.authenticated !== false;
+  if (!signedIn) {
+    const message = state.session ? "Sign in to manage your library and device settings." : settingsSessionError || "Checking your session…";
+    settingsFeedback("#settings-status", message, Boolean(settingsSessionError));
     $("#tokens").replaceChildren();
     return;
   }
-  $("#settings-library").hidden = false;
-  $("#settings-private-podcast").hidden = false;
-  $("#settings-saving-devices").hidden = false;
-  $("#settings-integrations-disclosure").hidden = false;
-  $("#settings-status").textContent = "Signed in";
-  $("#token-form").hidden = false;
+  settingsFeedback("#settings-status", "Signed in");
+  if (isSettingsLink() && location.hash === "#settings-saving-devices") {
+    deviceSettings.open = true;
+    $("#token-label").focus();
+  }
   void loadPodcastSettings();
   void request<{ integrations: IntegrationConfiguration[] }>('/api/integrations').then(({ integrations }) => {
+    settingsFeedback("#integration-settings-status", "");
     const container = $('#settings-integrations');
     container.replaceChildren();
     if (!integrations.length) container.append(el('p', 'No integrations configured. Articles are saved privately in Potem.', 'muted'));
     for (const integration of integrations) {
       container.append(el('h4', integration.name), el('p', integration.destination), el('p', integration.message || integration.description, 'muted'));
     }
-  }).catch(() => { $('#settings-integrations').textContent = 'Couldn’t load integrations. Reopen Settings to retry.'; });
+  }).catch(() => { settingsFeedback("#integration-settings-status", "Couldn’t load integrations. Reopen Settings to retry.", true); });
+  void loadCaptureTokens();
+}
+async function loadCaptureTokens() {
+  const generation = ++tokenListGeneration;
   try {
     const data = await request<{
       items: Array<{
@@ -4197,6 +4326,7 @@ async function openSettings() {
         revokedAt: string | null;
       }>;
     }>("/api/capture-tokens");
+    if (generation !== tokenListGeneration || !settingsDialog.open) return;
     const ul = $("#tokens");
     ul.replaceChildren();
     for (const token of data.items) {
@@ -4220,14 +4350,29 @@ async function openSettings() {
             )
           )
             return;
+          revoke.disabled = true;
           try {
             await request(
               `/api/capture-tokens/${encodeURIComponent(token.id)}`,
               { method: "DELETE" },
             );
-            openSettings();
+            const reveal = $("#new-token");
+            if (reveal.dataset.tokenId === token.id) {
+              reveal.hidden = true;
+              reveal.replaceChildren();
+            }
+            if (li.isConnected) {
+              span.querySelector("small")!.textContent = `Created ${dateLabel(token.createdAt)} · Revoked`;
+              revoke.remove();
+              li.tabIndex = -1;
+              if (settingsDialog.open && deviceSettings.open) li.focus();
+            } else if (settingsDialog.open) {
+              void loadCaptureTokens();
+            }
+            settingsFeedback("#device-status", `Revoked “${token.label}”.`);
           } catch (e) {
-            $("#settings-status").textContent = (e as Error).message;
+            revoke.disabled = false;
+            settingsFeedback("#device-status", `Couldn’t revoke this token. ${(e as Error).message}`, true);
           }
         });
         li.append(revoke);
@@ -4235,11 +4380,12 @@ async function openSettings() {
       ul.append(li);
     }
   } catch (e) {
-    $("#settings-status").textContent = (e as Error).message;
+    if (generation === tokenListGeneration) settingsFeedback("#device-status", `Couldn’t load capture tokens. ${(e as Error).message} Reopen Settings to retry.`, true);
   }
 }
 async function loadPodcastSettings() {
   const container = $("#podcast-settings");
+  settingsFeedback("#podcast-settings-status", "");
   container.replaceChildren(el("p", "Loading podcast settings…", "muted"));
   try {
     const data = await request<PodcastSettings & { readyEpisodes?: number }>("/api/podcast/settings");
@@ -4264,7 +4410,7 @@ async function loadPodcastSettings() {
       if (data.token && !confirm("Rotate the private feed URL? Your current podcast subscription will stop working until you update it.")) return;
       tokenButton.disabled = true;
       try { const created = await request<{ feedUrl: string; createdAt: string }>("/api/podcast/token", { method: "POST", body: JSON.stringify({}) }); privateFeedUrl = created.feedUrl; await loadPodcastSettings(); }
-      catch (error) { tokenStatus.textContent = "Couldn’t create feed URL. " + (error as Error).message; tokenButton.disabled = false; }
+      catch (error) { settingsFeedback("#podcast-settings-status", "Couldn’t create feed URL. " + (error as Error).message, true); tokenButton.disabled = false; }
     });
     controls.append(tokenButton);
     if (data.token) {
@@ -4273,16 +4419,23 @@ async function loadPodcastSettings() {
         if (!confirm("Revoke this private podcast feed? Your podcast app will no longer be able to access it.")) return;
         revoke.disabled = true;
         try { await request("/api/podcast/token", { method: "DELETE" }); privateFeedUrl = null; await loadPodcastSettings(); }
-        catch (error) { tokenStatus.textContent = "Couldn’t revoke feed. " + (error as Error).message; revoke.disabled = false; }
+        catch (error) { settingsFeedback("#podcast-settings-status", "Couldn’t revoke feed. " + (error as Error).message, true); revoke.disabled = false; }
       });
       controls.append(revoke);
     }
     container.append(controls);
     if (!data.enabled) container.prepend(el("p", "New audio generation is paused. Existing episodes remain available through your private feed.", "muted"));
-  } catch (error) { container.replaceChildren(el("p", "Couldn’t load podcast settings. " + (error as Error).message, "muted")); }
+  } catch (error) {
+    container.replaceChildren();
+    settingsFeedback("#podcast-settings-status", "Couldn’t load podcast settings. " + (error as Error).message, true);
+  }
 }
 $("#token-form").addEventListener("submit", async (e) => {
   e.preventDefault();
+  const submit = $<HTMLButtonElement>("#token-form button");
+  if (submit.disabled) return;
+  submit.disabled = true;
+  settingsFeedback("#device-status", "");
   try {
     const data = await request<{
       id: string;
@@ -4295,21 +4448,41 @@ $("#token-form").addEventListener("submit", async (e) => {
         label: $<HTMLInputElement>("#token-label").value.trim(),
       }),
     });
-    const box = $("#new-token");
-    box.hidden = false;
-    box.replaceChildren(
-      el("strong", "Copy this token now"),
-      el("p", "It will only be shown once."),
-    );
-    const code = el("code", data.token);
-    box.append(code);
     $<HTMLInputElement>("#token-label").value = "";
-    openSettings();
+    if (!settingsDialog.open) return;
+    const box = $("#new-token");
+    const code = el("code", data.token);
+    const copy = el("button", "Copy token", "button secondary");
+    copy.type = "button";
+    copy.addEventListener("click", async () => {
+      try {
+        await navigator.clipboard.writeText(data.token);
+        settingsFeedback("#device-status", "Token copied.");
+      } catch {
+        const range = document.createRange();
+        range.selectNodeContents(code);
+        window.getSelection()?.removeAllRanges();
+        window.getSelection()?.addRange(range);
+        settingsFeedback("#device-status", "Use your device’s Copy command to copy the selected token.");
+      }
+    });
+    const hint = el("p", "It will only be shown once.");
+    hint.id = "new-token-hint";
+    copy.setAttribute("aria-describedby", hint.id);
+    box.dataset.tokenId = data.id;
+    box.replaceChildren(el("strong", "Copy this token now"), hint, code, copy);
+    box.hidden = false;
+    settingsFeedback("#device-status", "Token created.");
+    copy.focus();
+    void loadCaptureTokens();
   } catch (err) {
-    $("#settings-status").textContent = (err as Error).message;
+    settingsFeedback("#device-status", `Couldn’t create this token. ${(err as Error).message}`, true);
+  } finally {
+    submit.disabled = false;
   }
 });
 $("#export").addEventListener("click", async () => {
+  settingsFeedback("#backup-status", "");
   try {
     const response = await fetch("/api/export", {
       credentials: "same-origin",
@@ -4323,7 +4496,7 @@ $("#export").addEventListener("click", async () => {
     a.click();
     URL.revokeObjectURL(a.href);
   } catch (e) {
-    showNotice((e as Error).message, true);
+    settingsFeedback("#backup-status", (e as Error).message, true);
   }
 });
 $("#import-open").addEventListener("click", () => {
@@ -4334,7 +4507,7 @@ $<HTMLInputElement>("#import-file").addEventListener("change", async (e) => {
     file = input.files?.[0];
   if (!file) return;
   if (file.size > 1024 * 1024) {
-    showNotice("Import files must be 1 MB or smaller.", true);
+    settingsFeedback("#restore-status", "Import files must be 1 MB or smaller.", true);
     input.value = "";
     return;
   }
@@ -4351,12 +4524,12 @@ $<HTMLInputElement>("#import-file").addEventListener("change", async (e) => {
       "/api/import",
       { method: "POST", body: JSON.stringify(data) },
     );
-    showNotice(
+    settingsFeedback("#restore-status",
       `Imported ${result.imported} articles; skipped ${result.skipped}.`,
     );
     await load();
   } catch (err) {
-    showNotice(`Import failed. ${(err as Error).message}`, true);
+    settingsFeedback("#restore-status", `Import failed. ${(err as Error).message}`, true);
   } finally {
     input.value = "";
   }
@@ -4366,7 +4539,7 @@ $<HTMLInputElement>('#import-archive-file').addEventListener('change', async eve
   const input = event.target as HTMLInputElement, file = input.files?.[0];
   if (!file) return;
   const button = $<HTMLButtonElement>('#import-archive-open');
-  const progress = (text: string) => { $('#settings-status').textContent = text; };
+  const progress = (text: string) => settingsFeedback("#restore-status", text);
   button.disabled = true;
   try {
     progress('Checking archive…');
@@ -4376,7 +4549,7 @@ $<HTMLInputElement>('#import-archive-file').addEventListener('change', async eve
     const result = await restoreArchive(file, archive, request, progress);
     progress(`Restored ${result.imported} articles; skipped ${result.skipped}.`);
     await load();
-  } catch (error) { progress(`Archive restore failed. ${(error as Error).message}`); }
+  } catch (error) { settingsFeedback("#restore-status", `Archive restore failed. ${(error as Error).message}`, true); }
   finally { button.disabled = false; input.value = ''; }
 });
 const params = new URLSearchParams(location.search);
@@ -4449,4 +4622,5 @@ if ("serviceWorker" in navigator)
   );
 if (extensionHandoffId && /^[a-f0-9]{48}$/.test(extensionHandoffId)) extensionPost('ready', extensionHandoffId);
 recoverDraft();
+openLinkedSettings();
 initialize();

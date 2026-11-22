@@ -89,6 +89,14 @@ Report success only after success is confirmed. Errors should say what failed an
 
 ## Accepted additions after review
 
+In the reading list, hovering over the title or description highlights the title with the palette’s emphasis color. Keep the description muted, show keyboard focus on the actual focused link, and give Mark as read and More independent hover states. Keep the actions visible on touchscreens.
+
+Changing read state keeps loaded library pages in place. If a focused row leaves the current filter, move focus to a neighboring row or the active filter. In the editor, changing read state preserves unsaved fields. Edits made while a save is in progress remain available for the next save.
+
+When recapture fails while someone is reading an older copy, show the failure and a route to recovery in the reader. Keep their place in the article. In the editor, let PDF and article actions wrap within the dialog.
+
+The capture guide links directly to Saving from devices. After a device token is created, keep keyboard focus at the one-time reveal. Report restore errors beside the restore controls.
+
 At the top of the mobile reading list, pulling down refreshes the current filter and search. Show “Pull to refresh” while the gesture is below the threshold, “Release to refresh” when it is ready, and “Refreshing your list…” while the request runs. Keep the current articles visible until the refreshed list arrives.
 
 In Feeds view, use the top-bar plus button to add a feed. Give it the accessible name and title “Add feed”; it opens the feed URL form. In Reading list view, the same button remains “Add article.” Keep Manage feeds with the feed controls. Open subscriptions in a modal with a scrollable list, a Close button, and support for Escape. Show removal errors in the modal. Return focus to Manage feeds on dismissal, or to Add feed after the last subscription is removed.
@@ -124,16 +132,6 @@ Use `--control-outline` for form field boundaries and `--line` for quiet content
 Long titles exposed a weakness in keeping two buttons beside the title: the controls consume roughly 96px before the gap between text and controls. Moving actions below the content was discussed, followed by a preferred experiment: **stack Mark as read above More on the right on mobile**, retaining horizontal controls on desktop.
 
 A vertical stack uses about 44px of width and 96px of height. It leaves more room for titles but can create empty space beside short entries. If requested, compare long and short entries and align the stack to the top of the article. This discussion did not authorize or implement a new layout.
-
-### Title-only hover emphasis
-
-The follow-up recommendation was to highlight only the title when hovering over either the title or description. Keep the description muted even though it also opens the article. This preserves the hierarchy and avoids emphasizing the whole entry.
-
-The user requested a reusable prompt for this behavior; implementation was not performed in this conversation. The prompt was:
-
-> Highlight only the article title when hovering over either the title or description. Keep the description muted, preserve keyboard focus indicators on the focused link, and keep Mark as read and More hover states independent.
-
-Hover is an enhancement. Keyboard focus must identify the actual focused control, and touch users must not depend on hover to discover actions.
 
 ## Checks for future interface changes
 
