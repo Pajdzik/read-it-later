@@ -24,7 +24,7 @@ export async function pdfArchiveSmoke(context, base) {
     await page.locator('#settings-library-restore summary').click();
     page.once('dialog',dialog=>dialog.accept());
     await page.locator('#import-archive-file').setInputFiles({name:'fixture.zip',mimeType:'application/zip',buffer:Buffer.from(bytes)});
-    await expect(page.locator('#settings-status')).toHaveText('Restored 1 articles; skipped 0.');
+    await expect(page.locator('#restore-status')).toHaveText('Restored 1 articles; skipped 0.');
     await page.locator('#settings-library-backup summary').click();
     const downloading = page.waitForEvent('download');
     await page.locator('#export-archive').click();
@@ -59,7 +59,7 @@ export async function pdfArchiveSmoke(context, base) {
     await page.locator('#settings-library-restore summary').click();
     page.once('dialog',dialog=>dialog.accept());
     await page.locator('#import-archive-file').setInputFiles({name:'fixture.zip',mimeType:'application/zip',buffer:Buffer.from(bytes)});
-    await expect(page.locator('#settings-status')).toHaveText('Restored 0 articles; skipped 1.');
+    await expect(page.locator('#restore-status')).toHaveText('Restored 0 articles; skipped 1.');
     console.log('PDF/archive smoke passed: file restore, ZIP download, private PDF access, reader actions, mobile layout, idempotent restore.');
   } finally { await page.close(); }
 }

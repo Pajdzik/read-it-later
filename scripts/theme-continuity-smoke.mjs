@@ -60,8 +60,80 @@ async function checkMigration(browser, base) {
   }
 }
 
+async function checkSettingsWorkflow(browser, base) {
+  const context = await browser.newContext({ viewport: { width: 390, height: 844 }, serviceWorkers: "block" });
+  let releaseSession;
+  const sessionGate = new Promise(resolve => { releaseSession = resolve; });
+  const tokens = [];
+  try {
+    const page = await context.newPage();
+    await page.route("**/api/**", async route => {
+      const pathname = new URL(route.request().url()).pathname;
+      let json = { items: [], nextCursor: null };
+      if (pathname === "/api/session") {
+        await sessionGate;
+        json = { authenticated: true, csrfToken: "fixture" };
+      } else if (pathname === "/api/capture-tokens") {
+        if (route.request().method() === "POST") {
+          const token = { id: "device", label: route.request().postDataJSON().label, createdAt: "2026-01-01", revokedAt: null };
+          tokens.push(token);
+          json = { ...token, token: "test-token" };
+        } else {
+          json = { items: tokens };
+        }
+      } else if (pathname === "/api/capture-tokens/device" && route.request().method() === "DELETE") {
+        tokens[0].revokedAt = "2026-01-02";
+        json = { ok: true };
+      } else if (pathname === "/api/integrations") {
+        json = { integrations: [] };
+      } else if (pathname === "/api/podcast/settings") {
+        json = { enabled: false, usage: { usedCharacters: 0, reservedCharacters: 0, freeCharacters: 0, estimatedCostUsd: 0, budgetUsd: 0 } };
+      }
+      await route.fulfill({ json });
+    });
+    await page.goto(base);
+    await page.getByRole("button", { name: "Settings" }).click();
+    const dialog = page.locator("#settings-dialog");
+    await expect(dialog.locator("#settings-status")).toHaveText("Checking your session…");
+    releaseSession();
+    await expect(dialog.locator("#settings-status")).toHaveText("Signed in");
+    await expect(dialog.getByRole("button", { name: "Sign out" })).toBeVisible();
+
+    await page.goto(base + "/capture.html");
+    await page.getByRole("link", { name: "Saving from devices" }).click();
+    const deviceName = dialog.getByLabel("Device or shortcut name");
+    await expect(deviceName).toBeFocused();
+    await deviceName.fill("Phone");
+    await deviceName.press("Enter");
+    await expect(dialog.getByRole("button", { name: "Copy token" })).toBeFocused();
+    await expect(dialog.locator("#new-token code")).toHaveText("test-token");
+    const deviceStatus = dialog.locator("#settings-saving-devices").getByRole("status");
+    await expect(deviceStatus).toHaveText("Token created.");
+    const revoke = dialog.getByRole("button", { name: "Revoke", exact: true });
+    await revoke.focus();
+    page.once("dialog", confirmation => confirmation.accept());
+    await revoke.press("Enter");
+    await expect(dialog.locator("#tokens li")).toBeFocused();
+    await expect(deviceStatus).toHaveText("Revoked “Phone”.");
+    await expect(dialog.locator("#new-token")).toBeHidden();
+
+    await dialog.locator("#settings-library-restore summary").click();
+    await dialog.locator("#import-archive-file").setInputFiles({ name: "invalid.zip", mimeType: "application/zip", buffer: Buffer.from("invalid") });
+    const restoreStatus = dialog.locator("#settings-library-restore").getByRole("status");
+    await expect(restoreStatus).toContainText("Archive restore failed.");
+    await expect(restoreStatus).toHaveClass(/error/);
+    await expect(dialog.locator("#settings-status")).toHaveText("Signed in");
+    await page.keyboard.press("Escape");
+    await expect(page.locator("#settings-open")).toBeFocused();
+  } finally {
+    releaseSession();
+    await context.close();
+  }
+}
+
 export async function themeContinuitySmoke(browser, base) {
   await checkMigration(browser, base);
+  await checkSettingsWorkflow(browser, base);
 
   const context = await browser.newContext({ colorScheme: "light" });
   try {

@@ -21,6 +21,11 @@ export async function enrichmentSmoke(browser, base) {
     let polls = 0;
     let copyReads = 0;
     let copyGate = null;
+    let saveGate = null;
+    const destinations = ['First destination', 'Second destination'].map((name, index) => ({
+      id: `integration-${index}`, name, description: '', destination: name,
+      configured: true, destinationKey: `key-${index}`, state: 'not_saved',
+    }));
     await context.route('**/api/**', async route => {
       const req = route.request(), url = new URL(req.url()), pathname = url.pathname;
       let body;
@@ -40,15 +45,17 @@ export async function enrichmentSmoke(browser, base) {
         if (!match) { await route.continue(); return; }
         const article = articles.find(a => a.id === match[1]);
         if (match[2] === 'copy') { copyReads++; if (copyGate) await copyGate; body = { copy: pendingReader && article.id === 'enrich03' ? null : { markdown: '# Saved article\n\nThe original body.', capturedAt: now, source: 'paste', revision: 'fixture-copy' } }; }
-        else if (match[2] === 'integrations') body = { integrations: [] };
+        else if (match[2] === 'integrations') body = { integrations: destinations };
         else if (match[2] === 'extraction') body = { extraction };
         else if (req.method() === 'PATCH') {
           const input = req.postDataJSON();
           patches.push(input);
+          if ('read' in input) article.readAt = input.read ? now : null;
+          if (saveGate) await saveGate;
           Object.assign(article, input);
           if ('description' in input) article.descriptionOrigin = 'manual';
           if ('tags' in input) { article.tags = [...new Set(input.tags.map(t => t.toLowerCase().trim()))].sort(); article.tagsManuallyEdited = true; }
-          article.enrichment = { state: 'skipped', paused: false };
+          if (!('read' in input)) article.enrichment = { state: 'skipped', paused: false };
           body = { article };
         } else { polls++; body = { article }; }
       }
@@ -75,7 +82,7 @@ export async function enrichmentSmoke(browser, base) {
       const detail = page.locator('#detail-content');
       const tags = detail.getByRole('textbox', { name: 'Tags (comma separated)', exact: true });
       const description = detail.getByRole('textbox', { name: 'Description', exact: true });
-      await expect(detail.getByRole('heading', { name: 'Edit article', exact: true })).toBeVisible();
+      await expect(page.getByRole('dialog', { name: 'Edit article', exact: true })).toBeVisible();
       await expect(detail.locator('.article-tags')).toHaveCount(0);
       const markdownDisclosure = detail.locator('details[data-disclosure="markdown"]');
       const captureDisclosure = detail.locator('details[data-disclosure="capture"]');
@@ -85,6 +92,18 @@ export async function enrichmentSmoke(browser, base) {
       await detail.getByRole('button', { name: 'Save changes', exact: true }).click();
       assert.equal(patches.length, 0, 'An unchanged details form must not protect the title or write metadata.');
       await tags.fill('Storage, Databases'); await description.fill('An owner-written description.');
+      await detail.getByRole('button', { name: 'Mark as read', exact: true }).click();
+      await expect(detail.getByRole('button', { name: 'Mark as unread' })).toBeFocused();
+      await expect(tags).toHaveValue('Storage, Databases');
+      await expect(description).toHaveValue('An owner-written description.');
+      const refreshMetadata = captureDisclosure.getByRole('checkbox');
+      await refreshMetadata.check();
+      const integrationDisclosure = detail.locator('[data-disclosure="integrations"]');
+      await integrationDisclosure.locator('summary').click();
+      const destination = integrationDisclosure.getByRole('combobox');
+      const sendCopy = integrationDisclosure.getByRole('checkbox');
+      await destination.selectOption('integration-1');
+      await sendCopy.check();
       // Pending jobs retain their polling age and leave an unchanged editor alone.
       await description.focus();
       await description.evaluate(field => field.setSelectionRange(3, 10));
@@ -108,7 +127,11 @@ export async function enrichmentSmoke(browser, base) {
       articles[0].tags = ['databases', 'storage'];
       let beforeUpdate = polls;
       await page.clock.fastForward(30_001); await expect.poll(() => polls).toBeGreaterThan(beforeUpdate);
-      await expect.poll(() => oldCopyField.evaluate(field => field.isConnected)).toBe(false);
+      await expect.poll(() => tags.evaluate(field => field.defaultValue)).toBe('databases, storage');
+      assert.equal(await oldCopyField.evaluate(field => field.isConnected), true);
+      await expect(refreshMetadata).toBeChecked();
+      await expect(destination).toHaveValue('integration-1');
+      await expect(sendCopy).toBeChecked();
       await expect(savedMarkdown).toHaveValue('# Saved article\n\nThe original body.');
       await expect(savedMarkdown).toBeFocused();
       await expect.poll(() => savedMarkdown.evaluate(field => [field.selectionStart, field.selectionEnd])).toEqual([2, 9]);
@@ -117,11 +140,15 @@ export async function enrichmentSmoke(browser, base) {
       copyGate = new Promise(resolve => { releaseCopy = resolve; });
       const readsBeforeGate = copyReads;
       articles[0].tags = ['databases', 'indexing'];
+      await integrationDisclosure.locator('summary').focus();
       beforeUpdate = polls;
       await page.clock.fastForward(30_001); await expect.poll(() => polls).toBeGreaterThan(beforeUpdate);
       await expect.poll(() => copyReads).toBeGreaterThan(readsBeforeGate);
+      await expect(integrationDisclosure.locator('summary')).toBeFocused();
+      destinations[1].destinationKey = 'updated-key';
       await description.focus(); await description.evaluate(field => field.setSelectionRange(3, 10));
       releaseCopy(); copyGate = null;
+      await expect(sendCopy).not.toBeChecked();
       await expect(savedMarkdown).toHaveValue('# Saved article\n\nThe original body.');
       await expect(description).toBeFocused();
       const prior = polls;
@@ -135,8 +162,16 @@ export async function enrichmentSmoke(browser, base) {
       await expect(captureDisclosure).toHaveAttribute('open', '');
       assert.deepEqual(await description.evaluate(field => [field.selectionStart, field.selectionEnd]), [3, 10]);
       await expect(detail.getByRole('button', { name: 'Recapture article', exact: true })).toBeDisabled();
+      let releaseSave;
+      saveGate = new Promise(resolve => { releaseSave = resolve; });
       await detail.getByRole('button', { name: 'Save changes', exact: true }).click();
+      await expect.poll(() => patches.at(-1)?.description).toBe('An owner-written description.');
+      await description.fill('A newer edit while saving.');
+      releaseSave(); saveGate = null;
       await expect(tags).toHaveValue('databases, storage');
+      await expect(description).toHaveValue('A newer edit while saving.');
+      await expect(description).toBeFocused();
+      await expect.poll(() => description.evaluate(field => field.defaultValue)).toBe('An owner-written description.');
       assert.equal(articles[0].tagsManuallyEdited, true);
       assert.equal('title' in patches.at(-1), false, 'Editing tags and description must not protect an untouched title.');
       assert.equal(articles[0].descriptionOrigin, 'manual');

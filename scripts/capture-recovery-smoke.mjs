@@ -76,6 +76,23 @@ export async function captureRecoverySmoke(browser, base) {
     await page.goto(base);
     await expect(articleMeta).toContainText('1 min read');
     await edit();
+    article.originalPdf = { id: 'pdf-asset' };
+    await page.keyboard.press('Escape');
+    await page.reload();
+    await edit();
+    const download = detail.getByRole('link', { name: 'Download PDF' });
+    for (const width of [320, 390, 620, 768, 1200]) {
+      await page.setViewportSize({ width, height: 844 });
+      assert.ok(await download.evaluate(link => {
+        const dialog = link.closest('dialog');
+        return dialog.scrollWidth <= dialog.clientWidth && link.getBoundingClientRect().right <= dialog.getBoundingClientRect().right;
+      }), `PDF actions should fit inside the editor at ${width}px`);
+    }
+    delete article.originalPdf;
+    await page.setViewportSize({ width: 390, height: 844 });
+    await page.keyboard.press('Escape');
+    await page.reload();
+    await edit();
     const captureDisclosure = detail.locator('details[data-disclosure="capture"]');
     const recapture = detail.getByRole('button', { name: 'Recapture article', exact: true });
     const markdown = detail.getByRole('textbox', { name: 'Markdown copy', exact: true });
@@ -136,6 +153,18 @@ export async function captureRecoverySmoke(browser, base) {
     await detail.getByRole('button', { name: 'Read saved copy' }).click();
     await expect(page.locator('#reader-body')).toHaveText('Original content');
     await expect(readerMeta).toContainText('1 min read');
+    complete(true);
+    await poll();
+    const reader = page.locator('#reader-dialog');
+    await expect(reader.locator('#reader-pending-status')).toContainText('Recapture failed');
+    await expect(reader.locator('#reader-body')).toHaveText('Original content');
+    await reader.getByRole('button', { name: 'Capture and recovery' }).click();
+    await expect(captureDisclosure.locator('summary')).toBeFocused();
+    await expect(captureDisclosure).toHaveAttribute('open', '');
+    await recapture.click();
+    await expect(detail.locator('#detail-extraction-status')).toHaveText('Recapture queued');
+    await detail.getByRole('button', { name: 'Read saved copy' }).click();
+    await expect(page.locator('#reader-body')).toHaveText('Original content');
     complete();
     await poll();
     await expect(page.getByRole('button', { name: 'New copy available' })).toBeVisible();
