@@ -165,8 +165,30 @@
         </form>
       </div>
       <p id="feed-manage-notice" class="notice error" role="alert" hidden></p>
+      <p id="feed-manage-status" class="notice" role="status" hidden></p>
       <p id="feed-manage-empty" class="muted" role="status"></p>
       <ul id="feed-list" class="feed-list" aria-label="Subscribed feeds"></ul>
+      <form id="feed-retention-form" class="feed-retention-form" hidden>
+        <div class="feed-retention-fields">
+          <label for="feed-retention-days">Remove after (days)
+            <input id="feed-retention-days" type="number" min="1" max="36500" step="1" inputmode="numeric" placeholder="No age limit" aria-describedby="feed-retention-defaults">
+          </label>
+          <label for="feed-retention-count">Keep latest (articles)
+            <input id="feed-retention-count" type="number" min="1" max="500" step="1" inputmode="numeric" placeholder="500" aria-describedby="feed-retention-defaults">
+          </label>
+        </div>
+        <p id="feed-retention-defaults" class="muted">Blank fields use the defaults of no age limit and up to 500 articles.</p>
+        <div class="feed-retention-impact">
+          <p id="feed-retention-preview" role="status"></p>
+          <p class="muted">Cleanup includes unread feed posts. Saved articles stay in your reading list.</p>
+        </div>
+        <p id="feed-retention-error" class="notice error" role="alert" hidden></p>
+        <button id="feed-retention-retry" class="text-button" type="button" hidden>Retry preview</button>
+        <div class="feed-retention-actions">
+          <button id="feed-retention-cancel" class="text-button" type="button">Cancel</button>
+          <button id="feed-retention-save" class="button primary" type="submit" aria-disabled="true">Save changes</button>
+        </div>
+      </form>
     </dialog>
     <dialog id="build-info-dialog" class="dialog build-info-dialog" aria-labelledby="build-info-heading">
       <form method="dialog" class="dialog-close">

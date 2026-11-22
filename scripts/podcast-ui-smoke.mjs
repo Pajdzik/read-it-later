@@ -27,14 +27,27 @@ async function openSettingsDisclosure(page, selector) {
 }
 const article = { id: "abc12345", url: "https://example.com/story", title: "Podcast UI Smoke", author: "Reader", description: "An English article.", tags: [], createdAt: new Date().toISOString(), updatedAt: new Date().toISOString(), readAt: null, hasCopy: true, podcastFit: { tier: "good", reason: "Mostly prose with no code blocks.", spokenWords: 250, codeBlocks: 0, codeSharePercent: 0 }, extraction: { state: "ready", attempts: 1, errorCode: null, nextAttemptAt: null, paused: false } };
 const codeArticle = { ...article, id: "bad23456", title: "Code-heavy article", podcastFit: { tier: "poor", reason: "Code makes up about 72% of the copy, and is skipped in narration.", spokenWords: 80, codeBlocks: 5, codeSharePercent: 72 } };
+const defaultRetention = { retentionDays: null, retentionCount: null };
 const feedSources = [
-  { id: "field", url: "https://field.example/rss.xml", title: "Field Notes", lastFetchedAt: article.createdAt, lastError: null },
-  { id: "journal", url: "https://journal.example/atom.xml", title: `Small Web Journal ${"Journal".repeat(20)}`, lastFetchedAt: article.createdAt, lastError: "Feed unavailable" },
+  { id: "field", url: "https://field.example/rss.xml", title: "Field Notes", lastFetchedAt: article.createdAt, lastError: null, ...defaultRetention },
+  { id: "journal", url: "https://journal.example/atom.xml", title: `Small Web Journal ${"Journal".repeat(20)}`, lastFetchedAt: article.createdAt, lastError: "Feed unavailable", retentionDays: 30, retentionCount: 100 },
 ];
+const day = 24 * 60 * 60 * 1000;
+const archivedJournalPosts = [10, 11].map((age) => ({
+  id: `archive-${age}`, feedId: "journal", url: `https://journal.example/archive-${age}`, title: `Archived post ${age}`,
+  preview: "An archived article.", publishedAt: new Date(Date.parse(article.createdAt) - age * day).toISOString(), seen: age === 11, saved: false,
+}));
 const feedItems = [
   { id: "walk", feedId: "field", url: "https://field.example/walking", title: "Walking the same route", preview: "What changes when the streets stay the same.", publishedAt: article.createdAt, seen: false, saved: false },
   { id: "site", feedId: "journal", url: "https://journal.example/site", title: "A small personal site", preview: "Notes on keeping a website.", publishedAt: article.createdAt, seen: false, saved: false },
+  archivedJournalPosts[0],
 ];
+function retentionPreview(feedId, { retentionDays, retentionCount }) {
+  const items = feedItems.filter((item) => item.feedId === feedId);
+  const cutoff = retentionDays === null ? -Infinity : Date.parse(article.createdAt) - retentionDays * day;
+  const kept = items.filter((item) => Date.parse(item.publishedAt) > cutoff).slice(0, retentionCount ?? 500);
+  return { total: items.length, removed: items.length - kept.length, kept };
+}
 const savedArticles = [article, codeArticle];
 const copy = { markdown: "# Podcast UI Smoke\n\nA private audio test.", capturedAt: new Date().toISOString(), source: "paste", revision: "rev_123" };
 let audio = { enabled: true, state: "none", episodeId: null, sourceRevision: null, characters: 1200, estimatedDurationSeconds: 390, estimatedCostUsd: 0.012, errorCode: null, suitability: article.podcastFit };
@@ -42,6 +55,7 @@ let postedAudio = [];
 let tokenCreated = false;
 let audioEnabled = true;
 let failFeedRemoval = true;
+let addPostDuringRetentionEdit = true;
 let browser;
 try {
   browser = await chromium.launch({ headless: true, ...(process.env.BROWSER_EXECUTABLE ? { executablePath: process.env.BROWSER_EXECUTABLE } : {}) });
@@ -64,7 +78,7 @@ try {
     }
     else if (url.pathname === "/api/feeds" && method === "GET") payload = { feeds: feedSources };
     else if (url.pathname === "/api/feeds" && method === "POST") {
-      const added = { id: "new-feed", url: request.postDataJSON().url, title: "New journal", lastFetchedAt: article.createdAt, lastError: null };
+      const added = { id: "new-feed", url: request.postDataJSON().url, title: "New journal", lastFetchedAt: article.createdAt, lastError: null, ...defaultRetention };
       feedSources.push(added);
       payload = { feed: added };
     }
@@ -78,6 +92,29 @@ try {
       assert.ok(index >= 0);
       feedSources.splice(index, 1);
       payload = { ok: true };
+    }
+    else if (/^\/api\/feeds\/[^/]+\/retention-preview$/.test(url.pathname) && method === "POST") {
+      const { total, removed } = retentionPreview(url.pathname.split("/")[3], request.postDataJSON());
+      payload = { total, removed };
+    }
+    else if (/^\/api\/feeds\/[^/]+$/.test(url.pathname) && method === "PATCH") {
+      const feed = feedSources.find((source) => source.id === url.pathname.split("/")[3]);
+      assert.ok(feed);
+      const { retentionDays, retentionCount, maxRemovals } = request.postDataJSON();
+      if (addPostDuringRetentionEdit) {
+        addPostDuringRetentionEdit = false;
+        feedItems.push(archivedJournalPosts[1]);
+      }
+      const { removed, kept } = retentionPreview(feed.id, { retentionDays, retentionCount });
+      if (removed > maxRemovals) {
+        await route.fulfill({ status: 409, json: { error: { code: "retention_preview_changed", message: "Review the updated removal count." } } });
+        return;
+      }
+      Object.assign(feed, { retentionDays, retentionCount });
+      for (let index = feedItems.length - 1; index >= 0; index--) {
+        if (feedItems[index].feedId === feed.id && !kept.includes(feedItems[index])) feedItems.splice(index, 1);
+      }
+      payload = { feed, removed };
     }
     else if (url.pathname === "/api/feeds/items") {
       const source = url.searchParams.get("feedId");
@@ -245,6 +282,9 @@ try {
   assert.equal(await closeManage.evaluate((el) => el === document.activeElement), true);
   assert.equal(await manageDialog.evaluate((el) => el.matches(":modal")), true);
   await page.keyboard.press("Tab");
+  const fieldRetention = manageDialog.getByRole("button", { name: "Set retention for Field Notes" });
+  assert.equal(await fieldRetention.evaluate((el) => el === document.activeElement), true, "Retention should be the first action for a subscription.");
+  await page.keyboard.press("Tab");
   const removeField = manageDialog.getByRole("button", { name: "Remove Field Notes" });
   await page.locator("#reading-tab").evaluate((el) => el.focus());
   assert.equal(await removeField.evaluate((el) => el === document.activeElement), true, "Background controls must be inert while managing feeds.");
@@ -255,6 +295,8 @@ try {
   await manage.click();
   const subscriptions = manageDialog.getByRole("list", { name: "Subscribed feeds" });
   await subscriptions.getByText("Couldn’t refresh", { exact: true }).waitFor();
+  await subscriptions.getByText("Default · up to 500 articles", { exact: true }).first().waitFor();
+  await subscriptions.getByText("Last 30 days · up to 100 articles", { exact: true }).waitFor();
   for (const colorScheme of ["light", "dark"]) {
     await page.emulateMedia({ colorScheme });
     await page.locator(`html[data-theme="${colorScheme}"]`).waitFor();
@@ -271,6 +313,56 @@ try {
   await closeManage.click();
   await manageDialog.waitFor({ state: "hidden" });
   await page.waitForFunction(() => document.activeElement?.id === "feed-manage-open");
+
+  await page.setViewportSize({ width: 320, height: 844 });
+  const feedSource = feedsView.locator("#feed-source");
+  const allFeedItems = feedsView.getByRole("button", { name: "All", exact: true });
+  await feedSource.selectOption("journal");
+  await allFeedItems.click();
+  const archiveLink = feedsView.getByRole("link", { name: archivedJournalPosts[0].title, exact: true });
+  await archiveLink.waitFor();
+  await manage.click();
+  const journalRetention = manageDialog.getByRole("button", { name: /^Set retention for Small Web Journal/ });
+  await page.mouse.move(0, 0);
+  assert.equal(await journalRetention.isVisible(), true, "Retention must be visible without hover at 320px.");
+  await journalRetention.press("Enter");
+  const retentionForm = manageDialog.locator("#feed-retention-form");
+  const daysLimit = retentionForm.getByRole("spinbutton", { name: "Remove after (days)" });
+  const countLimit = retentionForm.getByRole("spinbutton", { name: "Keep latest (articles)" });
+  assert.equal(await daysLimit.inputValue(), "30");
+  assert.equal(await countLimit.inputValue(), "100");
+  assert.equal(await subscriptions.evaluate((el) => el.scrollWidth <= el.clientWidth), true, "The inline editor must fit at 320px.");
+  await daysLimit.fill("7");
+  await countLimit.fill("");
+  await retentionForm.getByText("1 of 2 articles will remain in this feed.", { exact: true }).waitFor();
+  const firstRetentionSave = retentionForm.getByRole("button", { name: "Save and remove 1 article", exact: true });
+  await firstRetentionSave.click();
+  const changedPreview = retentionForm.getByText("The feed changed. Review the updated removal count before saving.", { exact: true });
+  await changedPreview.waitFor();
+  await retentionForm.getByText("1 of 3 articles will remain in this feed.", { exact: true }).waitFor();
+  assert.equal(await daysLimit.inputValue(), "7", "A conflict must preserve the draft age.");
+  assert.equal(await countLimit.inputValue(), "", "A conflict must preserve the draft count.");
+  const retentionWrites = () => apiCalls.filter((call) => call.path === "/api/feeds/journal" && call.method === "PATCH");
+  assert.deepEqual(retentionWrites().map((call) => call.body), [{ retentionDays: 7, retentionCount: null, maxRemovals: 1 }]);
+  await retentionForm.getByRole("button", { name: "Save and remove 2 articles", exact: true }).click();
+  await retentionForm.waitFor({ state: "hidden" });
+  await subscriptions.getByText("Last 7 days", { exact: true }).waitFor();
+  await page.waitForFunction(() => {
+    const focused = document.activeElement;
+    return focused?.getAttribute("aria-label")?.startsWith("Set retention for Small Web Journal")
+      && focused.getAttribute("aria-disabled") !== "true";
+  });
+  await journalRetention.press("Enter");
+  assert.equal(await daysLimit.inputValue(), "7", "Reopening shows the saved age limit immediately.");
+  assert.equal(await countLimit.inputValue(), "", "Reopening shows the saved default count immediately.");
+  await retentionForm.getByRole("button", { name: "Cancel", exact: true }).click();
+  await retentionForm.waitFor({ state: "hidden" });
+  assert.deepEqual(retentionWrites().map((call) => call.body.maxRemovals), [1, 2]);
+  await closeManage.click();
+  await archiveLink.waitFor({ state: "hidden" });
+  await site.waitFor();
+  assert.equal(await feedSource.inputValue(), "journal", "Editing retention preserves the selected feed.");
+  assert.equal(await allFeedItems.getAttribute("aria-pressed"), "true", "Editing retention preserves the selected timeline tab.");
 
   await page.setViewportSize({ width: 390, height: 844 });
   await feedsView.locator("#feed-source").selectOption("new-feed");
@@ -313,7 +405,7 @@ try {
   await openSettingsDisclosure(page, "#settings-private-podcast");
   await page.locator("#podcast-settings").getByText(/New audio generation is paused/).waitFor();
   await page.locator("#podcast-settings").getByRole("button", { name: "Revoke feed" }).waitFor();
-  console.log("Podcast and Feeds UI smoke passed: podcast options, responsive feed actions, subscription management, feed navigation and saving, read status, and private feed setup.");
+  console.log("Podcast and Feeds UI smoke passed for podcast options, responsive feed actions, subscriptions and retention, feed navigation and saving, read status, and private feed setup.");
 } finally {
   await browser?.close();
   await new Promise((resolve) => server.close(resolve));
