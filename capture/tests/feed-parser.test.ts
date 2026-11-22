@@ -37,6 +37,13 @@ test("feed parser refuses DTD and entity declarations", () => {
   assert.throws(() => parseFeed(`<!DOCTYPE rss [<!ENTITY title "Example">]><rss><channel><title>&title;</title></channel></rss>`, "https://news.example/feed"));
 });
 
+test("Atom XHTML excerpts keep paragraph boundaries around inline text", () => {
+  const result = parseFeed(`<feed xmlns="http://www.w3.org/2005/Atom" xmlns:x="http://www.w3.org/1999/xhtml">
+    <entry><title>River walk</title><link href="/walk"/><content type="xhtml"><x:div><x:h1>River walk</x:h1><x:p>Walk<x:em>ing</x:em> today.</x:p><x:p>Read &lt;map&gt;.<x:br/>Next turn.</x:p><x:script>omit()</x:script><x:p>Tags: walks</x:p></x:div></content></entry>
+    </feed>`, "https://news.example/feed");
+  assert.equal(result.items[0].preview, "Walking today.\nRead <map>.\nNext turn.");
+});
+
 test("namespaced RSS metadata provides a readable fallback preview", () => {
   const result = parseFeed(`<rdf:RDF xmlns:rdf="http://www.w3.org/1999/02/22-rdf-syntax-ns#" xmlns:content="http://purl.org/rss/1.0/modules/content/">
     <channel><title>RSS 1.0</title></channel><item><title>Story</title><link>/story</link><content:encoded><![CDATA[<p>Preview text.</p>]]></content:encoded></item>

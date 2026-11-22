@@ -5,7 +5,7 @@ const MAX_ITEMS = 200;
 const MAX_TEXT = 600;
 const MAX_URL = 2048;
 const MAX_KEY = 1024;
-type XmlElement = { localName: string; textContent: string | null; children: Iterable<XmlElement>; getAttribute(name: string): string | null };
+type XmlElement = Pick<Element, "localName" | "textContent" | "children" | "getAttribute" | "querySelectorAll">;
 
 export type FeedItem = { key: string; url: string; title: string; preview: string; publishedAt: string | null };
 export type FeedDocument = { title: string; items: FeedItem[] };
@@ -22,9 +22,13 @@ function plainText(raw: string, title?: string): string {
     .replace(/<\s*\/?\s*(?:p|div|li|h[1-6]|blockquote|article|section|figure|figcaption|tr|ul|ol)\b[^>]*>/gi, "\n")
     .replace(/<[^>]*>/g, " ")
     .replace(/&(?:nbsp|#160);/gi, " ").replace(/&amp;/gi, "&").replace(/&lt;/gi, "<").replace(/&gt;/gi, ">")
-    .replace(/&quot;/gi, '"').replace(/&#39;|&apos;/gi, "'")
-    .replace(/[\u0000-\u0009\u000b\u000c\u000e-\u001f\u007f]/g, " ");
-  const blocks = text.split(/[\r\n]+/).map(block => block.replace(/\s+/g, " ")
+    .replace(/&quot;/gi, '"').replace(/&#39;|&apos;/gi, "'");
+  return cleanBlocks(text, title);
+}
+
+function cleanBlocks(text: string, title?: string): string {
+  const blocks = text.replace(/[\u0000-\u0009\u000b\u000c\u000e-\u001f\u007f]/g, " ")
+    .split(/[\r\n]+/).map(block => block.replace(/\s+/g, " ")
     .replace(/\s+([,.;:!?])/g, "$1").replace(/([([{])\s+/g, "$1").replace(/\s+([)\]}])/g, "$1").trim())
     .filter(Boolean);
   const normalizedTitle = title ? comparableText(title) : "";
@@ -43,6 +47,19 @@ function text(node: XmlElement | null | undefined): string {
 }
 
 function preview(node: XmlElement | null | undefined, title: string): string {
+  if (node?.children.length) {
+    // Atom XHTML contains real XML elements. Mark their boundaries before
+    // extracting text so that inline markup and escaped literals stay intact.
+    for (const element of node.querySelectorAll("*")) {
+      const name = nameOf(element);
+      if (name === "script" || name === "style") element.remove();
+      else if (/^(?:p|div|li|h[1-6]|blockquote|article|section|figure|figcaption|tr|ul|ol|br)$/.test(name)) {
+        element.before("\n");
+        element.after("\n");
+      }
+    }
+    return cleanBlocks(node.textContent ?? "", title);
+  }
   return plainText(node?.textContent ?? "", title);
 }
 
