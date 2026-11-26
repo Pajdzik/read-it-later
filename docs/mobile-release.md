@@ -4,6 +4,10 @@ Status: automated local mobile rehearsal and read-only deployed checks recorded 
 
 Prototype smoke/build references below are historical evidence for the retired Node application; prototype checks are no longer part of current CI. The Cloudflare capture and fetch tooling retain their own checks.
 
+## Current capture handoff contract — November 22, 2026
+
+The installed PWA share target now uses POST with URL, title, and text in the request body. The Worker serves the app with a bounded, inert JSON handoff embedded in the response; it does not redirect shared fields into a URL. A release check should inspect the deployed manifest for `method: POST`, share a synthetic private-marker URL/title, and confirm the Potem navigation and subresource request URLs contain none of those fields before review. Confirm canceling leaves the draft for intentional sign-in, while explicit sign-out clears browser capture and extension conflict snapshots. Refresh or reinstall installed PWAs after deployment so they adopt the updated manifest. These are current acceptance steps; the older October observations below describe the then-deployed GET manifest.
+
 ## Automated scope
 
 `pnpm test:mobile` runs Playwright touch flows with Android Chromium and iPhone WebKit profiles against a fresh temporary local Worker/D1. CI runs it in the pinned Playwright container, which includes both browser engines. The existing `pnpm test:browser` desktop smoke remains a separate check in the same browser job.
@@ -31,7 +35,7 @@ Other checks passed in the earlier validation run: `pnpm typecheck`; `pnpm test`
 
 ## Read-only deployed evidence — October 6, 2026
 
-The production origin `https://read-it-later-production.pajdzik.workers.dev` returned 200 for the public shell, health endpoint, `/add?url=` fixture, capture guide, manifest, service worker, and all manifest icons. The manifest reports the `/add` GET share target with `title`, `text`, and `url`; PNG icons were 192×192 and 512×512. `/api/session` returned `authenticated: false` with `private, no-store`. `/api/articles`, `/api/export`, and `/api/capture-tokens` rejected anonymous requests with 401 and `private, no-store`. No production state was changed.
+The production origin `https://read-it-later-production.pajdzik.workers.dev` returned 200 for the public shell, health endpoint, `/add?url=` fixture, capture guide, manifest, service worker, and all manifest icons. At the time of that October 6 check, the manifest reported the `/add` GET share target with `title`, `text`, and `url`; PNG icons were 192×192 and 512×512. `/api/session` returned `authenticated: false` with `private, no-store`. `/api/articles`, `/api/export`, and `/api/capture-tokens` rejected anonymous requests with 401 and `private, no-store`. No production state was changed.
 
 Read-only browser emulation on production passed on Chromium 151.0.7922.34 using Pixel 7 and WebKit 26.5 using iPhone 13. Both showed anonymous sign-in, retained a logged-out `/add` URL draft, and activated a service worker whose populated cache contained only the six public assets. Root inspected `/tmp/potem-production-mobile-anonymous.png`, `/tmp/potem-production-mobile-share-draft.png`, `/tmp/potem-production-iphone-anonymous.png`, and `/tmp/potem-production-iphone-share-draft.png`. The latest successful main CI/deploy run was [run 37571252253](https://github.com/Pajdzik/read-it-later/actions/runs/37571252253), at commit `008499aea576aaa024b2b27700bc351bb66b7c28`.
 

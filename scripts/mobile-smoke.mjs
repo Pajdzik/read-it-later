@@ -45,7 +45,7 @@ await writeFile(configPath, JSON.stringify({
   },
   assets: {
     directory: path.join(project, "dist/web"), binding: "ASSETS", not_found_handling: "single-page-application",
-    run_worker_first: ["/api", "/api/*", "/auth", "/auth/*", "/healthz"],
+    run_worker_first: ["/api", "/api/*", "/auth", "/auth/*", "/healthz", "/add"],
   },
   d1_databases: [{
     binding: "DB", database_name: "read-later", database_id: "00000000-0000-4000-8000-000000000000",
@@ -143,20 +143,37 @@ async function runProfile(name, browserType, device) {
     if (page.url() !== "about:blank") await waitForListIdle();
     await page.goto(url);
   };
+  const postShare = async (targetPage, fields) => {
+    if (targetPage === page && targetPage.url() !== "about:blank") await waitForListIdle();
+    await targetPage.goto(`${base}/capture`);
+    await targetPage.evaluate(({ action, fields }) => {
+      const form = document.createElement("form");
+      form.method = "POST";
+      form.action = action;
+      for (const [name, value] of Object.entries(fields)) {
+        const input = document.createElement("input");
+        input.type = "hidden";
+        input.name = name;
+        input.value = value;
+        form.append(input);
+      }
+      document.body.append(form);
+      form.submit();
+    }, { action: manifest.share_target.action, fields });
+  };
   const reload = async () => {
     await waitForListIdle();
     await page.reload();
   };
   const screenshot = (suffix) => `/tmp/read-it-later-mobile-${name}-${suffix}.png`;
 
-  // A share target is safe navigation: the manifest values prefill the form,
-  // normalize the URL out of the address bar, and never submit it implicitly.
+  // Share fields arrive in a POST body, prefill review, and never save implicitly.
   const manifestResponse = await page.request.get(`${base}/manifest.webmanifest`);
   assert.equal(manifestResponse.status(), 200);
   const manifest = await manifestResponse.json();
   const shareParams = manifest.share_target.params;
   assert.deepEqual(manifest.share_target, {
-    action: "/add", method: "GET", enctype: "application/x-www-form-urlencoded",
+    action: "/add", method: "POST", enctype: "application/x-www-form-urlencoded",
     params: { title: "title", text: "text", url: "url" },
   }, `${name}: share-target configuration changed; update this smoke from the manifest contract.`);
   for (const icon of manifest.icons) {
@@ -190,19 +207,20 @@ async function runProfile(name, browserType, device) {
     `${name}: anonymous sign-in is outside the viewport.`);
   await page.screenshot({ path: screenshot("portrait-anonymous") });
   const logoutDraftUrl = `${sourceBase}/logged-out-${name}`;
-  const loggedOutQuery = new URLSearchParams({
+  const loggedOutFields = {
     [shareParams.url]: logoutDraftUrl,
     [shareParams.title]: "Logged out draft",
-  });
+  };
   const logoutContext = await browser.newContext({ ...device, serviceWorkers: "block" });
   const logoutPage = await logoutContext.newPage();
   logoutPage.on("pageerror", (error) => errors.push(error.message));
   await logoutContext.route("**/api/session", (route) => route.fulfill({
     status: 200, contentType: "application/json", body: JSON.stringify({ authenticated: false }),
   }));
-  await logoutPage.goto(`${base}${manifest.share_target.action}?${loggedOutQuery}`);
+  await postShare(logoutPage, loggedOutFields);
   await logoutPage.locator("#add-url").waitFor({ state: "attached" });
   assert.equal(await logoutPage.locator("#add-url").inputValue(), logoutDraftUrl);
+  assert.equal(new URL(logoutPage.url()).search, "", `${name}: shared fields appeared in the logged-out navigation URL.`);
   await logoutPage.locator("#sign-in-prompt").waitFor({ state: "visible" });
   await logoutPage.screenshot({ path: screenshot("portrait-logged-out-draft") });
   await logoutPage.reload();
@@ -213,16 +231,16 @@ async function runProfile(name, browserType, device) {
   await navigate(base);
   await page.locator("#add-open").waitFor();
 
-  // Exercise the manifest's exact GET parameter names. The review dialog must
+  // Exercise the manifest's exact POST field names. The review dialog must
   // stay open with the candidate URL, and a reload before Save writes nothing.
   const shareUrl = `${sourceBase}/shared-${name}?utm_source=mobile%20smoke`;
   const shareTitle = `Shared from ${name}`;
-  const shareQuery = new URLSearchParams({
+  const shareFields = {
     [shareParams.url]: shareUrl,
     [shareParams.title]: shareTitle,
     [shareParams.text]: `${shareTitle} ${shareUrl}`,
-  });
-  await navigate(`${base}${manifest.share_target.action}?${shareQuery}`);
+  };
+  await postShare(page, shareFields);
   await page.locator("#add-url").waitFor();
   assert.equal(await page.locator("#add-dialog").evaluate((dialog) => dialog.open), true);
   assert.equal(await page.locator("#add-url").inputValue(), shareUrl);
@@ -231,25 +249,25 @@ async function runProfile(name, browserType, device) {
     `${name}: Add dialog opened with its close button focused.`);
   assert.equal(await page.locator("#add-capture-markdown").isChecked(), true,
     `${name}: capture from URL should default on for a new review form.`);
-  assert.equal(new URL(page.url()).search, "", "Share input should be removed from history after recovery.");
+  assert.equal(new URL(page.url()).search, "", "Share input should not enter the address bar.");
   await page.screenshot({ path: screenshot("portrait-add-review") });
   const noEarlySave = await page.evaluate(async (url) => {
     const result = await fetch("/api/articles?status=all", { cache: "no-store" }).then((r) => r.json());
     return result.items.some((item) => item.url === url);
   }, shareUrl);
-  assert.equal(noEarlySave, false, `${name}: GET share target saved before confirmation.`);
+  assert.equal(noEarlySave, false, `${name}: POST share target saved before confirmation.`);
 
-  const ambiguousQuery = new URLSearchParams({
+  const ambiguousFields = {
     [shareParams.text]: "Compare https://example.com/first and https://example.com/second",
-  });
-  await navigate(`${base}${manifest.share_target.action}?${ambiguousQuery}`);
+  };
+  await postShare(page, ambiguousFields);
   await page.locator("#add-dialog").waitFor({ state: "visible" });
   assert.equal(await page.locator("#add-url").inputValue(), "");
   await page.locator("#add-notice").waitFor({ state: "visible" });
   await page.screenshot({ path: screenshot("portrait-ambiguous-share") });
   assert.match((await page.locator("#add-notice").textContent()) || "", /clear link/i,
     `${name}: ambiguous share notice was missing.`);
-  await navigate(`${base}${manifest.share_target.action}?${shareQuery}`);
+  await postShare(page, shareFields);
   await page.locator("#add-url").waitFor();
 
   await page.locator("#add-capture-markdown").check();
@@ -445,8 +463,11 @@ async function runProfile(name, browserType, device) {
   await page.locator('[data-status="unread"]').tap();
   await expectStatus("unread");
 
-  // A duplicate normalized URL keeps its original record and state.
-  await page.locator("#add-open").tap();
+  // A fresh share of an already-saved URL still opens review. Saving the
+  // normalized duplicate keeps the original record and state.
+  await postShare(page, shareFields);
+  await expect(page.locator("#add-url")).toHaveValue(shareUrl);
+  await expect(page.locator("#add-title")).toHaveValue(shareTitle);
   await page.locator("#add-url").fill(`${sourceBase}/shared-${name}?utm_source=other`);
   await page.locator("#add-title").fill("Duplicate must not replace title");
   await page.locator("#add-capture-markdown").uncheck();
@@ -509,6 +530,7 @@ async function runProfile(name, browserType, device) {
   }, articleId);
   assert.ok(readAtAfterSave);
   await reload();
+  await expect(page.locator("#add-dialog")).not.toBeVisible();
   await page.locator('[data-status="read"]').tap();
   await page.locator("#search-toggle").tap();
   await page.locator("#articles").getByRole("link", { name: shareTitle, exact: true }).waitFor();
@@ -766,10 +788,16 @@ async function runProfile(name, browserType, device) {
     `${name}: short landscape reader should cover the viewport: ${JSON.stringify(landscapeReaderBounds)}.`);
   assert.equal(await readyReader.evaluate((dialog) => dialog.scrollWidth <= dialog.clientWidth + 1), true,
     `${name}: short landscape reader has horizontal overflow.`);
-  // Reveal the auto-hiding toolbar with an upward scroll before checking Back.
+  // Wait for the reopened reader to restore its previous position, then start at the top.
+  await readyReader.evaluate(async (dialog) => {
+    for (let frame = 0; frame < 3; frame++) await new Promise(requestAnimationFrame);
+    dialog.scrollTop = 0;
+    for (let frame = 0; frame < 2; frame++) await new Promise(requestAnimationFrame);
+  });
+  await expect(readyReader.locator(".reader-toolbar")).not.toHaveClass(/is-hidden/);
   await readyReader.evaluate((dialog) => { dialog.scrollTop = dialog.scrollHeight; });
   await expect(readyReader.locator(".reader-toolbar")).toHaveClass(/is-hidden/);
-  await readyReader.evaluate((dialog) => { dialog.scrollTop -= 24; });
+  await readyReader.evaluate((dialog) => { dialog.scrollTop -= 40; });
   await expect(readyReader.locator(".reader-toolbar")).not.toHaveClass(/is-hidden/);
   const landscapeBack = readyReader.locator(".reader-close button");
   // Scrolling can move the toolbar before it settles. WebKit can also round a sticky edge slightly outside the viewport.

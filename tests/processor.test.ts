@@ -1,5 +1,5 @@
 import { env } from 'cloudflare:workers';
-import { createMessageBatch, createExecutionContext, getQueueResult, createScheduledController } from 'cloudflare:test';
+import { createMessageBatch, createExecutionContext, getQueueResult } from 'cloudflare:test';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import type { Env, ExtractionMessage } from '../src/contracts';
 import worker from '../src/worker';
@@ -210,12 +210,18 @@ describe('queue driven extraction', () => {
     expect(queue.messages.map(entry => entry.body)).toEqual([message()]);
   });
 
-  it('republishes more than fifty durable jobs once each without extracting', async () => {
-    for (let i = 0; i < 125; i++) await intent(`r${String(i).padStart(7, '0')}`);
+  it('limits publication to 150 jobs and gives the next run to the longest waiting jobs', async () => {
+    for (let i = 0; i < 155; i++) await intent(`r${String(i).padStart(7, '0')}`);
     const { bindings, queue, fetcher } = configured();
-    await worker.scheduled(createScheduledController({ cron: '0 * * * *' }), bindings);
-    expect(queue.binding.sendBatch.mock.calls.map(([batch]) => Array.from(batch).length)).toEqual([50, 50, 25]);
-    expect(new Set(queue.messages.map(entry => entry.body.articleId)).size).toBe(125);
+    const first = '2026-11-01T00:00:00.000Z';
+    const second = '2026-11-01T01:00:00.000Z';
+    await recoverExtractionJobs(bindings, first);
+    expect(queue.binding.sendBatch.mock.calls.map(([batch]) => Array.from(batch).length)).toEqual([50, 50, 50]);
+    expect(new Set(queue.messages.map(entry => entry.body.articleId)).size).toBe(150);
+    await recoverExtractionJobs(bindings, second);
+    expect(queue.messages.slice(150,155).map(entry => entry.body.articleId)).toEqual(
+      ['r0000150', 'r0000151', 'r0000152', 'r0000153', 'r0000154'],
+    );
     expect(await env.DB.prepare('SELECT sum(attempts) AS attempts FROM article_extraction_jobs').first()).toEqual({ attempts: 0 });
     expect(fetcher).not.toHaveBeenCalled();
   });

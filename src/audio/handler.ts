@@ -1,5 +1,5 @@
 import type { Env } from '../contracts';
-import { digest, isResponse, randomToken, requireSession } from '../auth/core';
+import { currentOwnerGeneration, digest, isResponse, randomToken, requireSession } from '../auth/core';
 import { isArticleId } from '../articles/identity';
 import { getArticle } from '../articles/repository';
 import { parseObject, readJson, ValidationError } from '../articles/validation';
@@ -26,7 +26,8 @@ export async function handleAudio(request: Request, env: Env): Promise<Response 
     const auth = await requireSession(request, env, method !== 'GET');
     if (isResponse(auth)) return auth;
     if (settings && method === 'GET') {
-      const current = await env.DB.prepare('SELECT created_at FROM podcast_token WHERE singleton=1').first<{ created_at: string }>();
+      const generation = await currentOwnerGeneration(env);
+      const current = generation === null ? null : await env.DB.prepare('SELECT created_at FROM podcast_token WHERE singleton=1 AND owner_generation=?').bind(generation).first<{ created_at: string }>();
       const ready = await env.DB.prepare("SELECT COUNT(*) AS count FROM audio_episodes e JOIN articles a ON a.id=e.article_id WHERE e.state='ready'").first<{ count: number }>();
       return jsonResponse({ enabled: env.ARTICLE_AUDIO_ENABLED === 'true', token: current ? { createdAt: current.created_at } : null, usage: await getAudioUsage(env), readyEpisodes: ready?.count ?? 0 });
     }
@@ -34,8 +35,10 @@ export async function handleAudio(request: Request, env: Env): Promise<Response 
       if (request.body) parseObject(await readJson(request), []);
       const raw = `pod_${randomToken(32)}`;
       const createdAt = new Date().toISOString();
-      await env.DB.prepare('INSERT INTO podcast_token(singleton,token_hash,created_at) VALUES(1,?,?) ON CONFLICT(singleton) DO UPDATE SET token_hash=excluded.token_hash,created_at=excluded.created_at')
-        .bind(await digest(raw), createdAt).run();
+      const generation = await currentOwnerGeneration(env);
+      if (generation === null) return errorResponse(503, 'auth_unavailable', 'Owner sign-in is not configured.');
+      await env.DB.prepare('INSERT INTO podcast_token(singleton,token_hash,created_at,owner_generation) VALUES(1,?,?,?) ON CONFLICT(singleton) DO UPDATE SET token_hash=excluded.token_hash,created_at=excluded.created_at,owner_generation=excluded.owner_generation')
+        .bind(await digest(raw), createdAt, generation).run();
       const feedUrl = new URL('/api/podcast/feed.xml', env.APP_ORIGIN!);
       feedUrl.searchParams.set('token', raw);
       return jsonResponse({ feedUrl: feedUrl.toString(), createdAt }, 201);

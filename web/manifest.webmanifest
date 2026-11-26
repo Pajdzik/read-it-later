@@ -10,7 +10,7 @@
   "theme_color": "#124138",
   "share_target": {
     "action": "/add",
-    "method": "GET",
+    "method": "POST",
     "enctype": "application/x-www-form-urlencoded",
     "params": { "title": "title", "text": "text", "url": "url" }
   },

@@ -21,6 +21,43 @@ describe('integrated Worker routing', () => {
       expect(response.headers.get('Cache-Control')).toContain('no-store');
     }
   });
+
+  it('keeps share details in a bounded POST handoff instead of the request URL', async () => {
+    const privateMarker = 'share-secret-marker-7f31';
+    const assetRequests: string[] = [];
+    const assets = {
+      async fetch(request: Request) {
+        assetRequests.push(request.url);
+        return new Response('<!doctype html><html><body><main>Potem</main></body></html>', {
+          headers: { 'Content-Type': 'text/html; charset=utf-8' },
+        });
+      },
+    } as Fetcher;
+    const response = await worker.fetch(new Request('https://service.example/add', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+      body: new URLSearchParams({ title: `${privateMarker}</script><img src=x>`, text: 'Read this', url: `https://news.example/${privateMarker}#private` }),
+    }), { ...unavailable, ASSETS: assets });
+    const html = await response.text();
+    expect(response.status).toBe(200);
+    expect(response.headers.get('Cache-Control')).toContain('no-store');
+    expect(assetRequests).toEqual(['https://service.example/add']);
+    expect(html).toContain('<script id="share-handoff" type="application/json">');
+    expect(html).toContain(privateMarker);
+    expect(html).toContain('\\u003c/script\\u003e');
+    expect(html).not.toContain('</script><img');
+    expect(html).not.toContain('https://service.example/add?');
+  });
+
+  it('rejects oversized share handoffs before requesting the app asset', async () => {
+    const fetchAsset = vi.fn(async () => new Response('<html><body></body></html>', { headers: { 'Content-Type': 'text/html' } }));
+    const response = await worker.fetch(new Request('https://service.example/add', {
+      method: 'POST', headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+      body: `text=${'x'.repeat(16 * 1024 + 1)}`,
+    }), { ...unavailable, ASSETS: { fetch: fetchAsset } as unknown as Fetcher });
+    expect(response.status).toBe(413);
+    expect(fetchAsset).not.toHaveBeenCalled();
+  });
 });
 
 describe('export storage failures', () => {

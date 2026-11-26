@@ -6,7 +6,7 @@ import type { AudioMessage } from '../src/audio';
 
 describe('private article narration', () => {
   it('converts Markdown to narration, preserves row reading order, and omits executable HTML and code', () => {
-    const text = normalizeMarkdown(`# Saved title\n\n## A useful section\n\nRead [the source](https://example.com) and see **important** facts.\n\n| left | right |\n| --- | --- |\n| one | two |\n\n<script>secret()</script>\n\n\`\`\`ts\nconst answer = 42;\n\`\`\``, 'Saved title', 'Ada');
+    const text = normalizeMarkdown(`# Saved title\n\n## A useful section\n\nRead [the source](https://example.com) and see **important** facts.\n\n| left | right |\n| --- | --- |\n| one | two |\n\n<script title="Example with a > character">secret()</script>\n\n\`\`\`ts\nconst answer = 42;\n\`\`\``, 'Saved title', 'Ada');
     expect(text).toContain('Saved title\n\nBy Ada');
     expect(text).toContain('A useful section');
     expect(text).toContain('the source and see important facts.');

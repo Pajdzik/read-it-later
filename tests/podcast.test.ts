@@ -32,10 +32,18 @@ async function published() {
   const object = await bindings.AUDIO_BUCKET.put(key, data);
   await bindings.DB.prepare(`INSERT INTO audio_episodes(id,article_id,title,author,url,copy_revision,voice,normalizer_version,narration_text,state,created_at,ready_at,bytes,duration_seconds,object_key,checksum)
     VALUES(?,?,?,?,?,?,?,?,?,'ready',?,?,?,?,?,?)`)
-    .bind(id,'podcast1','A <title> & "quotation"','Author & friend','https://example.com/article?a=1&b=2','revision-one','en-US-Chirp3-HD-Charon',1,'An article.','2026-11-01T00:00:00.000Z','2026-11-02T00:00:00.000Z',data.byteLength,612.5,key,object!.etag).run();
+    .bind(id,'podcast1','A <title> & "quotation"','Author & friend','https://example.com/share/private-path-marker?invite=private-query-marker#private-fragment-marker','revision-one','en-US-Chirp3-HD-Charon',1,'An article.','2026-11-01T00:00:00.000Z','2026-11-02T00:00:00.000Z',data.byteLength,612.5,key,object!.etag).run();
   const feedUrl = await token();
   const secret = new URL(feedUrl).searchParams.get('token')!;
   return { id, key, data, feedUrl, mediaUrl: `${origin}/api/podcast/episodes/${id}.mp3?token=${secret}` };
+}
+
+async function transcriptChunk(episodeId: string) {
+  const key = `audio/chunks/${episodeId}/0.wav`;
+  await bindings.AUDIO_BUCKET.put(key, 'audio chunk fixture');
+  await bindings.DB.prepare(`INSERT INTO audio_chunks(episode_id,chunk_index,text,request_characters,state,object_key)
+    VALUES(?,0,'Saved narration fixture.',24,'succeeded',?)`).bind(episodeId, key).run();
+  return key;
 }
 
 beforeEach(async () => {
@@ -94,11 +102,25 @@ describe('private podcast endpoints', () => {
     expect(rss).toContain(`length="${episode.data.byteLength}" type="audio/mpeg"`);
     expect(rss).toContain('<itunes:duration>0:10:12</itunes:duration>');
     expect(rss).not.toContain('unfinished');
+    expect(rss).not.toMatch(/private-(?:path|query|fragment)-marker/);
+    expect(rss).toContain(`<link>${origin}/read/podcast1</link>`);
     expect(xml('before\u0000after\ud800')).toBe('beforeafter');
     const head = await worker.fetch(new Request(episode.feedUrl, { method: 'HEAD' }), env);
     expect(await head.text()).toBe('');
     expect(Number(head.headers.get('Content-Length'))).toBe(new TextEncoder().encode(rss).byteLength);
     expect(send).not.toHaveBeenCalled();
+  });
+
+  it('uses the hostname when a legacy episode title was derived from a private source link', async () => {
+    const episode = await published();
+    await bindings.DB.prepare("UPDATE audio_episodes SET title='example.com/share/private-path-marker' WHERE id=?")
+      .bind(episode.id).run();
+    await bindings.DB.prepare("UPDATE articles SET title='Renamed after narration' WHERE id='podcast1'").run();
+    const response = await worker.fetch(new Request(episode.feedUrl), env);
+    expect(response.status).toBe(200);
+    const rss = await response.text();
+    expect(rss).toContain('<title>example.com</title>');
+    expect(rss).not.toMatch(/private-(?:path|query|fragment)-marker/);
   });
 
   it('serves native podcast HEAD and range probes without generation or read-state changes', async () => {
@@ -131,16 +153,61 @@ describe('private podcast endpoints', () => {
     expect(send).not.toHaveBeenCalled();
   });
 
-  it('keeps completed episodes through recovery but denies access immediately after article deletion', async () => {
+  it('keeps completed episodes, then deletes all audio and transcript data after article deletion', async () => {
     const episode = await published();
-    await recoverAudioJobs({ ...env, ARTICLE_AUDIO_ENABLED: 'false' });
-    expect(await bindings.AUDIO_BUCKET.head(episode.key)).not.toBeNull();
-    expect((await worker.fetch(new Request(episode.mediaUrl), env)).status).toBe(200);
+    const chunk = await transcriptChunk(episode.id);
+    const ledger = { month: '2026-11', used_characters: 24, reserved_characters: 3, attempts: 2 };
+    await bindings.DB.prepare('INSERT INTO audio_monthly_usage VALUES(?,?,?,?)').bind(...Object.values(ledger)).run();
     await worker.fetch(request('/api/articles/podcast1', 'DELETE'), env);
     expect((await worker.fetch(new Request(episode.mediaUrl), env)).status).toBe(404);
     expect(await (await worker.fetch(new Request(episode.feedUrl), env)).text()).not.toContain(`urn:uuid:${episode.id}`);
+    // Simulate an older data remnant for which cleanup was marked complete.
+    await bindings.DB.prepare('UPDATE audio_episodes SET cleanup_at=NULL WHERE id=?').bind(episode.id).run();
     await recoverAudioJobs({ ...env, ARTICLE_AUDIO_ENABLED: 'false' });
     expect(await bindings.AUDIO_BUCKET.head(episode.key)).toBeNull();
+    expect(await bindings.AUDIO_BUCKET.head(chunk)).toBeNull();
+    expect(await bindings.DB.prepare('SELECT id FROM audio_episodes').first()).toBeNull();
+    expect(await bindings.DB.prepare('SELECT episode_id FROM audio_chunks').first()).toBeNull();
+    expect(await bindings.DB.prepare('SELECT * FROM audio_monthly_usage').first()).toEqual(ledger);
+  });
+
+  it('retries failed object removal after deleting audio from a retained article', async () => {
+    const episode = await published();
+    const chunk = await transcriptChunk(episode.id);
+    const failedBucket: R2Bucket = {
+      ...bindings.AUDIO_BUCKET,
+      async delete() { throw new Error('Temporary object storage failure'); },
+    };
+    const response = await worker.fetch(request('/api/articles/podcast1/audio', 'DELETE'), { ...env, AUDIO_BUCKET: failedBucket });
+    expect(response.status).toBe(204);
+    expect(await bindings.DB.prepare('SELECT state FROM audio_episodes WHERE id=?').bind(episode.id).first()).toEqual({ state: 'deleted' });
+    expect(await bindings.DB.prepare('SELECT text FROM audio_chunks').first()).toEqual({ text: 'Saved narration fixture.' });
+    expect((await worker.fetch(new Request(episode.mediaUrl), env)).status).toBe(404);
+    await recoverAudioJobs(env);
+    expect(await bindings.AUDIO_BUCKET.head(episode.key)).toBeNull();
+    expect(await bindings.AUDIO_BUCKET.head(chunk)).toBeNull();
+    expect(await bindings.DB.prepare('SELECT id FROM audio_episodes').first()).toBeNull();
+    expect(await bindings.DB.prepare('SELECT episode_id FROM audio_chunks').first()).toBeNull();
+    expect(await bindings.DB.prepare('SELECT markdown FROM article_copies').first()).not.toBeNull();
+  });
+
+  it('lists stored fit summaries and invalidates them when a copy revision changes', async () => {
+    await article();
+    const list = async () => {
+      const response = await worker.fetch(request('/api/articles?status=all'), env);
+      expect(response.status).toBe(200);
+      return (await response.json() as { items: { podcastFit?: { tier: string } }[] }).items[0]?.podcastFit;
+    };
+    // Browsing an old copy does not analyze or backfill it.
+    expect(await list()).toBeUndefined();
+    expect(await bindings.DB.prepare('SELECT podcast_suitability FROM article_copies').first()).toEqual({ podcast_suitability: null });
+    await recoverAudioJobs(env);
+    expect(await list()).toMatchObject({ tier: 'poor' });
+    await bindings.DB.prepare('UPDATE article_copies SET revision=?,markdown=? WHERE article_id=?')
+      .bind('revision-two', 'A complete paragraph about the story. '.repeat(35), 'podcast1').run();
+    expect(await list()).toBeUndefined();
+    await recoverAudioJobs(env);
+    expect(await list()).toMatchObject({ tier: 'good' });
   });
 
   it('does not start synthesis while browsing status, settings, RSS, or media', async () => {

@@ -3,7 +3,7 @@ import { errorResponse } from '../contracts.js';
 import { parseObject, readJson, ValidationError } from '../articles/validation.js';
 import { exceptionResponse, jsonResponse, logUnexpectedError, PRIVATE_HEADERS } from '../http.js';
 import {
-  authConfigured, bindingCookie, clearBindingCookie, clearSessionCookie, cookie, digest,
+  authConfigured, bindOwnerGeneration, bindingCookie, clearBindingCookie, clearSessionCookie, cookie, currentOwnerGeneration, digest,
   getSession, isLoopbackRequest, isResponse, randomToken, requireSession, sessionCookie, validateCaptureToken,
 } from './core.js';
 
@@ -25,7 +25,7 @@ export async function handleAuth(request: Request, env: Env): Promise<Response |
       const session = await getSession(request, env);
       return respond(session ? { authenticated: true, csrfToken: session.csrfToken, audioEnabled: env.ARTICLE_AUDIO_ENABLED === 'true' } : { authenticated: false });
     }
-    if (url.pathname === '/auth/github' && method === 'GET') return await beginOAuth(env);
+    if (url.pathname === '/auth/github' && method === 'GET') return await beginOAuth(request, env);
     if (url.pathname === '/auth/github/callback' && method === 'GET') return await finishOAuth(request, env);
     if (url.pathname === '/auth/logout' && method === 'POST') {
       const session = await requireSession(request, env, true);
@@ -43,8 +43,10 @@ export async function handleAuth(request: Request, env: Env): Promise<Response |
       const body = parseObject(await readJson(request), ['label'], ['label']);
       if (typeof body.label !== 'string' || !body.label.trim() || body.label.trim().length > 100) throw new ValidationError('label must contain 1 to 100 characters');
       const id = crypto.randomUUID(); const token = `rlcap_${randomToken(32)}`; const createdAt = new Date().toISOString();
-      await env.DB.prepare('INSERT INTO capture_tokens (id, token_hash, label, created_at, revoked_at) VALUES (?, ?, ?, ?, NULL)')
-        .bind(id, await digest(token), body.label.trim(), createdAt).run();
+      const generation = await currentOwnerGeneration(env);
+      if (generation === null) return fail(503, 'auth_unavailable', 'Owner sign-in is not configured.');
+      await env.DB.prepare('INSERT INTO capture_tokens (id, token_hash, label, created_at, revoked_at, owner_generation) VALUES (?, ?, ?, ?, NULL, ?)')
+        .bind(id, await digest(token), body.label.trim(), createdAt, generation).run();
       return respond({ id, token, label: body.label.trim(), createdAt }, { status: 201 });
     }
     const revoke = /^\/api\/capture-tokens\/([^/]+)$/.exec(url.pathname);
@@ -60,19 +62,32 @@ export async function handleAuth(request: Request, env: Env): Promise<Response |
   }
 }
 
-async function beginOAuth(env: Env): Promise<Response> {
+async function beginOAuth(request: Request, env: Env): Promise<Response> {
   if (!authConfigured(env)) return fail(503, 'auth_unavailable', 'Owner sign-in is not configured.');
   try {
-    const state = randomToken(); const binding = randomToken();
-    const now = Date.now(); const expiry = new Date(now + 10 * 60_000).toISOString();
-    await env.DB.batch([
+    const now = Date.now();
+    const clientAddress = request.headers.get('CF-Connecting-IP') || 'unknown';
+    if (!env.OAUTH_CLIENT_RATE_LIMITER || !env.OAUTH_GLOBAL_RATE_LIMITER) return fail(503, 'auth_unavailable', 'Owner sign-in is not configured.');
+    const clientLimit = await env.OAUTH_CLIENT_RATE_LIMITER.limit({ key: await digest(clientAddress) });
+    if (!clientLimit.success || !(await env.OAUTH_GLOBAL_RATE_LIMITER.limit({ key: 'all' })).success) {
+      return fail(429, 'rate_limited', 'Too many sign-in attempts. Try again in a minute.');
+    }
+    const state = randomToken(); const binding = randomToken(); const verifier = randomToken(32);
+    const challengeBytes = await crypto.subtle.digest('SHA-256', new TextEncoder().encode(verifier));
+    const challenge = btoa(String.fromCharCode(...new Uint8Array(challengeBytes))).replaceAll('+', '-').replaceAll('/', '_').replace(/=+$/, '');
+    const expiry = new Date(now + 10 * 60_000).toISOString();
+    const results = await env.DB.batch([
       env.DB.prepare('DELETE FROM oauth_states WHERE rowid IN (SELECT rowid FROM oauth_states WHERE expires_at <= ? LIMIT 100)').bind(new Date(now).toISOString()),
-      env.DB.prepare('INSERT INTO oauth_states (state_hash, browser_binding_hash, expires_at) VALUES (?, ?, ?)').bind(await digest(state), await digest(binding), expiry),
+      env.DB.prepare(`INSERT INTO oauth_states (state_hash, browser_binding_hash, expires_at, pkce_verifier)
+        SELECT ?, ?, ?, ? WHERE (SELECT COUNT(*) FROM oauth_states WHERE expires_at > ?) < 200`)
+        .bind(await digest(state), await digest(binding), expiry, verifier, new Date(now).toISOString()),
     ]);
+    if (!(results[1]?.meta?.changes ?? 0)) return fail(429, 'rate_limited', 'Too many sign-in attempts are in progress. Try again shortly.');
     const authorize = new URL('https://github.com/login/oauth/authorize');
     authorize.searchParams.set('client_id', env.GITHUB_CLIENT_ID!);
     authorize.searchParams.set('redirect_uri', `${env.APP_ORIGIN!.replace(/\/$/, '')}/auth/github/callback`);
     authorize.searchParams.set('scope', 'read:user'); authorize.searchParams.set('state', state);
+    authorize.searchParams.set('code_challenge', challenge); authorize.searchParams.set('code_challenge_method', 'S256');
     return new Response(null, { status: 302, headers: { ...PRIVATE, Location: authorize.toString(), 'Set-Cookie': bindingCookie(binding, env, 600) } });
   } catch (error) {
     return exceptionResponse(error, 'auth.oauth_start', { status: 503, code: 'storage_unavailable', message: 'The service is temporarily unavailable. Please retry.' });
@@ -82,16 +97,17 @@ async function beginOAuth(env: Env): Promise<Response> {
 async function finishOAuth(request: Request, env: Env): Promise<Response> {
   if (!authConfigured(env)) return fail(503, 'auth_unavailable', 'Owner sign-in is not configured.');
   const url = new URL(request.url); const state = url.searchParams.get('state'); const code = url.searchParams.get('code');
-  const binding = cookie(request, BINDING_COOKIE);
+  const bindingCookieValue = cookie(request, BINDING_COOKIE);
+  const binding = bindingCookieValue || '';
   if (!state || !code || !binding || state.length > 200) return fail(403, 'oauth_state', 'Sign-in could not be verified. Start again.');
   try {
     const stateHash = await digest(state); const bindingHash = await digest(binding);
-    const deleted = await env.DB.prepare(`DELETE FROM oauth_states WHERE state_hash = ? AND browser_binding_hash = ? AND expires_at > ?`)
-      .bind(stateHash, bindingHash, new Date().toISOString()).run();
-    if (!(deleted.meta?.changes ?? 0)) return fail(403, 'oauth_state', 'Sign-in could not be verified. Start again.');
+    const consumed = await env.DB.prepare(`DELETE FROM oauth_states WHERE state_hash = ? AND browser_binding_hash = ? AND expires_at > ? RETURNING pkce_verifier`)
+      .bind(stateHash, bindingHash, new Date().toISOString()).first<{ pkce_verifier: string }>();
+    if (!consumed?.pkce_verifier) return fail(403, 'oauth_state', 'Sign-in could not be verified. Start again.');
     const tokenResponse = await fetch('https://github.com/login/oauth/access_token', {
       method: 'POST', headers: { Accept: 'application/json', 'Content-Type': 'application/json' },
-      body: JSON.stringify({ client_id: env.GITHUB_CLIENT_ID, client_secret: env.GITHUB_CLIENT_SECRET, code, redirect_uri: `${env.APP_ORIGIN!.replace(/\/$/, '')}/auth/github/callback` }),
+      body: JSON.stringify({ client_id: env.GITHUB_CLIENT_ID, client_secret: env.GITHUB_CLIENT_SECRET, code, code_verifier: consumed.pkce_verifier, redirect_uri: `${env.APP_ORIGIN!.replace(/\/$/, '')}/auth/github/callback` }),
       signal: AbortSignal.timeout(10_000),
     });
     if (!tokenResponse.ok) return oauthFailure(env);
@@ -102,8 +118,10 @@ async function finishOAuth(request: Request, env: Env): Promise<Response> {
     const user = await userResponse.json() as { id?: unknown };
     if (typeof user.id !== 'number' || !Number.isSafeInteger(user.id) || String(user.id) !== env.OWNER_GITHUB_ID) return oauthFailure(env);
     const rawSession = randomToken(); const csrf = randomToken(); const createdAt = new Date();
-    await env.DB.prepare('INSERT INTO sessions (token_hash, csrf_token, expires_at, created_at) VALUES (?, ?, ?, ?)')
-      .bind(await digest(rawSession), csrf, new Date(createdAt.getTime() + SESSION_SECONDS * 1000).toISOString(), createdAt.toISOString()).run();
+    const generation = await bindOwnerGeneration(env);
+    if (generation === null) return oauthFailure(env);
+    await env.DB.prepare('INSERT INTO sessions (token_hash, csrf_token, expires_at, created_at, owner_generation) VALUES (?, ?, ?, ?, ?)')
+      .bind(await digest(rawSession), csrf, new Date(createdAt.getTime() + SESSION_SECONDS * 1000).toISOString(), createdAt.toISOString(), generation).run();
     await env.DB.prepare('DELETE FROM sessions WHERE rowid IN (SELECT rowid FROM sessions WHERE expires_at <= ? LIMIT 100)')
       .bind(createdAt.toISOString()).run();
     const headers = new Headers({ ...PRIVATE, Location: `${env.APP_ORIGIN!.replace(/\/$/, '')}/add` });

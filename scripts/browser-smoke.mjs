@@ -16,6 +16,7 @@ import { enrichmentSmoke } from "./enrichment-smoke.mjs";
 import { readerTitleSmoke } from "./reader-title-smoke.mjs";
 import { readerPreviewSmoke } from "./reader-preview-smoke.mjs";
 import { themeContinuitySmoke } from "./theme-continuity-smoke.mjs";
+import { shareCaptureSmoke } from "./share-capture-smoke.mjs";
 
 const storage = await mkdtemp(path.join(os.tmpdir(), "read-later-smoke-"));
 const portServer = net.createServer();
@@ -119,6 +120,7 @@ try {
   await captureStatusSmoke(browser, base);
   await readerTitleSmoke(browser, base);
   await themeContinuitySmoke(browser, base);
+  await shareCaptureSmoke(browser, base, sourceBase);
   const context = await browser.newContext({
     viewport: { width: 1440, height: 1000 },
   });

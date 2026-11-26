@@ -15,6 +15,40 @@ export async function digest(value: string): Promise<string> {
   return [...new Uint8Array(hash)].map((b) => b.toString(16).padStart(2, '0')).join('');
 }
 
+/** Bind every stored capability to the currently configured library owner. */
+export async function currentOwnerGeneration(env: Env): Promise<number | null> {
+  const ownerId = env.OWNER_GITHUB_ID;
+  if (!ownerId || !/^\d+$/.test(ownerId)) return null;
+  const row = await env.DB.prepare('SELECT owner_github_id, generation FROM auth_owner_generation WHERE singleton = 1')
+    .first<{ owner_github_id: string | null; generation: number }>();
+  if (!row) return null;
+  // Credentials created before an owner is recorded remain invalid until the
+  // first successful login rotates them into the configured owner generation.
+  if (row.owner_github_id === null) {
+    if (env.DEV_AUTH_BYPASS === 'true' && isLoopbackOrigin(env.APP_ORIGIN)) return row.generation;
+    return null;
+  }
+  return row.owner_github_id === ownerId ? row.generation : null;
+}
+
+/** Called only after GitHub has confirmed the configured owner. */
+export async function bindOwnerGeneration(env: Env): Promise<number | null> {
+  const ownerId = env.OWNER_GITHUB_ID;
+  if (!ownerId || !/^\d+$/.test(ownerId)) return null;
+  const results = await env.DB.batch([
+    env.DB.prepare(`UPDATE auth_owner_generation SET owner_github_id = ?,
+      generation = generation + CASE WHEN owner_github_id = ? THEN 0 ELSE 1 END
+      WHERE singleton = 1`).bind(ownerId, ownerId),
+    env.DB.prepare(`UPDATE capture_tokens SET revoked_at = COALESCE(revoked_at, ?)
+      WHERE owner_generation <> (SELECT generation FROM auth_owner_generation WHERE singleton=1)
+      AND revoked_at IS NULL`).bind(new Date().toISOString()),
+    env.DB.prepare('SELECT generation FROM auth_owner_generation WHERE singleton = 1'),
+  ]);
+  const row = results[2]?.results?.[0] as { generation: number } | undefined;
+  if (!row) return null;
+  return row.generation;
+}
+
 export function cookie(request: Request, name: string): string | null {
   const raw = request.headers.get('Cookie') || '';
   for (const part of raw.split(';')) {
@@ -50,9 +84,11 @@ export async function getSession(request: Request, env: Env): Promise<Session | 
   if (!authConfigured(env)) return null;
   const raw = cookie(request, SESSION_COOKIE);
   if (!raw) return null;
+  const generation = await currentOwnerGeneration(env);
+  if (generation === null) return null;
   const tokenHash = await digest(raw);
-  const row = await env.DB.prepare('SELECT csrf_token, expires_at FROM sessions WHERE token_hash = ?')
-    .bind(tokenHash).first<{ csrf_token: string; expires_at: string }>();
+  const row = await env.DB.prepare('SELECT csrf_token, expires_at FROM sessions WHERE token_hash = ? AND owner_generation = ?')
+    .bind(tokenHash, generation).first<{ csrf_token: string; expires_at: string }>();
   if (!row) return null;
   if (row.expires_at <= new Date().toISOString()) {
     await env.DB.prepare('DELETE FROM sessions WHERE token_hash = ?').bind(tokenHash).run();
@@ -113,8 +149,10 @@ export async function validateCaptureToken(request: Request, env: Env): Promise<
   const match = /^Bearer ([A-Za-z0-9_-]{40,80})$/.exec(authorization);
   if (!match) return errorResponse(401, 'unauthorized', 'A valid capture token is required.');
   const tokenHash = await digest(match[1]);
-  const row = await env.DB.prepare('SELECT id FROM capture_tokens WHERE token_hash = ? AND revoked_at IS NULL')
-    .bind(tokenHash).first<{ id: string }>();
+  const generation = await currentOwnerGeneration(env);
+  if (generation === null) return errorResponse(401, 'unauthorized', 'A valid capture token is required.');
+  const row = await env.DB.prepare('SELECT id FROM capture_tokens WHERE token_hash = ? AND revoked_at IS NULL AND owner_generation = ?')
+    .bind(tokenHash, generation).first<{ id: string }>();
   if (!row) return errorResponse(401, 'unauthorized', 'A valid capture token is required.');
   const windowStart = Math.floor(Date.now() / 60_000);
   const result = await env.DB.prepare(`INSERT INTO capture_rate_buckets (token_id, window_start, count)
