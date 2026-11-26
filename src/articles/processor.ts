@@ -1,3 +1,4 @@
+import { refreshPodcastFit } from '../audio';
 import { isEnrichmentMessage, processEnrichmentMessage, publishEnrichment } from './enrichment';
 import { cleanupPdfAssets, getOriginalPdf } from "./pdf";
 import type { Env, ExtractionMessage } from '../contracts';
@@ -33,6 +34,7 @@ async function runExtractionJob(env: Env, job: ExtractionJob): Promise<void> {
     let completed: boolean;
     try { completed = await completeExtractionJob(env.DB, job, result, new Date().toISOString()); }
     catch { throw new SourceFetchError('storage_failed', true); }
+    if (completed) await refreshPodcastFit(env, job.articleId);
     extractionLog(completed ? 'extraction_job_completed' : 'extraction_job_completion_stale', {
       articleId: job.articleId, generation: job.generation, kind: job.kind, attempts: job.attempts,
       ...(completed ? { outputBytes: new TextEncoder().encode(result.markdown).byteLength } : {}),
@@ -120,18 +122,19 @@ export async function recoverExtractionJobs(env: Env, now = new Date().toISOStri
   if (isBackgroundCapturePaused(env) || !env.EXTRACTION_QUEUE) return;
   let recovered = 0, published = 0;
   try {
-    for (;;) {
+    for (let batch = 0; batch < 3; batch++) {
       const result = await reconcileExtractionJobs(env.DB, now);
       recovered += result.recovered;
       if (result.recovered < 50) break;
     }
-    let after = '';
-    for (;;) {
-      const page = await pendingExtractionPage(env.DB, after);
+    for (let batch = 0; batch < 3; batch++) {
+      const page = await pendingExtractionPage(env.DB, now);
       if (!page.length) break;
       await env.EXTRACTION_QUEUE.sendBatch(page.map(extractionNotification));
       published += page.length;
-      after = page[page.length - 1].articleId;
+      await env.DB.batch(page.map(job => env.DB.prepare(
+        'UPDATE article_extraction_jobs SET recovery_published_at=? WHERE article_id=? AND generation=?'
+      ).bind(now, job.articleId, job.generation)));
     }
     extractionLog('extraction_recovery_completed', { recovered, published });
   } catch {

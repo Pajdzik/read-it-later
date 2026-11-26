@@ -6,13 +6,17 @@ import { deliverPendingExtractions, extractionQueueStub } from './extraction-que
 import { handleArticles } from '../src/articles/handler';
 import { handleAuth } from '../src/auth/handler';
 import { normalizeArticleUrl, readJson, BodyTooLargeError } from '../src/articles/validation';
-import { digest } from '../src/auth/core';
+import { bindOwnerGeneration, digest, getSession, validateCaptureToken } from '../src/auth/core';
+import { podcastToken } from '../src/audio/feed';
 
 const env = { EXTRACTION_QUEUE: extractionQueueStub().binding, DB: testEnv.DB, ASSETS: testEnv.ASSETS, APP_ORIGIN: 'http://localhost:8787', DEV_AUTH_BYPASS: 'true' } as Env;
 const origin = 'http://localhost:8787';
+let clientStarts = 0;
 const ownerEnv = {
   DB: testEnv.DB, ASSETS: testEnv.ASSETS, APP_ORIGIN: 'https://service.example', GITHUB_CLIENT_ID: 'client',
   GITHUB_CLIENT_SECRET: 'secret', OWNER_GITHUB_ID: '123456',
+  OAUTH_CLIENT_RATE_LIMITER: { async limit() { clientStarts++; return { success: clientStarts <= 5 }; } } as RateLimit,
+  OAUTH_GLOBAL_RATE_LIMITER: { async limit() { return { success: true }; } } as RateLimit,
 } as Env;
 function request(path: string, method = 'GET', body?: unknown, headers: Record<string, string> = {}): Request {
   return new Request(`${origin}${path}`, { method, headers: {
@@ -28,6 +32,8 @@ beforeEach(async () => {
   await env.DB.prepare('DELETE FROM articles').run();
   await env.DB.prepare('DELETE FROM sessions').run();
   await env.DB.prepare('DELETE FROM oauth_states').run();
+  await env.DB.prepare("UPDATE auth_owner_generation SET owner_github_id='123456',generation=1 WHERE singleton=1").run();
+  clientStarts = 0;
   await env.DB.prepare('DELETE FROM capture_rate_buckets').run();
   await env.DB.prepare('DELETE FROM capture_tokens').run();
 });
@@ -443,7 +449,7 @@ describe('article HTTP handlers', () => {
   });
 
   it('binds OAuth to its initiating browser, accepts only the configured numeric owner, and consumes state once', async () => {
-    const providerFetch = vi.fn(async (input: RequestInfo | URL) => {
+    const providerFetch = vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
       const url = String(input);
       if (url.includes('/login/oauth/access_token')) return Response.json({ access_token: 'provider-access' });
       return Response.json({ id: 123456 });
@@ -453,6 +459,11 @@ describe('article HTTP handlers', () => {
       const start = await handleAuth(new Request('https://service.example/auth/github'), ownerEnv);
       expect(start?.status).toBe(302);
       const authorization = new URL(start!.headers.get('Location')!);
+      expect(authorization.searchParams.get('code_challenge_method')).toBe('S256');
+      const verifier = (await env.DB.prepare('SELECT pkce_verifier FROM oauth_states WHERE state_hash=?').bind(await digest(authorization.searchParams.get('state')!)).first<{ pkce_verifier: string }>())!.pkce_verifier;
+      const challenge = btoa(String.fromCharCode(...new Uint8Array(await crypto.subtle.digest('SHA-256', new TextEncoder().encode(verifier)))))
+        .replaceAll('+', '-').replaceAll('/', '_').replace(/=+$/, '');
+      expect(authorization.searchParams.get('code_challenge')).toBe(challenge);
       const state = authorization.searchParams.get('state')!;
       const binding = start!.headers.get('Set-Cookie')!.split(';', 1)[0];
       const callback = () => new Request(`https://service.example/auth/github/callback?state=${state}&code=one-time`, { headers: { Cookie: binding } });
@@ -463,6 +474,8 @@ describe('article HTTP handlers', () => {
       const replay = await handleAuth(callback(), ownerEnv);
       expect(replay?.status).toBe(403);
       expect(providerFetch).toHaveBeenCalledTimes(2);
+      const exchangeBody = providerFetch.mock.calls.find(([input]) => String(input).includes('/login/oauth/access_token'))?.[1]?.body;
+      expect(JSON.parse(String(exchangeBody))).toMatchObject({ code_verifier: verifier });
       const cookies = success!.headers.get('Set-Cookie')!;
       expect(cookies).toContain('read_later_session=');
       const next = await handleAuth(new Request('https://service.example/auth/github'), ownerEnv);
@@ -475,6 +488,64 @@ describe('article HTTP handlers', () => {
       }), ownerEnv);
       expect(expired?.status).toBe(403);
     } finally { vi.unstubAllGlobals(); }
+  });
+
+  it('leaves D1 untouched when the sign-in admission limits reject a request', async () => {
+    const start = () => new Request('https://service.example/auth/github', {
+      headers: { 'CF-Connecting-IP': '192.0.2.44' },
+    });
+    const starts = await Promise.all(Array.from({ length: 5 }, () => handleAuth(start(), ownerEnv)));
+    expect(starts.map(response => response?.status)).toEqual([302, 302, 302, 302, 302]);
+    const untouched = new Proxy(env.DB, { get() { throw new Error('Admission must precede D1'); } });
+    const shared = vi.fn(async () => ({ success: true }));
+    expect((await handleAuth(start(), { ...ownerEnv, DB: untouched, OAUTH_GLOBAL_RATE_LIMITER: { limit: shared } }))?.status).toBe(429);
+    expect(shared).not.toHaveBeenCalled();
+    expect((await env.DB.prepare('SELECT COUNT(*) AS count FROM oauth_states').first<{ count: number }>())?.count).toBe(5);
+    expect((await handleAuth(start(), {
+      ...ownerEnv, DB: untouched,
+      OAUTH_CLIENT_RATE_LIMITER: { async limit() { return { success: true }; } },
+      OAUTH_GLOBAL_RATE_LIMITER: { async limit() { return { success: false }; } },
+    }))?.status).toBe(429);
+  });
+
+  it('allocates at most 200 live OAuth states across admitted requests', async () => {
+    await env.DB.prepare(`WITH RECURSIVE seed(n) AS (VALUES (1) UNION ALL SELECT n+1 FROM seed WHERE n<199)
+      INSERT INTO oauth_states(state_hash,browser_binding_hash,expires_at,pkce_verifier)
+      SELECT 'fixture-' || n, 'test-binding', '2099-01-01T00:00:00.000Z', 'test-verifier' FROM seed`).run();
+    const starts = await Promise.all(Array.from({ length: 2 }, () => handleAuth(
+      new Request('https://service.example/auth/github'), ownerEnv,
+    )));
+    expect(starts.map(response => response?.status).sort()).toEqual([302, 429]);
+    expect(await env.DB.prepare('SELECT count(*) AS count FROM oauth_states').first()).toEqual({ count: 200 });
+  });
+
+  it('invalidates all previously working credentials when the owner changes', async () => {
+    const oldSession = 'owner-handover-session';
+    const oldCapture = 'rlcap_' + 'A'.repeat(43);
+    const oldPodcast = 'pod_' + 'A'.repeat(43);
+    await bindOwnerGeneration(ownerEnv);
+    await env.DB.prepare('INSERT INTO sessions(token_hash,csrf_token,expires_at,created_at) VALUES(?,?,?,?)')
+      .bind(await digest(oldSession), 'csrf', '2099-01-01T00:00:00.000Z', new Date().toISOString()).run();
+    await env.DB.prepare('INSERT INTO capture_tokens(id,token_hash,label,created_at) VALUES(?,?,?,?)')
+      .bind('handover', await digest(oldCapture), 'fixture', new Date().toISOString()).run();
+    await env.DB.prepare('INSERT INTO podcast_token(singleton,token_hash,created_at) VALUES(1,?,?)')
+      .bind(await digest(oldPodcast), new Date().toISOString()).run();
+    const sessionRequest = new Request('https://service.example/', { headers: { Cookie: `read_later_session=${oldSession}` } });
+    const captureRequest = new Request('https://service.example/api/capture', { headers: { Authorization: `Bearer ${oldCapture}` } });
+    const podcastRequest = new Request(`https://service.example/api/podcast/feed.xml?token=${oldPodcast}`);
+    expect(await getSession(sessionRequest, ownerEnv)).toMatchObject({ csrfToken: 'csrf' });
+    expect(await validateCaptureToken(captureRequest, ownerEnv)).toEqual({ id: 'handover' });
+    expect(await podcastToken(podcastRequest, ownerEnv)).toBe(oldPodcast);
+    const newOwner = { ...ownerEnv, OWNER_GITHUB_ID: '654321' };
+    for (const afterLogin of [false, true]) {
+      if (afterLogin) await bindOwnerGeneration(newOwner);
+      expect(await getSession(sessionRequest, newOwner)).toBeNull();
+      const denied = await validateCaptureToken(captureRequest, newOwner);
+      expect(denied).toBeInstanceOf(Response);
+      expect((denied as Response).status).toBe(401);
+      expect(await podcastToken(podcastRequest, newOwner)).toBeNull();
+    }
+    expect(await env.DB.prepare('SELECT revoked_at FROM capture_tokens WHERE id=?').bind('handover').first()).toMatchObject({ revoked_at: expect.any(String) });
   });
 
   it('rejects a different GitHub numeric owner and provider failures', async () => {

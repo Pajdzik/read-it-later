@@ -138,11 +138,13 @@ export async function getExtractionDelivery(db: D1Database, id: string): Promise
   return db.prepare(`${DELIVERY_SELECT} AND j.article_id=?`).bind(id).first<ExtractionDelivery>();
 }
 
-/** Keyset pagination prevents repeated notifications of the first pending page. */
-export async function pendingExtractionPage(db: D1Database, after = ''): Promise<ExtractionDelivery[]> {
+/** Prefer owner jobs, then the jobs that have been waiting longest for a recovery publication. */
+export async function pendingExtractionPage(db: D1Database, recoveryAt: string): Promise<ExtractionDelivery[]> {
   const result = await db.prepare(`${DELIVERY_SELECT}
-    AND j.state IN ('queued','retry_wait') AND j.article_id>? ORDER BY j.article_id LIMIT 50`)
-    .bind(after).all<ExtractionDelivery>();
+    AND j.state IN ('queued','retry_wait')
+    AND (j.recovery_published_at IS NULL OR j.recovery_published_at<?)
+    ORDER BY (j.capture_token_id IS NOT NULL),j.recovery_published_at,j.article_id LIMIT 50`)
+    .bind(recoveryAt).all<ExtractionDelivery>();
   return result.results;
 }
 
@@ -281,7 +283,7 @@ export async function retryExtractionJob(
   const reset = await db.prepare(`UPDATE article_extraction_jobs SET generation = generation + 1,
       state = 'queued', attempts = 0, next_attempt_at = ?, lease_token = NULL,
       lease_expires_at = NULL, error_code = NULL, finished_at = NULL, updated_at = ?,
-      kind='initial',expected_revision=NULL,refresh_metadata=0,baseline_metadata=NULL
+      kind='initial',expected_revision=NULL,refresh_metadata=0,baseline_metadata=NULL,capture_token_id=NULL,recovery_published_at=NULL
     WHERE article_id = ? AND state IN ('failed','succeeded') AND updated_at = ?
       AND NOT EXISTS (SELECT 1 FROM article_copies WHERE article_id = ?)`)
     .bind(now, now, id, row.updated_at, id).run();

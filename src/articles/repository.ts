@@ -14,6 +14,7 @@ export interface SaveArticleInput {
   description?: string;
   copy?: ArticleCopy;
   extractionRequested?: boolean;
+  captureTokenId?: string;
   enrichmentRequested?: boolean;
   enrichAfterCopy?: boolean;
   titleOrigin: "fallback" | "supplied";
@@ -184,19 +185,31 @@ function escapeLike(value: string): string {
   return value.replace(/[\\%_]/g, "\\$&");
 }
 
+export class CaptureExtractionQuotaError extends Error {}
+
+const CAPTURE_TOKEN_JOB_LIMIT = 10;
+const CAPTURE_ALL_TOKENS_JOB_LIMIT = 40;
+const outstandingCapture = "capture_token_id IS NOT NULL AND state IN ('queued','running','retry_wait')";
+
 export async function saveArticle(
   db: D1Database,
   input: SaveArticleInput,
-): Promise<{ article: Article; duplicate: boolean; metadataUpdated: boolean }> {
+): Promise<{ article: Article; duplicate: boolean; metadataUpdated: boolean; extractionQueued: boolean }> {
   const now = new Date().toISOString();
   const insertTitle = input.title.trim();
   const readingTimeMinutes = input.copy ? estimateReadingTimeMinutes(input.copy.markdown) : null;
+  const tokenExtraction = input.extractionRequested && input.captureTokenId;
+  const quota = tokenExtraction ? `EXISTS (SELECT 1 FROM capture_tokens WHERE id=? AND revoked_at IS NULL)
+    AND (SELECT count(*) FROM article_extraction_jobs WHERE ${outstandingCapture} AND capture_token_id=?) < ?
+    AND (SELECT count(*) FROM article_extraction_jobs WHERE ${outstandingCapture}) < ?` : '1';
+  const quotaValues = tokenExtraction
+    ? [tokenExtraction, tokenExtraction, CAPTURE_TOKEN_JOB_LIMIT, CAPTURE_ALL_TOKENS_JOB_LIMIT] : [];
   for (let attempt = 0; attempt < 5; attempt++) {
     const id = newArticleId();
     const insert = db.prepare(
       `INSERT INTO articles (id,url,normalized_url,title,author,description,created_at,updated_at,read_at,title_origin,enrichment_requested_at,description_origin,enrichment_wait_for_copy)
-       VALUES (?,?,?,?,?,?,?,?,NULL,?,?,?,?) ON CONFLICT(normalized_url) DO NOTHING ON CONFLICT(id) DO NOTHING`,
-    ).bind(id, input.url, input.normalizedUrl, insertTitle, input.author ?? null, input.description ?? null, now, now, input.titleOrigin, input.enrichmentRequested ? now : null, input.description ? "manual" : null, input.enrichAfterCopy ? 1 : 0);
+       SELECT ?,?,?,?,?,?,?,?,NULL,?,?,?,? WHERE ${quota} ON CONFLICT(normalized_url) DO NOTHING ON CONFLICT(id) DO NOTHING`,
+    ).bind(id, input.url, input.normalizedUrl, insertTitle, input.author ?? null, input.description ?? null, now, now, input.titleOrigin, input.enrichmentRequested ? now : null, input.description ? "manual" : null, input.enrichAfterCopy ? 1 : 0, ...quotaValues);
     const updateDuplicate = db.prepare(`UPDATE articles SET
         author = COALESCE(author, ?),
         description = CASE WHEN description_origin IS NOT 'manual' THEN COALESCE(description, ?) ELSE description END,
@@ -207,6 +220,8 @@ export async function saveArticle(
       .bind(input.author ?? null, input.description ?? null, input.description ?? null, now, input.normalizedUrl,
         input.author ?? null, input.description ?? null);
     const statements = [insert, updateDuplicate];
+    // D1 executes the guard and job creation in the same write transaction.
+    if (tokenExtraction) statements.unshift(db.prepare(`SELECT (${quota}) AS allowed`).bind(...quotaValues));
     if (input.copy) {
       const { markdown, capturedAt, source, revision } = input.copy;
       // Resolve by URL in the same transaction and keep any copy already saved.
@@ -216,29 +231,33 @@ export async function saveArticle(
         .bind(markdown, capturedAt, source, revision, readingTimeMinutes, input.normalizedUrl));
       statements.push(satisfyExtractionJobs(db, 'normalized_url', input.normalizedUrl, input.copy));
     }
+    const extractionIndex = statements.length;
     if (input.extractionRequested) {
       // Resolve by URL inside the transaction: an ID collision must never queue
       // work for the unrelated article occupying the generated ID.
       statements.push(db.prepare(`INSERT INTO article_extraction_jobs
-          (article_id,generation,state,attempts,next_attempt_at,created_at,updated_at)
-        SELECT a.id,1,'queued',0,?,?,? FROM articles a
-        WHERE a.normalized_url = ?
+          (article_id,generation,state,attempts,next_attempt_at,created_at,updated_at,capture_token_id)
+        SELECT a.id,1,'queued',0,?,?,?,? FROM articles a
+        WHERE a.normalized_url = ? AND ${quota}
           AND NOT EXISTS (SELECT 1 FROM article_copies c WHERE c.article_id = a.id)
           AND NOT EXISTS (SELECT 1 FROM article_extraction_jobs j WHERE j.article_id = a.id)
         ON CONFLICT(article_id) DO NOTHING`)
-        .bind(now, now, now, input.normalizedUrl));
+        .bind(now, now, now, input.captureTokenId ?? null, input.normalizedUrl, ...quotaValues));
     }
     if (input.enrichmentRequested) statements.push(db.prepare(`INSERT INTO article_enrichment_jobs(article_id,next_attempt_at,created_at,updated_at)
       SELECT id,?,?,? FROM articles WHERE id=? AND normalized_url=? AND enrichment_requested_at=? ON CONFLICT DO NOTHING`)
       .bind(now, now, now, id, input.normalizedUrl, now));
-    const [result, metadataResult] = await db.batch(statements);
+    const results = await db.batch<{ allowed: number }>(statements);
+    if (tokenExtraction && !results[0].results[0]?.allowed) throw new CaptureExtractionQuotaError();
+    const [result, metadataResult] = tokenExtraction ? results.slice(1) : results;
+    const extractionQueued = input.extractionRequested === true && (results[extractionIndex].meta.changes ?? 0) > 0;
     const existing = await db.prepare(`SELECT id,url,title,author,description,description_origin,tags_manual,created_at,updated_at,read_at,rating,favorite,title_origin,${readingTimeColumn}
       FROM articles WHERE normalized_url = ?`)
       .bind(input.normalizedUrl).first<Record<string, unknown>>();
     if (!existing) continue; // The ID was occupied; retry only that conflict.
     const [current] = await hydrateTags(db, [mapArticle(existing)!]);
-    if (result.meta.changes) return { article: current, duplicate: false, metadataUpdated: false };
-    return { article: current, duplicate: true, metadataUpdated: (metadataResult.meta.changes ?? 0) > 0 };
+    if (result.meta.changes) return { article: current, duplicate: false, metadataUpdated: false, extractionQueued };
+    return { article: current, duplicate: true, metadataUpdated: (metadataResult.meta.changes ?? 0) > 0, extractionQueued };
   }
   throw new Error("Could not allocate an article ID. Please retry.");
 }

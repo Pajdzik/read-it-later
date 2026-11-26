@@ -6,9 +6,10 @@ import {
   type PodcastSuitability
 } from './contracts';
 import MarkdownIt from 'markdown-it';
+import { MAX_MARKDOWN_BYTES } from '../articles/capture-protocol';
 
 const VOICE = 'en-US-Chirp3-HD-Charon';
-const NORMALIZER_VERSION = 1;
+const NORMALIZER_VERSION = 2;
 const MAX_CHUNK_BYTES = 4500;
 const AUDIO_MAX_BYTES = 16 * 1024 * 1024;
 const LEASE_MS = 5 * 60_000;
@@ -55,12 +56,47 @@ async function notify(env: AudioEnv, message: AudioMessage): Promise<void> {
 
 type MarkdownAudioAnalysis = { narration: string; suitability: PodcastSuitability };
 
+const nonNarratedHtml = new Set(['script', 'style', 'iframe', 'object', 'svg', 'noscript']);
+
+// Track candidate delimiters in one pass so unfinished tags never cause rescans.
+function stripHtml(markdown: string): string {
+  const parts: string[] = [];
+  let start = 0;
+  let opening = -1;
+  let quote: '"' | "'" | undefined;
+  let hidden: string | undefined;
+  for (let index = 0; index < markdown.length; index++) {
+    const character = markdown[index];
+    if (quote) {
+      if (character === quote) quote = undefined;
+      continue;
+    }
+    if (character === '<') opening = index;
+    if (opening < 0) continue;
+    if ((character === '"' || character === "'") && markdown[index - 1] === '=') quote = character;
+    if (character !== '>') continue;
+    const tag = /^<(\/)?([a-z]+)(?=[\s/>])/i.exec(markdown.slice(opening, Math.min(index + 1, opening + 16)));
+    const name = tag?.[2].toLowerCase();
+    if (!hidden) {
+      parts.push(markdown.slice(start, opening));
+      if (!tag?.[1] && name && nonNarratedHtml.has(name) && markdown[index - 1] !== '/') {
+        hidden = name;
+      }
+    } else if (tag?.[1] && name === hidden) {
+      hidden = undefined;
+    }
+    start = index + 1;
+    opening = -1;
+  }
+  if (!hidden) parts.push(markdown.slice(start));
+  return parts.join('');
+}
+
 function analyzeMarkdown(markdown: string, title?: string, author?: string | null): MarkdownAudioAnalysis {
-  // MarkdownIt's token stream preserves readable inline text and table cells while
-  // dropping raw HTML (including script/style bodies) and link destinations.
-  const safeMarkdown = markdown
-    .replace(/<(script|style|iframe|object|svg|noscript)\b[^>]*>[\s\S]*?<\/\1\s*>/gi, '')
-    .replace(/<[^>]*>/g, '');
+  // Persisted copies are size-checked when saved. Also bound older rows.
+  const bounded = markdown.length * 3 <= MAX_MARKDOWN_BYTES ? markdown
+    : markdown.slice(0, encoder.encodeInto(markdown, new Uint8Array(MAX_MARKDOWN_BYTES)).read);
+  const safeMarkdown = stripHtml(bounded);
   const tokens = new MarkdownIt({ html: false, linkify: false, typographer: false }).parse(
     safeMarkdown.replace(/\r\n?/g, '\n'),
     {}
@@ -180,24 +216,55 @@ export async function getPodcastFitStatuses(
 ): Promise<Map<string, PodcastSuitability>> {
   if (!articleIds.length) return new Map();
   const placeholders = articleIds.map(() => '?').join(',');
-  const rows = await db
-    .prepare(
-      `SELECT c.article_id,c.markdown,a.title,a.author
-    FROM article_copies c JOIN articles a ON a.id=c.article_id
-    WHERE c.article_id IN (${placeholders})`
-    )
-    .bind(...articleIds)
-    .all<Record<string, unknown>>();
-  const result = new Map<string, PodcastSuitability>();
-  for (const row of rows.results ?? []) {
-    const analysis = analyzeMarkdown(
-      String(row.markdown),
-      String(row.title),
-      row.author == null ? null : String(row.author)
-    );
-    result.set(String(row.article_id), analysis.suitability);
+  const rows = await db.prepare(
+    `SELECT article_id,podcast_suitability FROM article_copies
+     WHERE article_id IN (${placeholders}) AND podcast_suitability IS NOT NULL`
+  ).bind(...articleIds).all<{ article_id: string; podcast_suitability: string }>();
+  return new Map(rows.results.map(row => [
+    row.article_id, JSON.parse(row.podcast_suitability) as PodcastSuitability
+  ]));
+}
+
+interface PodcastFitInput {
+  article_id: string;
+  revision: string;
+  title: string;
+  markdown: string;
+}
+
+function storePodcastFit(db: D1Database, copy: PodcastFitInput, fit: PodcastSuitability) {
+  return db.prepare(
+    `UPDATE article_copies SET podcast_suitability=?
+     WHERE article_id=? AND revision=? AND podcast_suitability IS NULL
+       AND EXISTS (SELECT 1 FROM articles WHERE id=? AND title=?)`
+  ).bind(JSON.stringify(fit), copy.article_id, copy.revision, copy.article_id, copy.title);
+}
+
+export async function refreshPodcastFit(env: AudioEnv, articleId: string): Promise<void> {
+  if (!enabled(env)) return;
+  try {
+    const copy = await env.DB.prepare(
+      `SELECT c.article_id,c.revision,c.markdown,a.title
+       FROM article_copies c JOIN articles a ON a.id=c.article_id
+       WHERE c.article_id=? AND c.podcast_suitability IS NULL`
+    ).bind(articleId).first<PodcastFitInput>();
+    if (copy) await storePodcastFit(env.DB, copy, analyzeMarkdown(copy.markdown, copy.title).suitability).run();
+  } catch {
+    // Periodic maintenance fills a missing summary if this refresh fails.
   }
-  return result;
+}
+
+async function backfillPodcastFit(db: D1Database): Promise<void> {
+  const pending = await db.prepare(
+    `SELECT c.article_id,c.revision,c.markdown,a.title
+     FROM article_copies c JOIN articles a ON a.id=c.article_id
+     WHERE c.podcast_suitability IS NULL ORDER BY c.article_id LIMIT 20`
+  ).all<PodcastFitInput>();
+  if (pending.results.length) {
+    await db.batch(pending.results.map(copy =>
+      storePodcastFit(db, copy, analyzeMarkdown(copy.markdown, copy.title).suitability)
+    ));
+  }
 }
 
 export function chunkNarration(text: string, maxBytes = MAX_CHUNK_BYTES): string[] {
@@ -283,18 +350,17 @@ function status(
 
 export async function getAudioStatus(env: AudioEnv, articleId: string): Promise<AudioStatus> {
   const copy = await env.DB.prepare(
-    `SELECT c.revision,c.markdown,a.title,a.author FROM article_copies c JOIN articles a ON a.id=c.article_id WHERE c.article_id=?`
+    `SELECT c.article_id,c.revision,c.markdown,c.podcast_suitability,a.title,a.author FROM article_copies c JOIN articles a ON a.id=c.article_id WHERE c.article_id=?`
   )
     .bind(articleId)
-    .first<Record<string, unknown>>();
-  const analysis = copy
-    ? analyzeMarkdown(
-        String(copy.markdown),
-        String(copy.title),
-        copy.author == null ? null : String(copy.author)
-      )
-    : null;
+    .first<PodcastFitInput & { author: string | null; podcast_suitability: string | null }>();
+  const analysis = copy ? analyzeMarkdown(copy.markdown, copy.title, copy.author) : null;
   const suitability = analysis?.suitability ?? null;
+  if (enabled(env) && copy && suitability && copy.podcast_suitability === null) {
+    await storePodcastFit(env.DB, copy, suitability).run().catch(() => {
+      // The estimate can still be returned; maintenance can store it later.
+    });
+  }
   const row = await env.DB.prepare(
     `SELECT e.*, (SELECT SUM(request_characters) FROM audio_chunks c WHERE c.episode_id=e.id) AS characters FROM audio_episodes e WHERE e.article_id=? AND e.state!='deleted'`
   )
@@ -462,37 +528,37 @@ export async function prepareAudio(
 
 export async function removeAudio(env: AudioEnv, articleId: string): Promise<void> {
   const now = nowIso();
-  const rows = await env.DB.prepare(
-    `SELECT id,object_key FROM audio_episodes WHERE article_id=? AND state!='deleted'`
-  )
-    .bind(articleId)
-    .all<Record<string, unknown>>();
   await env.DB.prepare(
     `UPDATE audio_episodes SET state='deleted',generation=generation+1,lease_token=NULL,lease_expires_at=NULL,cleanup_at=? WHERE article_id=? AND state!='deleted'`
   )
     .bind(now, articleId)
     .run();
-  for (const row of rows.results ?? []) {
-    if (env.AUDIO_BUCKET && row.object_key) {
-      try {
-        await env.AUDIO_BUCKET.delete(String(row.object_key));
-      } catch {
-        /* durable cleanup retries */
+  await purgeDeletedEpisodes(env, now, articleId);
+}
+
+async function purgeDeletedEpisodes(env: AudioEnv, now: string, articleId?: string): Promise<void> {
+  const episodes = await env.DB.prepare(
+    `SELECT id,object_key FROM audio_episodes
+     WHERE state='deleted' AND (cleanup_at IS NULL OR cleanup_at<=?)
+       ${articleId === undefined ? '' : 'AND article_id=?'}
+     ORDER BY cleanup_at, id LIMIT 25`
+  ).bind(now, ...(articleId === undefined ? [] : [articleId])).all<{ id: string; object_key: string | null }>();
+  for (const episode of episodes.results) {
+    try {
+      const chunks = await env.DB.prepare(
+        'SELECT object_key FROM audio_chunks WHERE episode_id=? AND object_key IS NOT NULL'
+      ).bind(episode.id).all<{ object_key: string }>();
+      const keys = chunks.results.map(chunk => chunk.object_key);
+      if (episode.object_key) keys.push(episode.object_key);
+      if (keys.length) {
+        if (!env.AUDIO_BUCKET) continue;
+        await env.AUDIO_BUCKET.delete(keys);
       }
+      await env.DB.prepare("DELETE FROM audio_episodes WHERE id=? AND state='deleted'")
+        .bind(episode.id).run();
+    } catch {
+      /* Retain the episode and its object keys for recovery. */
     }
-    const chunks = await env.DB.prepare(
-      'SELECT object_key FROM audio_chunks WHERE episode_id=? AND object_key IS NOT NULL'
-    )
-      .bind(String(row.id))
-      .all<Record<string, unknown>>();
-    for (const chunk of chunks.results ?? [])
-      if (env.AUDIO_BUCKET) {
-        try {
-          await env.AUDIO_BUCKET.delete(String(chunk.object_key));
-        } catch {
-          /* durable cleanup retries */
-        }
-      }
   }
 }
 
@@ -1176,27 +1242,6 @@ export async function recoverAudioJobs(env: AudioEnv): Promise<void> {
         /* retain for the next pass */
       }
     }
-    const expired = await env.DB.prepare(
-      `SELECT id,object_key FROM audio_episodes WHERE state='deleted' AND cleanup_at IS NOT NULL AND cleanup_at<=? LIMIT 25`
-    )
-      .bind(now)
-      .all<Record<string, unknown>>();
-    for (const episode of expired.results ?? []) {
-      const chunks = await env.DB.prepare(
-        `SELECT object_key FROM audio_chunks WHERE episode_id=? AND object_key IS NOT NULL`
-      )
-        .bind(String(episode.id))
-        .all<Record<string, unknown>>();
-      try {
-        if (episode.object_key) await env.AUDIO_BUCKET.delete(String(episode.object_key));
-        for (const chunk of chunks.results ?? []) await env.AUDIO_BUCKET.delete(String(chunk.object_key));
-        await env.DB.prepare(`UPDATE audio_episodes SET cleanup_at=NULL WHERE id=? AND state='deleted'`)
-          .bind(String(episode.id))
-          .run();
-      } catch {
-        /* retry on a later recovery pass */
-      }
-    }
     const ready = await env.DB.prepare(
       `SELECT c.episode_id, c.chunk_index, c.object_key
        FROM audio_chunks c
@@ -1218,7 +1263,10 @@ export async function recoverAudioJobs(env: AudioEnv): Promise<void> {
       }
     }
   }
-  if (!enabled(env) || !env.AUDIO_QUEUE) return;
+  await purgeDeletedEpisodes(env, now);
+  if (!enabled(env)) return;
+  await backfillPodcastFit(env.DB);
+  if (!env.AUDIO_QUEUE) return;
   const rows = await env.DB.prepare(
     `SELECT c.episode_id, c.chunk_index, c.generation
      FROM audio_chunks c

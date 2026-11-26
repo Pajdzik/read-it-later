@@ -5,7 +5,7 @@ import type { Article, ArticleCopy, Env } from '../contracts.js';
 import type { ArticlePreview } from './preview-contract.js';
 import { errorResponse } from '../contracts.js';
 import { exceptionResponse, jsonResponse, logUnexpectedError, PRIVATE_HEADERS } from '../http.js';
-import { deleteArticle, getArticle, getArticleCopy, listArticles, listArticlesForExport, saveArticle, saveArticleCopy, suggestArticle, updateArticle } from './repository.js';
+import { CaptureExtractionQuotaError, deleteArticle, getArticle, getArticleCopy, listArticles, listArticlesForExport, saveArticle, saveArticleCopy, suggestArticle, updateArticle } from './repository.js';
 import {
   BodyTooLargeError, defaultTitle, MAX_TITLE_LENGTH,
   normalizeArticleUrl, parseObject, readJson, ValidationError, validateTitle,
@@ -21,7 +21,7 @@ import { IntegrationError } from '../integrations/types';
 import { enrichmentEnabled, enrichmentStatuses, scheduleEnrichment } from "./enrichment";
 import { listTags, normalizeTags } from "./tags";
 import { requestRecapture, undoRecapture } from './recovery.js';
-import { getPodcastFitStatuses } from '../audio';
+import { getPodcastFitStatuses, refreshPodcastFit } from '../audio';
 
 const PRIVATE = PRIVATE_HEADERS;
 const MAX_COPY_ENVELOPE_BYTES = 2 * 1024 * 1024;
@@ -61,7 +61,7 @@ export async function handleArticles(request: Request, env: Env, ctx?: Execution
       }
       return fail(405, 'method_not_allowed', 'This integration action is not supported.');
     }
-    if (url.pathname === '/api/articles' && method === 'POST') return await createArticle(request, env, false, ctx);
+    if (url.pathname === '/api/articles' && method === 'POST') return await createArticle(request, env, undefined, ctx);
     if (url.pathname === '/api/articles' && method === 'GET') return await listRoute(url, env);
     if (url.pathname === '/api/articles/preview' && method === 'POST') return await previewArticle(request, env);
     if (url.pathname === '/api/articles/suggestion' && method === 'GET') {
@@ -204,10 +204,14 @@ async function putArticleCopy(request: Request, env: Env, id: string, ctx?: Exec
   if (result === 'missing') return fail(404, 'not_found', 'Article not found.');
   if (result === 'conflict') return fail(409, 'revision_conflict', 'This copy changed since you opened it. Reload it before replacing.');
   await scheduleEnrichment(env, id, ctx);
+  const fit = refreshPodcastFit(env, id);
+  if (ctx) ctx.waitUntil(fit);
+  else await fit;
   return jsonResponse({ copy: result });
 }
 
-async function createArticle(request: Request, env: Env, tokenCapture = false, ctx?: ExecutionContext): Promise<Response> {
+async function createArticle(request: Request, env: Env, captureTokenId?: string, ctx?: ExecutionContext): Promise<Response> {
+  const tokenCapture = captureTokenId !== undefined;
   const fields = ['url', 'title', 'author', 'description', 'captureMarkdown', 'enrichAfterCopy'];
   if (!tokenCapture) fields.push('previewMarkdown');
   const input = parseObject(await readJson(request, tokenCapture ? undefined : MAX_COPY_ENVELOPE_BYTES), fields, ['url']);
@@ -225,12 +229,17 @@ async function createArticle(request: Request, env: Env, tokenCapture = false, c
   const title = suppliedTitle || fallbackTitle;
   const author = input.author === undefined ? undefined : optionalMetadata(input.author, 'author', 200);
   const description = input.description === undefined ? undefined : optionalMetadata(input.description, 'description', 500);
-  const result = await saveArticle(env.DB, {
+  const { extractionQueued, ...result } = await saveArticle(env.DB, {
     ...normalized, title, author: author ?? undefined, description: description ?? undefined, copy, extractionRequested, enrichmentRequested: enrichmentEnabled(env), enrichAfterCopy: input.enrichAfterCopy === true,
-    titleOrigin: suppliedTitle ? 'supplied' : 'fallback',
+    captureTokenId, titleOrigin: suppliedTitle ? 'supplied' : 'fallback',
   });
-  if (extractionRequested) await scheduleExtraction(env, result.article.id, ctx);
+  if (extractionRequested && (!tokenCapture || extractionQueued)) await scheduleExtraction(env, result.article.id, ctx);
   if (!result.duplicate || copy) await scheduleEnrichment(env, result.article.id, ctx);
+  if (copy) {
+    const fit = refreshPodcastFit(env, result.article.id);
+    if (ctx) ctx.waitUntil(fit);
+    else await fit;
+  }
   // Capture tokens can confirm that work was accepted, but cannot learn
   // whether a URL already exists or inspect any stored article metadata.
   if (tokenCapture) return jsonResponse({ ok: true, extractionRequested });
@@ -243,8 +252,11 @@ async function capture(request: Request, env: Env, ctx?: ExecutionContext): Prom
   try { auth = await validateCaptureToken(request, env); } catch (error) { return exceptionResponse(error, 'articles.capture_auth', storageError); }
   if (isResponse(auth)) return auth;
   try {
-    return await createArticle(request, env, true, ctx);
+    return await createArticle(request, env, auth.id, ctx);
   } catch (error) {
+    if (error instanceof CaptureExtractionQuotaError) {
+      return fail(429, 'capture_queue_full', 'Device capture is full. Try again later or save the link without background capture.');
+    }
     return exceptionResponse(error, 'articles.capture', storageError);
   }
 }

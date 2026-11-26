@@ -11,7 +11,7 @@ function capture(potemOrigin: string): void {
   const random = new Uint8Array(16);
   crypto.getRandomValues(random);
   const channel = Array.from(random, (byte) => byte.toString(16).padStart(2, "0")).join("");
-  const app = window.open(`${potemOrigin}/add?url=${encodeURIComponent(sourceUrl)}&title=${encodeURIComponent(sourceTitle)}&capture=${channel}`, `potem-${channel}`);
+  const app = window.open(`${potemOrigin}/add?capture=${channel}`, `potem-${channel}`);
   if (!app) {
     alert("Potem could not open. Allow popups for this page, then try again.");
     return;

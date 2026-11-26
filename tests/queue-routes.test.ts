@@ -3,7 +3,7 @@ import { createExecutionContext, waitOnExecutionContext, createMessageBatch, get
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import type { Env } from '../src/contracts';
 import worker from '../src/worker';
-import { digest } from '../src/auth/core';
+import { claimExtractionJob, completeExtractionJob } from '../src/articles/jobs';
 import { recoverExtractionJobs } from '../src/articles/processor';
 import { saveArticleCopy } from '../src/articles/repository';
 import { extractionQueueStub } from './extraction-queue-fixture';
@@ -40,6 +40,12 @@ async function post(bindings: Env, path: string, body: unknown) {
   const response = await worker.fetch(request(path, body), bindings, ctx);
   await waitOnExecutionContext(ctx);
   return { response, data: await response.json() as { article: { id: string }; extraction: { state: string } } };
+}
+
+async function createCaptureToken(bindings: Env) {
+  const response = await worker.fetch(request('/api/capture-tokens', { label: 'Phone' }), bindings);
+  expect(response.status).toBe(201);
+  return { data: await response.json() as { id: string; token: string } };
 }
 
 beforeEach(async () => {
@@ -124,12 +130,12 @@ describe('HTTP extraction publication', () => {
 
   it('publishes capture-token saves without exposing article identity or adding token permissions', async () => {
     const { bindings, queue } = setup();
-    await env.DB.prepare('INSERT INTO capture_tokens(id,token_hash,label,created_at) VALUES(?,?,?,?)')
-      .bind('phone', await digest('t'.repeat(43)), 'Phone', new Date().toISOString()).run();
+    const { data: credential } = await createCaptureToken(bindings);
+    const token = credential.token;
     const capture = async (captureMarkdown?: boolean) => {
       const ctx = createExecutionContext();
       const response = await worker.fetch(new Request(origin + '/api/capture', {
-        method: 'POST', headers: { Authorization: `Bearer ${'t'.repeat(43)}`, 'Content-Type': 'application/json' },
+        method: 'POST', headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' },
         body: JSON.stringify({ url: 'https://example.com/phone', captureMarkdown }),
       }), bindings, ctx);
       await waitOnExecutionContext(ctx);
@@ -143,8 +149,47 @@ describe('HTTP extraction publication', () => {
     await capture(false);
     expect(queue.messages).toHaveLength(1);
     const forbidden = await worker.fetch(new Request(origin + `/api/articles/${queue.messages[0].body.articleId}/extraction/retry`, {
-      method: 'POST', headers: { Authorization: `Bearer ${'t'.repeat(43)}`, 'Content-Type': 'application/json' }, body: '{}',
+      method: 'POST', headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' }, body: '{}',
     }), { ...bindings, APP_ORIGIN: 'https://service.example', DEV_AUTH_BYPASS: undefined });
     expect(forbidden.status).toBe(401);
   });
+
+  it('limits concurrent device work, preserves owner capacity and cancels revoked jobs', async () => {
+    const { bindings, queue } = setup();
+    const { data: device } = await createCaptureToken(bindings);
+    const capture = (name: string, captureMarkdown = true) => worker.fetch(new Request(origin + '/api/capture', {
+      method: 'POST',
+      headers: { Authorization: `Bearer ${device.token}`, 'Content-Type': 'application/json' },
+      body: JSON.stringify({ url: `https://example.com/${name}`, captureMarkdown }),
+    }), bindings);
+    const responses = await Promise.all(Array.from({ length: 12 }, (_, index) => capture(`device-${index}`)));
+    expect(responses.filter(response => response.status === 200)).toHaveLength(10);
+    expect(responses.filter(response => response.status === 429)).toHaveLength(2);
+    expect(await env.DB.prepare('SELECT count(*) AS n FROM article_extraction_jobs WHERE capture_token_id=?')
+      .bind(device.id).first()).toEqual({ n: 10 });
+    expect((await capture('quick-link', false)).status).toBe(200);
+    const owner = await post(bindings, '/api/articles', { url: 'https://example.com/owner', captureMarkdown: true });
+    expect(owner.response.status).toBe(201);
+    expect(owner.data.extraction.state).toBe('queued');
+    const queued = await env.DB.prepare('SELECT article_id FROM article_extraction_jobs WHERE capture_token_id=? LIMIT 1')
+      .bind(device.id).first<{ article_id: string }>();
+    const running = await claimExtractionJob(env.DB, undefined, {
+      version: 1, articleId: queued!.article_id, generation: 1,
+    });
+    expect(running).not.toBeNull();
+    const revoked = await worker.fetch(new Request(origin + `/api/capture-tokens/${device.id}`, {
+      method: 'DELETE', headers: { Origin: origin, 'X-CSRF-Token': 'dev-bypass' },
+    }), bindings);
+    expect(revoked.status).toBe(204);
+    expect(await env.DB.prepare("SELECT count(*) AS n FROM article_extraction_jobs WHERE capture_token_id=? AND state='failed' AND generation=2")
+      .bind(device.id).first()).toEqual({ n: 10 });
+    expect((await capture('after-revoke')).status).toBe(401);
+    expect(await completeExtractionJob(env.DB, running!, {
+      markdown: 'A benign, stale conversion result.', metadata: {},
+    })).toBe(false);
+    const beforeRecovery = queue.messages.length;
+    await recoverExtractionJobs(bindings);
+    expect(queue.messages.slice(beforeRecovery).map(entry => entry.body.articleId)).toEqual([owner.data.article.id]);
+  });
+
 });

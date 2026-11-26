@@ -25,7 +25,8 @@ export async function requestRecapture(
       next_attempt_at = excluded.next_attempt_at, updated_at = excluded.updated_at,
       lease_token = NULL, lease_expires_at = NULL, error_code = NULL, finished_at = NULL,
       kind = 'recapture', expected_revision = excluded.expected_revision,
-      refresh_metadata = excluded.refresh_metadata, baseline_metadata = excluded.baseline_metadata
+      refresh_metadata = excluded.refresh_metadata, baseline_metadata = excluded.baseline_metadata,
+      capture_token_id = NULL, recovery_published_at = NULL
     WHERE article_extraction_jobs.state IN ('succeeded','failed') AND article_extraction_jobs.updated_at <= ?
     RETURNING generation`)
     .bind(now, now, now, expectedRevision, refreshMetadata ? 1 : 0, id, expectedRevision, cutoff).first();

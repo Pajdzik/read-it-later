@@ -42,6 +42,56 @@ function isAudioPath(pathname: string): boolean {
     || pathname === '/api/podcast/token';
 }
 
+async function readShareHandoff(request: Request): Promise<Record<string, string>> {
+  const maxBytes = 16 * 1024;
+  const contentType = (request.headers.get('content-type') || '').split(';', 1)[0].trim().toLowerCase();
+  if (contentType !== 'application/x-www-form-urlencoded') {
+    throw new Error('unsupported_share_encoding');
+  }
+  const declared = request.headers.get('content-length');
+  if (declared && (!/^\d+$/.test(declared) || Number(declared) > maxBytes)) throw new Error('share_body_too_large');
+  const reader = request.body?.getReader();
+  const chunks: Uint8Array[] = [];
+  let total = 0;
+  if (reader) {
+    while (true) {
+      const { done, value } = await reader.read();
+      if (done) break;
+      total += value.byteLength;
+      if (total > maxBytes) {
+        await reader.cancel();
+        throw new Error('share_body_too_large');
+      }
+      chunks.push(value);
+    }
+  }
+  const bytes = new Uint8Array(total);
+  let offset = 0;
+  for (const chunk of chunks) { bytes.set(chunk, offset); offset += chunk.byteLength; }
+  let decoded: string;
+  try { decoded = new TextDecoder('utf-8', { fatal: true }).decode(bytes); }
+  catch { throw new Error('invalid_share_body'); }
+  const form = new URLSearchParams(decoded);
+  const result: Record<string, string> = {};
+  for (const name of ['title', 'text', 'url']) {
+    const value = form.get(name);
+    if (value !== null) result[name] = value;
+  }
+  if (Object.values(result).some(value => value.length > 8192) || (result.title?.length ?? 0) > 500) {
+    throw new Error('share_field_too_large');
+  }
+  return result;
+}
+
+function withShareHandoff(response: Response, handoff: Record<string, string>): Response {
+  const json = JSON.stringify(handoff).replaceAll('<', '\\u003c').replaceAll('>', '\\u003e').replaceAll('&', '\\u0026');
+  return new HTMLRewriter().on('body', {
+    element(element) {
+      element.append(`<script id="share-handoff" type="application/json">${json}</script>`, { html: true });
+    },
+  }).transform(response);
+}
+
 export default {
   async queue(batch: MessageBatch<unknown>, env: Env): Promise<void> {
     if (batch.queue.startsWith('read-it-later-audio-')) await consumeAudioBatch(batch, env);
@@ -58,6 +108,22 @@ export default {
   },
   async fetch(request: Request, env: Env, ctx?: ExecutionContext): Promise<Response> {
     const url = new URL(request.url);
+    if (url.pathname === '/add' && request.method === 'POST') {
+      let handoff: Record<string, string>;
+      try {
+        handoff = await readShareHandoff(request);
+      } catch (error) {
+        const code = error instanceof Error ? error.message : 'invalid_share_body';
+        const status = code === 'share_body_too_large' || code === 'share_field_too_large' ? 413 : 400;
+        return withSecurityHeaders(Response.json({ error: code }, { status, headers: { 'Cache-Control': 'private, no-store' } }));
+      }
+      const asset = await env.ASSETS.fetch(new Request(new URL('/add', url), { headers: { Accept: 'text/html' } }));
+      if (!asset.ok || !(asset.headers.get('Content-Type') || '').includes('text/html')) return withSecurityHeaders(asset);
+      const response = withShareHandoff(asset, handoff);
+      response.headers.set('Cache-Control', 'private, no-store');
+      response.headers.set('Referrer-Policy', 'no-referrer');
+      return withSecurityHeaders(response);
+    }
     if (url.pathname === "/healthz") {
       return withSecurityHeaders(Response.json({ ok: true }, { headers: { "Cache-Control": "public, max-age=30" } }));
     }

@@ -886,6 +886,7 @@ function extractionFailureMessage(code: string | null | undefined) {
     case "conversion_failed": return "The source page could not be converted to Markdown.";
     case "storage_failed":
     case "copy_unavailable": return "The Markdown copy could not be saved.";
+    case "capture_token_revoked": return "Capture was canceled when the device token was revoked. Retry capture to create a new job.";
     default: return "Markdown capture failed.";
   }
 }
@@ -4422,6 +4423,18 @@ $("#clear-search").addEventListener("click", () => {
   searchInput.dispatchEvent(new Event("input", { bubbles: true }));
   searchToggle.focus({ preventScroll: true });
 });
+function clearPrivateCaptureStorage() {
+  for (const key of [
+    pendingReaderStorageKey,
+    "later-browser-capture-draft",
+    "later-extension-capture",
+    "later-extension-request",
+    "later-extension-connect-request",
+    "later-add-draft",
+  ]) {
+    try { sessionStorage.removeItem(key); } catch {}
+  }
+}
 $("#more").addEventListener("click", () => load(false));
 $("#logout").addEventListener("click", async () => {
   feedLoadGeneration++;
@@ -4446,13 +4459,12 @@ $("#logout").addEventListener("click", async () => {
   copyDrafts.clear();
   browserCaptureDraft = null;
   clearLastOpened();
-  try { sessionStorage.removeItem(pendingReaderStorageKey); } catch {}
-  sessionStorage.removeItem("later-browser-capture-draft");
-  sessionStorage.removeItem("later-add-draft");
+  clearPrivateCaptureStorage();
   discardPrivateContent();
   try {
     await request("/auth/logout", { method: "POST" });
     copyDrafts.clear();
+    clearPrivateCaptureStorage();
     history.replaceState(listHistoryState(), "", "/");
     setListTitle();
     location.assign("/");
@@ -4782,21 +4794,38 @@ $<HTMLInputElement>('#import-archive-file').addEventListener('change', async eve
   finally { button.disabled = false; input.value = ''; }
 });
 const params = new URLSearchParams(location.search);
+let shareHandoff: { title?: string; text?: string; url?: string } | null = null;
+const sharePayload = document.querySelector<HTMLScriptElement>("#share-handoff");
+if (sharePayload) {
+  const navigation = performance.getEntriesByType("navigation")[0] as PerformanceNavigationTiming | undefined;
+  // WebKit can replay the original POST when reloading this page. Resume any
+  // unfinished review from the saved draft instead of processing the body again.
+  if (history.state?.shareHandoffAccepted !== true && navigation?.type !== "reload" && navigation?.type !== "back_forward") {
+    try {
+      const parsed = JSON.parse(sharePayload.textContent || "null");
+      if (parsed && typeof parsed === "object" && !Array.isArray(parsed)) shareHandoff = parsed;
+    } catch {}
+  }
+  sharePayload.remove();
+}
 if (
   location.pathname === "/add" &&
-  (params.has("url") || params.has("title") || params.has("text"))
+  (params.has("url") || params.has("title") || params.has("text") || shareHandoff)
 ) {
+  const sharedTitle = typeof shareHandoff?.title === "string" ? shareHandoff.title : params.get("title") || "";
+  const sharedText = typeof shareHandoff?.text === "string" ? shareHandoff.text : params.get("text") || "";
+  const sharedUrl = typeof shareHandoff?.url === "string" ? shareHandoff.url : params.get("url") || "";
   const candidates =
-    (params.get("text") || "").match(/https?:\/\/[^\s]+/gi) || [];
+    sharedText.match(/https?:\/\/[^\s]+/gi) || [];
   const url =
-    params.get("url") || (candidates.length === 1 ? candidates[0] : "");
+    sharedUrl || (candidates.length === 1 ? candidates[0] : "");
   $<HTMLInputElement>("#add-url").value = url;
-  $<HTMLInputElement>("#add-title").value = params.get("title") || "";
+  $<HTMLInputElement>("#add-title").value = sharedTitle;
   sessionStorage.setItem(
     "later-add-draft",
     JSON.stringify({ url, title: $<HTMLInputElement>("#add-title").value }),
   );
-  history.replaceState({}, "", "/add");
+  history.replaceState(shareHandoff ? { shareHandoffAccepted: true } : {}, "", "/add");
   const addNotice = $("#add-notice");
   addNotice.textContent = url
     ? "Link prefilled. Review and choose Save link."
@@ -4807,24 +4836,28 @@ if (
     showDialog($<HTMLDialogElement>("#add-dialog"), $<HTMLInputElement>("#add-url"));
 }
 const captureChannel = params.get("capture");
-if (location.pathname === "/add" && captureChannel) {
+if (location.pathname === "/add" && captureChannel && /^[a-f0-9]{32}$/.test(captureChannel)) {
   // This flow saves the source tab's reviewed clip (or just its link on failure).
   // Do not silently replace a blocked bookmarklet with a different server capture.
   $("#add-url-copy-option").hidden = true;
   $<HTMLInputElement>("#add-capture-markdown").checked = false;
-  let sourceOrigin = "";
-  try { sourceOrigin = new URL(params.get("url") || "").origin; } catch {}
+  if (!$<HTMLDialogElement>("#add-dialog").open)
+    showDialog($<HTMLDialogElement>("#add-dialog"), $<HTMLInputElement>("#add-url"));
   history.replaceState({}, "", "/add");
   let channel: string | null = captureChannel;
   const onCapture = (event: MessageEvent) => {
-    if (!channel || !sourceOrigin || event.source !== window.opener || event.origin !== sourceOrigin || event.data?.type !== "potem-capture" || event.data.channel !== channel) return;
+    if (!channel || event.source !== window.opener || event.data?.type !== "potem-capture" || event.data.channel !== channel) return;
     let sourceUrl: URL;
     try { sourceUrl = new URL(event.data.sourceUrl); } catch { return; }
-    if ((sourceUrl.protocol !== "http:" && sourceUrl.protocol !== "https:") || sourceUrl.origin !== event.origin || sourceUrl.href !== $<HTMLInputElement>("#add-url").value.trim()) return;
+    if ((sourceUrl.protocol !== "http:" && sourceUrl.protocol !== "https:") || sourceUrl.username || sourceUrl.password || sourceUrl.origin !== event.origin) return;
+    const currentUrl = $<HTMLInputElement>("#add-url").value.trim();
+    if (currentUrl && currentUrl !== sourceUrl.href) return;
+    $<HTMLInputElement>("#add-url").value = sourceUrl.href;
     const markdown = typeof event.data.markdown === "string" ? event.data.markdown : "";
     const bytes = new TextEncoder().encode(markdown).byteLength;
     const invalidCopy = Boolean(markdown && (bytes > 262144 || !markdown.trim()));
     const title = typeof event.data.sourceTitle === "string" ? event.data.sourceTitle.slice(0, 500) : "";
+    $<HTMLInputElement>("#add-title").value = title;
     channel = null;
     removeEventListener("message", onCapture);
     window.opener = null;
@@ -4835,6 +4868,7 @@ if (location.pathname === "/add" && captureChannel) {
       stashDraft();
       restoreBrowserCaptureDraft();
     } else {
+      stashDraft();
       const error = invalidCopy ? "The captured Markdown is empty or exceeds 256 KiB." : typeof event.data.error === "string" ? event.data.error.slice(0, 500) : "Article extraction failed.";
       const notice = $("#add-notice");
       notice.textContent = `The link is ready. ${error} Save the link, then use the Markdown paste fallback in article details if needed.`;
@@ -4843,7 +4877,7 @@ if (location.pathname === "/add" && captureChannel) {
     }
   };
   addEventListener("message", onCapture);
-  if (window.opener && sourceOrigin) window.opener.postMessage({ type: "potem-ready", channel: captureChannel }, sourceOrigin);
+  if (window.opener) window.opener.postMessage({ type: "potem-ready", channel: captureChannel }, "*");
 }
 if ("serviceWorker" in navigator)
   addEventListener("load", () =>

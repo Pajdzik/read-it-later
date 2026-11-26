@@ -12,14 +12,14 @@ If the source blocks access, requires JavaScript/login, is neither HTML nor PDF,
 
 1. Sign in to Potem and open **Capture help** (or `/capture.html`).
 2. Drag **Save to Potem** into the browser bookmarks bar.
-3. On an article page, activate that bookmark. It opens `/add` with the current page URL and title prefilled, then extracts the visible document to an editable Markdown draft in the Potem tab.
+3. On an article page, activate that bookmark. It opens Potem with a one-use channel in the navigation URL, then sends the current page URL and title through an origin-checked `postMessage` while extracting the visible document to an editable Markdown draft in the Potem tab.
 4. Review the URL, title, and Markdown, then press **Save link**. The bookmarklet explicitly saves link-only first, then saves the reviewed browser Markdown through the existing copy endpoint. Existing copies are protected from replacement. If copy saving fails, the link stays saved and the draft remains available; retry or save link-only.
 
 To send the saved copy elsewhere, choose a destination and check **Also send to an integration** before **Save link**. This starts unchecked. Potem saves the local Markdown first; only a successful copy save can be sent. GitHub is one optional integration; other hooks can handle destinations such as a Kindle delivery service. Review the destination and disclosure before sending. If delivery fails, **Retry sending saved copy** retries the same saved revision and destination without another local copy write. **Done** leaves the copy in Potem, and article details offer later delivery. A changed copy or destination requires a fresh review. See [optional integrations](integrations.md) for configuration and the hook contract.
 
-If you installed the older link-only bookmarklet, replace it by dragging the current **Save to Potem** link from Capture help into your bookmarks bar after deployment.
+After deploying this handoff change, replace any installed bookmarklet by dragging the current **Save to Potem** link from Capture help into your bookmarks bar. Older copies put the source URL and title in the Potem navigation query and cannot be updated automatically.
 
-Potem uses a bundled, pinned version of Defuddle in the source page. Extraction stays in your browser; content is sent only to your Potem tab over a one-use, origin-checked message and is never placed in a URL. Extraction disables Defuddle's async third-party fallback. The source page's CSP may block the script, or its opener policy may block the handoff. In either case the URL/title prefill remains when the browser permits the Potem tab to open; use the Markdown paste fallback from article details. Shared URLs and the one-time handoff channel are removed from the address bar after the app stores the link draft.
+Potem uses a bundled, pinned version of Defuddle in the source page. Extraction stays in your browser; source URL, title, and Markdown are sent only to your Potem tab over the one-use, origin-checked message. Only the random channel appears in the navigation URL. Extraction disables Defuddle's async third-party fallback. The source page's CSP may block the script, or its opener policy may block the handoff; use the Markdown paste fallback from article details. The channel is removed from the address bar after the app opens.
 
 ## iOS Shortcut
 
@@ -36,7 +36,9 @@ Replace the origin with the deployed Potem origin and token with the one-time va
 
 ## PWA sharing
 
-On a browser that supports Web Share Target, install Potem using the browser’s install command. Sharing an article to the installed app opens `/add` with the URL/title/text for review. If shared text contains several links and no URL field identifies the intended one, paste the desired link into the form. Support varies by browser; iOS users should use the Shortcut or paste fallback.
+On a browser that supports Web Share Target, install Potem using the browser’s install command. Sharing an article to the installed app sends URL/title/text in a POST body to `/add` for review; Potem does not redirect those fields into the address bar. If shared text contains several links and no URL field identifies the intended one, paste the desired link into the form. After deploying a manifest change, refresh or reinstall the PWA so it uses the POST share target. Support varies by browser; iOS users should use the Shortcut or paste fallback.
+
+An intentional sign-in from a draft keeps its handoff through the login flow and reload. Explicit sign-out clears browser capture drafts and extension review/conflict snapshots from session storage.
 
 Potem’s service worker caches only versioned public app assets. It does not cache account pages, article data, or API responses, and it does not support offline saves.
 

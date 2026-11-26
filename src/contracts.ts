@@ -47,6 +47,8 @@ export interface Env extends Pick<WorkerBindings, "DB" | "ASSETS">, Partial<Pick
   AUDIO_FREE_CHARACTERS?: string;
   GOOGLE_TTS_PROJECT_ID?: string;
   GOOGLE_TTS_SERVICE_ACCOUNT_JSON?: string;
+  OAUTH_CLIENT_RATE_LIMITER?: RateLimit;
+  OAUTH_GLOBAL_RATE_LIMITER?: RateLimit;
 }
 
 export interface ExtractionStatus {
